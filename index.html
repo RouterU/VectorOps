@@ -160,7 +160,7 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
 .manifest-stat .val{font-family:'DM Mono',monospace;font-size:15px;color:var(--text1);font-weight:600;}
 .manifest-stat .lbl{font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.4px;margin-top:2px;}
 .manifest-route-list{border:1px solid var(--border);border-radius:10px;background:var(--bg2);max-height:62vh;overflow:auto;}
-.manifest-row{display:grid;grid-template-columns:60px 420px 150px 90px 110px 90px 95px 95px 90px 95px 95px 190px;gap:10px;align-items:center;padding:9px 12px;border-bottom:1px solid var(--border);font-size:11px;min-width:1760px;}
+.manifest-row{display:grid;grid-template-columns:60px 420px 150px 90px 110px 90px 95px 95px 90px 95px 95px 80px 220px 120px;gap:10px;align-items:center;padding:9px 12px;border-bottom:1px solid var(--border);font-size:11px;min-width:2050px;}
 .manifest-row:last-child{border-bottom:none;}
 .manifest-row.header{background:var(--bg3);color:var(--text3);font-size:9px;text-transform:uppercase;letter-spacing:.5px;font-weight:700;position:sticky;top:0;z-index:2;}
 .manifest-row.stop{cursor:grab;}
@@ -168,6 +168,12 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
 .manifest-row.dragging{opacity:.35;}
 .manifest-row.drag-over{box-shadow:inset 0 0 0 2px var(--accent);background:rgba(79,140,255,.16);}
 .manifest-row.depot{background:rgba(167,139,250,.09);color:var(--text2);cursor:default;}
+.manifest-row.tw-violation{background:rgba(239,68,68,.22);box-shadow:inset 4px 0 0 var(--danger);}
+.manifest-row.tw-violation .manifest-name{color:#fecaca;}
+.tw-badge{display:inline-block;padding:2px 6px;border-radius:4px;font-size:9px;font-weight:700;}
+.tw-ok{background:rgba(62,207,142,.16);color:var(--success);}
+.tw-wait{background:rgba(245,158,11,.16);color:var(--warn);}
+.tw-late{background:rgba(239,68,68,.20);color:#fecaca;}
 .manifest-seq{font-family:'DM Mono',monospace;color:var(--text3);}
 .manifest-customer{min-width:0;}
 .manifest-name{font-weight:600;color:var(--text1);white-space:normal;overflow:visible;text-overflow:clip;line-height:1.25;}
@@ -608,15 +614,35 @@ function routeDistanceMiles(routeId){
   for(let i=1;i<pts.length;i++)miles+=haversine(pts[i-1].lat,pts[i-1].lng,pts[i].lat,pts[i].lng);
   return miles;
 }
+function durationToMinutes(value){
+  const n=parseFloat(value);
+  if(!isFinite(n))return 0;
+  // Route Planner duration fields often import as seconds, e.g. 1200 = 20 minutes.
+  // Smaller hand-entered values are treated as minutes.
+  return n>300?n/60:n;
+}
+function windowStatusForStop(stop, arrive){
+  if(!stop)return {status:'',label:'',waitMins:0,adjustedArrive:arrive};
+  const early=timeToMinutes(stop.earliestTimeWindow);
+  const late=timeToMinutes(stop.latestTimeWindow);
+  let adjusted=arrive, wait=0, status='OK', label='On Time';
+  if(early!==null && adjusted<early){
+    wait=early-adjusted;
+    adjusted=early;
+    status='WAIT';
+    label='Wait '+fmtMinutes(wait);
+  }
+  if(late!==null && adjusted>late){
+    status='LATE';
+    label='Outside Window';
+  }
+  if(early===null && late===null){status=''; label='No Window';}
+  return {status,label,waitMins:wait,adjustedArrive:adjusted};
+}
 function routeTotalMinutes(routeId){
-  const route=routes.find(r=>r.id===routeId);
-  if(!route)return 0;
-  const rs=stops.filter(s=>s.routeId===routeId);
-  // Total Time = Travel Time + Order Service Time + Startup Time + Windup Time
-  // Order Service Time = 5 minutes per stop + Cases x .03 seconds
-  const service=rs.reduce((a,s)=>a+5+((tCases(s)*0.03)/60),0);
-  const travel=driveMinutesForMiles(routeDistanceMiles(routeId));
-  return (parseFloat(route.startupTime)||0)+(parseFloat(route.windupTime)||0)+service+travel;
+  const rows=routeTimelineRows(routeId);
+  if(!rows.length)return 0;
+  return rows[rows.length-1].depart-rows[0].arrive;
 }
 function fmtMinutes(mins){
   if(!isFinite(mins)||mins<=0)return '0m';
@@ -625,7 +651,7 @@ function fmtMinutes(mins){
 }
 function fmtTiming(r){
   const p=[];
-  if(r.startupTime) p.push('+'+r.startupTime+'min startup');
+  if(r.startupTime) p.push('+'+Math.round(durationToMinutes(r.startupTime))+'min startup');
   if(r.earliestStartTime) p.push('Est:'+excelTimeToHHMM(r.earliestStartTime));
   if(r.latestEndTime) p.push('End by:'+excelTimeToHHMM(r.latestEndTime));
   return p.join(' · ')||'No time set';
@@ -675,22 +701,34 @@ function routeTimelineRows(routeId){
   if(!route||!pts.length)return [];
   let cursor=timeToMinutes(routeStartTime(route));
   if(cursor===null)cursor=0;
-  const startup=parseFloat(route.startupTime)||0;
-  const windup=parseFloat(route.windupTime)||0;
+  const startup=durationToMinutes(route.startupTime);
+  const windup=durationToMinutes(route.windupTime);
   const rows=[];
   pts.forEach((pt,i)=>{
-    let legMiles=0, driveMins=0, arrive=cursor, depart=cursor;
+    let legMiles=0, driveMins=0, rawArrive=cursor, arrive=cursor, depart=cursor;
+    let waitMins=0, twStatus='', twLabel='';
     if(i===0){
       depart=cursor+startup;
+      twLabel='Depot';
     }else{
       const prev=pts[i-1];
       legMiles=haversine(prev.lat,prev.lng,pt.lat,pt.lng);
       driveMins=driveMinutesForMiles(legMiles);
-      arrive=cursor+driveMins;
-      if(pt.type==='stop') depart=arrive+stopServiceMinutes(pt.stop);
-      else depart=pt.type==='depot-end'?arrive+windup:arrive;
+      rawArrive=cursor+driveMins;
+      arrive=rawArrive;
+      if(pt.type==='stop'){
+        const tw=windowStatusForStop(pt.stop, rawArrive);
+        arrive=tw.adjustedArrive;
+        waitMins=tw.waitMins;
+        twStatus=tw.status;
+        twLabel=tw.label;
+        depart=arrive+stopServiceMinutes(pt.stop);
+      } else {
+        depart=pt.type==='depot-end'?arrive+windup:arrive;
+        twLabel='Depot';
+      }
     }
-    rows.push({...pt,legMiles,driveMins,arrive,depart,serviceMins:pt.type==='stop'?stopServiceMinutes(pt.stop):0});
+    rows.push({...pt,legMiles,driveMins,rawArrive,arrive,depart,waitMins,twStatus,twLabel,serviceMins:pt.type==='stop'?stopServiceMinutes(pt.stop):0});
     cursor=depart;
   });
   return rows;
@@ -1372,6 +1410,8 @@ function renderRouteManifest(){
     const seq=isDepot?(pt.label||'DEPOT'):(s.seq||idx);
     const name=escapeHtml(pt.name||'Stop');
     const detail=isDepot?`LocationKey: ${escapeHtml(pt.depot?.locationKey||'')}`:`${escapeHtml(s.orderNumber||'')} · ${escapeHtml(s.address||'')} ${escapeHtml(s.city||'')} ${escapeHtml(s.state||'')}`;
+    const violationClass=pt.twStatus==='LATE'?' tw-violation':'';
+    const twClass=pt.twStatus==='LATE'?'tw-late':(pt.twStatus==='WAIT'?'tw-wait':'tw-ok');
     const dragAttrs=isDepot?'':`id="manifest-stop-${s.id}" draggable="true"
       ondragstart="manifestDragStart(event,'${s.id}')"
       ondragover="manifestDragOver(event,'${s.id}')"
@@ -1380,7 +1420,7 @@ function renderRouteManifest(){
       ondragend="manifestDragEnd()"
       onclick="toggleStopFilter('${s.id}')"
       onmouseenter="highlightStop('${s.id}')" onmouseleave="clearMapHighlight()"`;
-    return `<div class="manifest-row ${isDepot?'depot':'stop'}" ${dragAttrs}>
+    return `<div class="manifest-row ${isDepot?'depot':'stop'}${violationClass}" ${dragAttrs}>
       <div class="manifest-seq">${seq}</div>
       <div class="manifest-customer"><div class="manifest-name">${name}</div><div class="manifest-detail">${detail}</div></div>
       <div>${escapeHtml(pt.city||'')} ${escapeHtml(pt.state||'')}</div>
@@ -1392,13 +1432,15 @@ function renderRouteManifest(){
       <div>${isDepot?'—':fmtMinutes(pt.serviceMins)}</div>
       <div>${minutesToHHMM(pt.arrive)}</div>
       <div>${minutesToHHMM(pt.depart)}</div>
+      <div>${isDepot?'—':(pt.waitMins?fmtMinutes(pt.waitMins):'—')}</div>
       <div>${isDepot?'Depot':`${escapeHtml(s.earliestTimeWindow||'—')} - ${escapeHtml(s.latestTimeWindow||'—')}`}</div>
+      <div>${isDepot?'—':`<span class="tw-badge ${twClass}">${escapeHtml(pt.twLabel||'')}</span>`}</div>
     </div>`;
   }).join('');
 
   document.getElementById('manifest-list').innerHTML=`
-    <div class="manifest-row header"><div>Seq</div><div>Stop / Customer</div><div>City</div><div>Cases</div><div>Weight</div><div>Cube</div><div>Leg Mi</div><div>Drive</div><div>Service</div><div>Arrive</div><div>Depart</div><div>Window</div></div>
-    ${rows || '<div class="manifest-row"><div>—</div><div>No assigned stops</div><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div></div>'}`;
+    <div class="manifest-row header"><div>Seq</div><div>Stop / Customer</div><div>City</div><div>Cases</div><div>Weight</div><div>Cube</div><div>Leg Mi</div><div>Drive</div><div>Service</div><div>Arrive</div><div>Depart</div><div>Wait</div><div>Window</div><div>Status</div></div>
+    ${rows || '<div class="manifest-row"><div>—</div><div>No assigned stops</div><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div></div>'}`;
 }
 function manifestDragStart(e,stopId){
   manifestDragStopId=stopId;
@@ -1992,11 +2034,14 @@ function exportExcel(){
       'Route Number':r.routeTemplateKey||'',
       'Route Name':r.name||'',
       'Date':r.date||document.getElementById('route-date').value||'',
-      'Earliest Start Time':r.earliestStartTime||'',
-      'Latest Start Time':r.latestStartTime||'',
-      'Latest End Time':r.latestEndTime||'',
-      'Startup Time (min)':r.startupTime||0,
-      'Windup Time (min)':r.windupTime||0,
+      'Earliest Start Time':cleanTimeValue(r.earliestStartTime)||'',
+      'Latest Start Time':cleanTimeValue(r.latestStartTime)||'',
+      'Latest End Time':cleanTimeValue(r.latestEndTime)||'',
+      'Estimated End Time':routeEndEstimate(r.id)||'',
+      'Startup Time (min)':parseFloat(durationToMinutes(r.startupTime).toFixed(2))||0,
+      'Windup Time (min)':parseFloat(durationToMinutes(r.windupTime).toFixed(2))||0,
+      'Estimated Route Time':fmtMinutes(routeTotalMinutes(r.id)),
+      'Estimated Miles':parseFloat(routeDistanceMiles(r.id).toFixed(2)),
       'Number of Stops':rs.length,
       'Total Cases':rs.reduce((a,s)=>a+tCases(s),0),
       'Total Weight':parseFloat(rs.reduce((a,s)=>a+tWeight(s),0).toFixed(2)),
@@ -2019,107 +2064,70 @@ function exportExcel(){
   // Tab 2: Route Manifest
   const manifest=[];
   routes.forEach(r=>{
-    const rs=stops.filter(s=>s.routeId===r.id).sort((a,b)=>a.seq-b.seq);
     const drv=drivers.find(d=>d.truckKey===r.truckKey||d.driverKey===r.driverKey);
     const dname=r.driverFirstName?(r.driverFirstName+' '+(r.driverLastName||'')).trim():(drv?drv.name:'');
-    const initDepot=routeInitialDepot(r);
-    const finalDepot=routeFinalDepot(r);
-    if(initDepot){
+    const timeline=routeTimelineRows(r.id);
+    timeline.forEach(pt=>{
+      const isStop=pt.type==='stop';
+      const s=isStop?pt.stop:{};
+      const d=!isStop?pt.depot:{};
       manifest.push({
         'Route Number':r.routeTemplateKey||'',
         'Route Name':r.name||'',
         'Driver Name':dname,
         'Driver Key':r.driverKey||'',
         'Truck Key':r.truckKey||'',
-        'Stop Sequence':'START',
-        'Stop Type':'Initial Depot',
-        'Customer Name':initDepot.name||'Initial Depot',
-        'ORDER_NUMBER':'',
-        'SHIP_TO_ID':initDepot.locationKey||'',
-        'CUSTOMER_NUMBER':'',
-        'Address':initDepot.shipStreet||'',
-        'Cross Street':initDepot.shipCrossStreet||'',
-        'City':initDepot.shipCity||'',
-        'State':initDepot.shipState||'',
-        'Zip':initDepot.shipZipCode||'',
-        'Country':'',
-        'Latitude':initDepot.lat||'',
-        'Longitude':initDepot.lng||'',
-      });
-    }
-    rs.forEach(s=>{
-      manifest.push({
-        'Route Number':r.routeTemplateKey||'',
-        'Route Name':r.name||'',
-        'Driver Name':dname,
-        'Driver Key':r.driverKey||'',
-        'Truck Key':r.truckKey||'',
-        'Stop Sequence':s.seq,
-        'Stop Type':'Order',
-        'Customer Name':s.customerName||'',
-        'ORDER_NUMBER':s.orderNumber||'',
-        'SHIP_TO_ID':s.shipToId||'',
-        'CUSTOMER_NUMBER':s.customerNumber||'',
-        'Address':s.address||'',
-        'Cross Street':s.crossStreet||'',
-        'City':s.city||'',
-        'State':s.state||'',
-        'Zip':s.zip||'',
-        'Country':s.country||'',
-        'Latitude':s.lat||'',
-        'Longitude':s.lng||'',
-        'Earliest Time Window':s.earliestTimeWindow||'',
-        'Latest Time Window':s.latestTimeWindow||'',
-        'Fixed Service Time':s.fixedServiceTime||0,
-        'Variable Service Time':s.variableServiceTime||0,
-        'DRY Cases':s.dryCases||0,
-        'DRY Weight':s.dryWeight||0,
-        'DRY Cube':s.dryCube||0,
-        'Cooler Cases':s.coolerCases||0,
-        'Cooler Weight':s.coolerWeight||0,
-        'Cooler Cube':s.coolerCube||0,
-        'Frozen Cases':s.frozenCases||0,
-        'Frozen Weight':s.frozenWeight||0,
-        'Frozen Cube':s.frozenCube||0,
-        'Package Cases':s.pkgCases||0,
-        'Package Weight':s.pkgWeight||0,
-        'Package Cube':s.pkgCube||0,
-        'Total Cases':tCases(s),
-        'Total Weight':parseFloat(tWeight(s).toFixed(2)),
-        'Total Cube':parseFloat(tCube(s).toFixed(2)),
-        'ORDER_TYPE':s.orderType||'',
-        'ORDER_STATUS':s.orderStatus||'',
-        'DISTRICT':s.district||'',
-        'REQ_DELIVERY_DATE':s.reqDeliveryDate||'',
-        'WILL_CALL_INDICATOR':s.willCallIndicator||'',
-        'Preferred Resource Key':s.preferredResourceKey||'',
-        'Route Sequence':s.preferredRouteSequence||'',
-        'Comment':s.comment||'',
+        'Stop Sequence':isStop?s.seq:(pt.label||''),
+        'Stop Type':isStop?'Order':(pt.type==='depot-start'?'Initial Depot':'Final Depot'),
+        'Customer Name':pt.name||'',
+        'ORDER_NUMBER':isStop?(s.orderNumber||''):'',
+        'SHIP_TO_ID':isStop?(s.shipToId||''):(d.locationKey||''),
+        'CUSTOMER_NUMBER':isStop?(s.customerNumber||''):'',
+        'Address':isStop?(s.address||''):(d.shipStreet||''),
+        'Cross Street':isStop?(s.crossStreet||''):(d.shipCrossStreet||''),
+        'City':pt.city||'',
+        'State':pt.state||'',
+        'Zip':isStop?(s.zip||''):(d.shipZipCode||''),
+        'Country':isStop?(s.country||''):'',
+        'Latitude':pt.lat||'',
+        'Longitude':pt.lng||'',
+        'Leg Miles':parseFloat((pt.legMiles||0).toFixed(2)),
+        'Estimated Drive Time':pt.driveMins?fmtMinutes(pt.driveMins):'',
+        'Estimated Arrival Time':minutesToHHMM(pt.arrive),
+        'Estimated Departure Time':minutesToHHMM(pt.depart),
+        'Estimated Wait Time':isStop&&pt.waitMins?fmtMinutes(pt.waitMins):'',
+        'Time Window Status':isStop?(pt.twLabel||''):'Depot',
+        'Outside Time Window':isStop&&pt.twStatus==='LATE'?'YES':'',
+        'Earliest Time Window':isStop?(s.earliestTimeWindow||''):'',
+        'Latest Time Window':isStop?(s.latestTimeWindow||''):'',
+        'Fixed Service Time':isStop?(s.fixedServiceTime||0):0,
+        'Variable Service Time':isStop?(s.variableServiceTime||0):0,
+        'Calculated Service Time':isStop?fmtMinutes(pt.serviceMins):'',
+        'DRY Cases':isStop?(s.dryCases||0):0,
+        'DRY Weight':isStop?(s.dryWeight||0):0,
+        'DRY Cube':isStop?(s.dryCube||0):0,
+        'Cooler Cases':isStop?(s.coolerCases||0):0,
+        'Cooler Weight':isStop?(s.coolerWeight||0):0,
+        'Cooler Cube':isStop?(s.coolerCube||0):0,
+        'Frozen Cases':isStop?(s.frozenCases||0):0,
+        'Frozen Weight':isStop?(s.frozenWeight||0):0,
+        'Frozen Cube':isStop?(s.frozenCube||0):0,
+        'Package Cases':isStop?(s.pkgCases||0):0,
+        'Package Weight':isStop?(s.pkgWeight||0):0,
+        'Package Cube':isStop?(s.pkgCube||0):0,
+        'Total Cases':isStop?tCases(s):0,
+        'Total Weight':isStop?parseFloat(tWeight(s).toFixed(2)):0,
+        'Total Cube':isStop?parseFloat(tCube(s).toFixed(2)):0,
+        'ORDER_TYPE':isStop?(s.orderType||''):'',
+        'ORDER_STATUS':isStop?(s.orderStatus||''):'',
+        'DISTRICT':isStop?(s.district||''):'',
+        'REQ_DELIVERY_DATE':isStop?(s.reqDeliveryDate||''):'',
+        'WILL_CALL_INDICATOR':isStop?(s.willCallIndicator||''):'',
+        'Preferred Resource Key':isStop?(s.preferredResourceKey||''):'',
+        'Route Sequence':isStop?(s.preferredRouteSequence||''):'',
+        'Comment':isStop?(s.comment||''):'',
       });
     });
-    if(finalDepot){
-      manifest.push({
-        'Route Number':r.routeTemplateKey||'',
-        'Route Name':r.name||'',
-        'Driver Name':dname,
-        'Driver Key':r.driverKey||'',
-        'Truck Key':r.truckKey||'',
-        'Stop Sequence':'END',
-        'Stop Type':'Final Depot',
-        'Customer Name':finalDepot.name||'Final Depot',
-        'ORDER_NUMBER':'',
-        'SHIP_TO_ID':finalDepot.locationKey||'',
-        'CUSTOMER_NUMBER':'',
-        'Address':finalDepot.shipStreet||'',
-        'Cross Street':finalDepot.shipCrossStreet||'',
-        'City':finalDepot.shipCity||'',
-        'State':finalDepot.shipState||'',
-        'Zip':finalDepot.shipZipCode||'',
-        'Country':'',
-        'Latitude':finalDepot.lat||'',
-        'Longitude':finalDepot.lng||'',
-      });
-    }
   });
   XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(manifest.length?manifest:[{Note:'No assigned stops'}]),'Route Manifest');
 
