@@ -256,6 +256,14 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
       Potential Routes
     </button>
+    <button class="btn" onclick="openOptimizationModal('selected')" title="Optimize the checked route(s), or the open route manifest route">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h6l3-9 3 18 3-9h3"/></svg>
+      Optimize Selected
+    </button>
+    <button class="btn" onclick="openOptimizationModal('maximize')" title="Try to consolidate stops into fuller routes while respecting constraints">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19V5"/><path d="M4 19h16"/><path d="M8 16l3-3 2 2 5-7"/></svg>
+      Maximize Routes
+    </button>
     <button class="btn success" onclick="exportExcel()">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
       Export
@@ -486,6 +494,28 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
   </div>
 </div>
 
+<!-- Optimization Options Modal -->
+<div id="optimization-modal" style="display:none" class="modal-overlay">
+  <div class="modal">
+    <h2 id="optimization-title">Optimization Options</h2>
+    <div class="job-result" id="optimization-description">Choose the constraints to respect while optimizing.</div>
+    <div style="margin-top:12px;display:grid;gap:10px;">
+      <label style="display:flex;gap:8px;align-items:flex-start;font-size:12px;color:var(--text1);cursor:pointer;">
+        <input type="checkbox" id="opt-respect-resource" checked style="margin-top:2px;accent-color:var(--accent);"/>
+        <span><strong>Respect Preferred Resources</strong><br/><span style="color:var(--text2);font-size:10px;">Only move/keep stops on routes where the first 4 digits of Preferred Resource Key match the route UDFNumber1.</span></span>
+      </label>
+      <label style="display:flex;gap:8px;align-items:flex-start;font-size:12px;color:var(--text1);cursor:pointer;">
+        <input type="checkbox" id="opt-respect-position" checked style="margin-top:2px;accent-color:var(--accent);"/>
+        <span><strong>Respect Preferred Route Position</strong><br/><span style="color:var(--text2);font-size:10px;">Stops with Route Sequence / preferred position stay locked to that sequence as much as possible.</span></span>
+      </label>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal('optimization-modal')">Cancel</button>
+      <button class="btn primary" onclick="runOptimizationFromModal()">Run Optimization</button>
+    </div>
+  </div>
+</div>
+
 <script>
 // ============================================================
 // STATE
@@ -496,6 +526,7 @@ let mapCleared=false;
 const visibleStopIds=new Set();
 const visibleRouteIds=new Set();
 let activeManifestRouteId=null, manifestDragStopId=null;
+let pendingOptimizationMode='selected';
 let appTab='routing', importMode='all', pendingWB=null;
 let dragState=null, map, markers={}, polylines={}, expanded=new Set();
 let contextStopId=null;
@@ -1602,6 +1633,195 @@ function assignToPotentialRoutes(){
     <strong>${assigned}</strong> suggested stop(s) assigned to their potential route<br/>
     <strong>${resequencedRoutes}</strong> route(s) resequenced using nearest-distance order<br/><br/>
     The route sequence was rebuilt after assignment to reduce drive miles based on the available geocodes.
+  `);
+}
+
+
+// ============================================================
+// OPTIMIZATION
+// ============================================================
+function openOptimizationModal(mode){
+  pendingOptimizationMode=mode;
+  const title=mode==='maximize'?'Maximize / Consolidate Routes':'Optimize Selected Route(s)';
+  const desc=mode==='maximize'
+    ? 'This will try to move eligible stops from lighter routes into fuller routes, then resequence affected routes. It prefers using fewer routes while respecting route time, capacity, depot, and selected preference rules.'
+    : 'This will resequence the checked route(s), or the current open manifest route, using depot-to-stop distance, time windows, service time, startup/windup time, and selected preference rules.';
+  document.getElementById('optimization-title').textContent=title;
+  document.getElementById('optimization-description').textContent=desc;
+  document.getElementById('optimization-modal').style.display='flex';
+}
+
+function runOptimizationFromModal(){
+  const opts={
+    respectResource:document.getElementById('opt-respect-resource')?.checked===true,
+    respectPosition:document.getElementById('opt-respect-position')?.checked===true,
+  };
+  closeModal('optimization-modal');
+  if(pendingOptimizationMode==='maximize') maximizeRoutes(opts);
+  else optimizeSelectedRoutes(opts);
+}
+
+function preferredResourceMatchesRoute(stop,route){
+  const pref4=first4Digits(stop?.preferredResourceKey||'');
+  if(!pref4)return true;
+  return first4Digits(route?.udfNumber1||'')===pref4;
+}
+function preferredPosition(stop){
+  const raw=stop?.preferredRouteSequence||stop?.routeSequence||'';
+  const n=parseInt(raw,10);
+  return Number.isFinite(n)&&n>0?n:0;
+}
+function getSelectedRouteIdsForOptimization(){
+  const checked=routes.filter(r=>r.selected).map(r=>r.id);
+  if(checked.length)return checked;
+  if(activeManifestRouteId)return [activeManifestRouteId];
+  const visible=routes.filter(routeMatchesFilter).map(r=>r.id);
+  return visible.length===1?visible:[];
+}
+function optimizeSelectedRoutes(opts){
+  const routeIds=getSelectedRouteIdsForOptimization();
+  if(!routeIds.length){showToast('Select one or more route checkboxes first, or open a route manifest.');return;}
+  let optimized=0, locked=0, warnings=[];
+  routeIds.forEach(routeId=>{
+    const result=optimizeRouteSequence(routeId,opts);
+    if(result.ok)optimized++;
+    locked+=result.locked||0;
+    if(!result.ok)warnings.push(result.message);
+  });
+  render();
+  showJob('&#9889; Optimize Selected Route(s)',`
+    <strong>${optimized}</strong> route(s) optimized<br/>
+    <strong>${locked}</strong> stop(s) locked because of selected preferred-resource or preferred-position rules<br/>
+    ${warnings.length?`<br/><strong>Warnings:</strong><br/>${warnings.map(w=>'&bull; '+escapeHtml(w)).join('<br/>')}`:''}
+  `);
+}
+function optimizeRouteSequence(routeId,opts={}){
+  const route=routes.find(r=>r.id===routeId);
+  if(!route)return {ok:false,message:'Route not found',locked:0};
+  const routeStops=stops.filter(s=>s.routeId===routeId&&s.lat&&s.lng).sort((a,b)=>a.seq-b.seq);
+  if(routeStops.length<2)return {ok:false,message:`${route.name||'Route'} needs at least 2 geocoded stops`,locked:0};
+  const start=getRouteDepotPoint(route,routeStops);
+  if(!start)return {ok:false,message:`${route.name||'Route'} has no start depot/geocode`,locked:0};
+
+  const lockedBySeq=new Map();
+  const movable=[];
+  let lockedCount=0;
+
+  routeStops.forEach(stop=>{
+    const pos=opts.respectPosition?preferredPosition(stop):0;
+    const resourceLocked=opts.respectResource&&!preferredResourceMatchesRoute(stop,route);
+    if(pos>0||resourceLocked){
+      const target=Math.max(1,Math.min(routeStops.length,pos||stop.seq||1));
+      if(!lockedBySeq.has(target))lockedBySeq.set(target,stop);
+      else movable.push(stop);
+      lockedCount++;
+    }else{
+      movable.push(stop);
+    }
+  });
+
+  const ordered=[];
+  let current={lat:start.lat,lng:start.lng};
+  for(let seq=1;seq<=routeStops.length;seq++){
+    if(lockedBySeq.has(seq)){
+      const locked=lockedBySeq.get(seq);
+      ordered.push(locked);
+      current={lat:locked.lat,lng:locked.lng};
+      continue;
+    }
+    if(!movable.length)continue;
+    let bestIndex=0,bestScore=Infinity;
+    movable.forEach((stop,index)=>{
+      const miles=haversine(current.lat,current.lng,stop.lat,stop.lng);
+      const arriveEstimate=estimateArrivalForCandidate(routeId, ordered, current, stop);
+      const latest=timeToMinutes(stop.latestTimeWindow);
+      const early=timeToMinutes(stop.earliestTimeWindow);
+      let score=miles;
+      if(latest!==null&&arriveEstimate>latest)score+=10000+(arriveEstimate-latest)*10;
+      if(early!==null&&arriveEstimate<early)score+=(early-arriveEstimate)/60;
+      if(opts.respectResource&&!preferredResourceMatchesRoute(stop,route))score+=5000;
+      if(score<bestScore){bestScore=score;bestIndex=index;}
+    });
+    const next=movable.splice(bestIndex,1)[0];
+    ordered.push(next);
+    current={lat:next.lat,lng:next.lng};
+  }
+  movable.forEach(s=>ordered.push(s));
+  ordered.forEach((stop,index)=>{stop.seq=index+1;});
+  expanded.add(routeId);
+  return {ok:true,count:ordered.length,locked:lockedCount};
+}
+function estimateArrivalForCandidate(routeId, orderedStops, current, candidate){
+  const route=routes.find(r=>r.id===routeId);
+  let cursor=timeToMinutes(routeStartTime(route));
+  if(cursor===null)cursor=0;
+  cursor+=durationToMinutes(route.startupTime);
+  let last=getRouteDepotPoint(route,stops.filter(s=>s.routeId===routeId&&s.lat&&s.lng))||current;
+  orderedStops.forEach(stop=>{
+    const miles=haversine(last.lat,last.lng,stop.lat,stop.lng);
+    let arrive=cursor+driveMinutesForMiles(miles);
+    const tw=windowStatusForStop(stop,arrive);
+    cursor=tw.adjustedArrive+stopServiceMinutes(stop);
+    last={lat:stop.lat,lng:stop.lng};
+  });
+  return cursor+driveMinutesForMiles(haversine(last.lat,last.lng,candidate.lat,candidate.lng));
+}
+function routeWithinBasicLimits(routeId){
+  const route=routes.find(r=>r.id===routeId);
+  if(!route)return false;
+  const rs=stops.filter(s=>s.routeId===routeId);
+  const drv=drivers.find(d=>d.truckKey===route.truckKey||d.driverKey===route.driverKey)||{};
+  const capCases=parseFloat(drv.measure1)||0;
+  const capWeight=parseFloat(drv.measure2)||0;
+  const capCube=parseFloat(drv.measure3)||0;
+  if(capCases&&rs.reduce((a,s)=>a+tCases(s),0)>capCases)return false;
+  if(capWeight&&rs.reduce((a,s)=>a+tWeight(s),0)>capWeight)return false;
+  if(capCube&&rs.reduce((a,s)=>a+tCube(s),0)>capCube)return false;
+  const latest=timeToMinutes(route.latestEndTime);
+  const end=timeToMinutes(routeEndEstimate(routeId));
+  if(latest!==null&&end!==null&&end>latest)return false;
+  const lateStops=routeTimelineRows(routeId).filter(r=>r.twStatus==='LATE').length;
+  return lateStops===0;
+}
+function maximizeRoutes(opts={}){
+  if(routes.length<2){showToast('Need at least 2 routes to maximize/consolidate');return;}
+  let moved=0, skipped=0;
+  const routeLoad=r=>stops.filter(s=>s.routeId===r.id).reduce((a,s)=>a+tCube(s),0);
+  const donors=routes.slice().sort((a,b)=>routeLoad(a)-routeLoad(b));
+  const receivers=routes.slice().sort((a,b)=>routeLoad(b)-routeLoad(a));
+
+  donors.forEach(donor=>{
+    const donorStops=stops.filter(s=>s.routeId===donor.id).sort((a,b)=>b.seq-a.seq);
+    donorStops.forEach(stop=>{
+      if(opts.respectPosition&&preferredPosition(stop)){skipped++;return;}
+      let placed=false;
+      for(const target of receivers){
+        if(target.id===donor.id)continue;
+        if(opts.respectResource&&!preferredResourceMatchesRoute(stop,target))continue;
+        const oldRoute=stop.routeId, oldSeq=stop.seq;
+        stop.routeId=target.id;
+        stop.seq=Math.max(0,...stops.filter(s=>s.routeId===target.id&&s.id!==stop.id).map(s=>s.seq||0))+1;
+        const opt=optimizeRouteSequence(target.id,opts);
+        const donorOpt=optimizeRouteSequence(donor.id,opts);
+        if(opt.ok&&routeWithinBasicLimits(target.id)){
+          moved++;placed=true;expanded.add(target.id);break;
+        }
+        stop.routeId=oldRoute;stop.seq=oldSeq;
+        optimizeRouteSequence(target.id,opts);
+        optimizeRouteSequence(donor.id,opts);
+      }
+      if(!placed)skipped++;
+    });
+  });
+  reseq();render();
+  const empty=routes.filter(r=>stops.filter(s=>s.routeId===r.id).length===0).length;
+  showJob('&#128200; Maximize / Consolidate Routes',`
+    <strong>${moved}</strong> stop(s) moved into fuller routes<br/>
+    <strong>${empty}</strong> route(s) now have no customer stops<br/>
+    <strong>${skipped}</strong> stop move(s) skipped because they did not fit selected rules, time windows, capacity, or route end time<br/><br/>
+    <strong>Rules Used:</strong><br/>
+    &bull; Respect Preferred Resources: ${opts.respectResource?'Yes':'No'}<br/>
+    &bull; Respect Preferred Route Position: ${opts.respectPosition?'Yes':'No'}
   `);
 }
 
