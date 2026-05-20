@@ -1784,42 +1784,117 @@ function routeWithinBasicLimits(routeId){
   return lateStops===0;
 }
 function maximizeRoutes(opts={}){
-  if(routes.length<2){showToast('Need at least 2 routes to maximize/consolidate');return;}
-  let moved=0, skipped=0;
-  const routeLoad=r=>stops.filter(s=>s.routeId===r.id).reduce((a,s)=>a+tCube(s),0);
-  const donors=routes.slice().sort((a,b)=>routeLoad(a)-routeLoad(b));
-  const receivers=routes.slice().sort((a,b)=>routeLoad(b)-routeLoad(a));
+  if(!routes.length){showToast('No routes available to maximize');return;}
 
-  donors.forEach(donor=>{
-    const donorStops=stops.filter(s=>s.routeId===donor.id).sort((a,b)=>b.seq-a.seq);
-    donorStops.forEach(stop=>{
-      if(opts.respectPosition&&preferredPosition(stop)){skipped++;return;}
-      let placed=false;
-      for(const target of receivers){
-        if(target.id===donor.id)continue;
-        if(opts.respectResource&&!preferredResourceMatchesRoute(stop,target))continue;
-        const oldRoute=stop.routeId, oldSeq=stop.seq;
-        stop.routeId=target.id;
-        stop.seq=Math.max(0,...stops.filter(s=>s.routeId===target.id&&s.id!==stop.id).map(s=>s.seq||0))+1;
-        const opt=optimizeRouteSequence(target.id,opts);
-        const donorOpt=optimizeRouteSequence(donor.id,opts);
-        if(opt.ok&&routeWithinBasicLimits(target.id)){
-          moved++;placed=true;expanded.add(target.id);break;
-        }
-        stop.routeId=oldRoute;stop.seq=oldSeq;
-        optimizeRouteSequence(target.id,opts);
-        optimizeRouteSequence(donor.id,opts);
-      }
-      if(!placed)skipped++;
-    });
+  const snapshotStop=(stop)=>({routeId:stop.routeId||null,seq:stop.seq||0});
+  const restoreStop=(stop,snap)=>{stop.routeId=snap.routeId;stop.seq=snap.seq;};
+  const routeCustomerStops=(routeId)=>stops.filter(s=>s.routeId===routeId);
+  const routeLoad=r=>routeCustomerStops(r.id).reduce((a,s)=>a+tCube(s),0);
+  const routeStopCount=r=>routeCustomerStops(r.id).length;
+  const optimizeIfUseful=(routeId)=>{
+    const geoCount=stops.filter(s=>s.routeId===routeId&&s.lat&&s.lng).length;
+    if(geoCount>=2)return optimizeRouteSequence(routeId,opts).ok;
+    if(geoCount===1){const one=stops.find(s=>s.routeId===routeId&&s.lat&&s.lng); if(one)one.seq=1;}
+    return true;
+  };
+  const validAfterPlacement=(routeId)=>{
+    optimizeIfUseful(routeId);
+    return routeWithinBasicLimits(routeId);
+  };
+  const canTryMove=(stop,fromRouteId,targetRoute)=>{
+    if(!stop||!targetRoute)return false;
+    if(stop.routeId===targetRoute.id)return false;
+    if(opts.respectResource&&!preferredResourceMatchesRoute(stop,targetRoute))return false;
+    // A preferred route position locks an assigned stop in place. Unassigned stops may still be placed,
+    // and optimizeRouteSequence will attempt to keep their preferred sequence after placement.
+    if(opts.respectPosition&&fromRouteId&&preferredPosition(stop))return false;
+    return true;
+  };
+  const tryPlaceStop=(stop,targetRoute)=>{
+    const oldSnap=snapshotStop(stop);
+    const affectedRoutes=new Set([targetRoute.id]);
+    if(oldSnap.routeId)affectedRoutes.add(oldSnap.routeId);
+
+    stop.routeId=targetRoute.id;
+    stop.seq=Math.max(0,...stops.filter(s=>s.routeId===targetRoute.id&&s.id!==stop.id).map(s=>s.seq||0))+1;
+
+    const targetOk=validAfterPlacement(targetRoute.id);
+    const sourceOk=oldSnap.routeId?validAfterPlacement(oldSnap.routeId):true;
+
+    if(targetOk&&sourceOk){
+      expanded.add(targetRoute.id);
+      return true;
+    }
+
+    restoreStop(stop,oldSnap);
+    affectedRoutes.forEach(rid=>optimizeIfUseful(rid));
+    return false;
+  };
+
+  let assignedFromUnassigned=0,movedAssigned=0,skipped=0;
+
+  // Phase 1: Pull in unassigned stops first, favoring fuller/larger stops and fuller routes.
+  const unassigned=stops
+    .filter(s=>!s.routeId)
+    .sort((a,b)=>(tCube(b)-tCube(a))||(tCases(b)-tCases(a))||(tWeight(b)-tWeight(a)));
+
+  unassigned.forEach(stop=>{
+    let placed=false;
+    const receivers=routes.slice().sort((a,b)=>routeLoad(b)-routeLoad(a));
+    for(const target of receivers){
+      if(!canTryMove(stop,null,target))continue;
+      if(tryPlaceStop(stop,target)){assignedFromUnassigned++;placed=true;break;}
+    }
+    if(!placed)skipped++;
   });
+
+  // Phase 2: Consolidate assigned stops from lighter routes into fuller valid routes.
+  // This is repeated a few passes because each successful move changes route fullness and feasibility.
+  const maxPasses=Math.min(6,Math.max(2,routes.length));
+  for(let pass=0;pass<maxPasses;pass++){
+    let passMoved=0;
+    const donors=routes.slice().sort((a,b)=>routeLoad(a)-routeLoad(b));
+    donors.forEach(donor=>{
+      const donorStops=routeCustomerStops(donor.id)
+        .slice()
+        .sort((a,b)=>(tCube(b)-tCube(a))||(b.seq-a.seq));
+
+      donorStops.forEach(stop=>{
+        const receivers=routes
+          .filter(r=>r.id!==donor.id)
+          .slice()
+          .sort((a,b)=>routeLoad(b)-routeLoad(a));
+        let placed=false;
+        for(const target of receivers){
+          if(!canTryMove(stop,donor.id,target))continue;
+          if(tryPlaceStop(stop,target)){movedAssigned++;passMoved++;placed=true;break;}
+        }
+        if(!placed)skipped++;
+      });
+    });
+    if(!passMoved)break;
+  }
+
+  // Final pass: resequence every route that now has customer stops.
+  let optimizedRoutes=0;
+  routes.forEach(route=>{
+    if(routeCustomerStops(route.id).length){
+      if(optimizeIfUseful(route.id))optimizedRoutes++;
+    }
+  });
+
   reseq();render();
-  const empty=routes.filter(r=>stops.filter(s=>s.routeId===r.id).length===0).length;
+  const empty=routes.filter(r=>routeCustomerStops(r.id).length===0).length;
+  const remainingUnassigned=stops.filter(s=>!s.routeId).length;
   showJob('&#128200; Maximize / Consolidate Routes',`
-    <strong>${moved}</strong> stop(s) moved into fuller routes<br/>
+    <strong>${assignedFromUnassigned}</strong> unassigned stop(s) placed onto routes<br/>
+    <strong>${movedAssigned}</strong> already-assigned stop(s) moved into fuller valid routes<br/>
+    <strong>${optimizedRoutes}</strong> route(s) resequenced after optimization<br/>
     <strong>${empty}</strong> route(s) now have no customer stops<br/>
-    <strong>${skipped}</strong> stop move(s) skipped because they did not fit selected rules, time windows, capacity, or route end time<br/><br/>
+    <strong>${remainingUnassigned}</strong> stop(s) remain unassigned because no valid route fit was found<br/>
+    <strong>${skipped}</strong> candidate move(s) skipped because they did not fit selected rules, time windows, capacity, or route end time<br/><br/>
     <strong>Rules Used:</strong><br/>
+    &bull; Candidate Pool: Assigned + Unassigned Stops<br/>
     &bull; Respect Preferred Resources: ${opts.respectResource?'Yes':'No'}<br/>
     &bull; Respect Preferred Route Position: ${opts.respectPosition?'Yes':'No'}
   `);
