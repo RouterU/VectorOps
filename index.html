@@ -160,7 +160,7 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
 .manifest-stat .val{font-family:'DM Mono',monospace;font-size:15px;color:var(--text1);font-weight:600;}
 .manifest-stat .lbl{font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.4px;margin-top:2px;}
 .manifest-route-list{border:1px solid var(--border);border-radius:10px;background:var(--bg2);max-height:62vh;overflow:auto;}
-.manifest-row{display:grid;grid-template-columns:60px 420px 180px 90px 110px 90px 180px;gap:10px;align-items:center;padding:9px 12px;border-bottom:1px solid var(--border);font-size:11px;min-width:1180px;}
+.manifest-row{display:grid;grid-template-columns:60px 420px 150px 90px 110px 90px 95px 95px 90px 95px 95px 190px;gap:10px;align-items:center;padding:9px 12px;border-bottom:1px solid var(--border);font-size:11px;min-width:1760px;}
 .manifest-row:last-child{border-bottom:none;}
 .manifest-row.header{background:var(--bg3);color:var(--text3);font-size:9px;text-transform:uppercase;letter-spacing:.5px;font-weight:700;position:sticky;top:0;z-index:2;}
 .manifest-row.stop{cursor:grab;}
@@ -172,6 +172,8 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
 .manifest-customer{min-width:0;}
 .manifest-name{font-weight:600;color:var(--text1);white-space:normal;overflow:visible;text-overflow:clip;line-height:1.25;}
 .manifest-detail{color:var(--text3);font-size:9px;margin-top:2px;white-space:normal;overflow:visible;text-overflow:clip;line-height:1.2;}
+.filter-pill{display:inline-flex;align-items:center;gap:4px;background:rgba(79,140,255,.14);border:1px solid rgba(79,140,255,.45);color:var(--accent);border-radius:999px;padding:2px 7px;font-size:9px;font-weight:700;}
+
 
 /* Modals */
 .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.78);z-index:2000;display:flex;align-items:center;justify-content:center;}
@@ -281,6 +283,7 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
       <div class="quadrant" id="q-routes" style="flex:1;min-height:120px;">
         <div class="q-header">
           <span class="q-title">Routes</span>
+          <button class="btn" style="padding:2px 7px;font-size:9px;" onclick="showSelectedRoutesOnMap()">Show Selected</button>
           <select id="route-sort" class="route-sort" onchange="setRouteSort(this.value)" title="Optional route sorting">
             <option value="">Sort By...</option>
             <option value="name">Name</option>
@@ -302,6 +305,7 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
           <span class="q-title">Unassigned Stops</span>
           <div style="display:flex;gap:5px;align-items:center;">
             <button class="btn success" id="assign-potential-btn" style="display:none;padding:2px 7px;font-size:9px;" onclick="assignToPotentialRoutes()">Assign to Potential Routes</button>
+            <button class="btn" style="padding:2px 7px;font-size:9px;" onclick="showSelectedUnassignedOnMap()">Show Selected</button>
             <button class="btn" style="padding:2px 7px;font-size:9px;" onclick="checkAllUA(true)">All</button>
             <button class="btn" style="padding:2px 7px;font-size:9px;" onclick="checkAllUA(false)">None</button>
             <span id="ua-badge" style="font-size:10px;color:var(--text3);"></span>
@@ -492,6 +496,8 @@ let contextStopId=null;
 let potColors={}; // stopId -> color
 let potRouteSuggestions={}; // stopId -> suggested routeId from Potential Routes job
 let routeSort=""; // optional route sort; blank keeps import/original order
+let activeRouteFilterId=null;
+let activeStopFilterId=null;
 
 // ============================================================
 // INIT
@@ -609,7 +615,7 @@ function routeTotalMinutes(routeId){
   // Total Time = Travel Time + Order Service Time + Startup Time + Windup Time
   // Order Service Time = 5 minutes per stop + Cases x .03 seconds
   const service=rs.reduce((a,s)=>a+5+((tCases(s)*0.03)/60),0);
-  const travel=(routeDistanceMiles(routeId)/35)*60;
+  const travel=driveMinutesForMiles(routeDistanceMiles(routeId));
   return (parseFloat(route.startupTime)||0)+(parseFloat(route.windupTime)||0)+service+travel;
 }
 function fmtMinutes(mins){
@@ -649,6 +655,76 @@ function routeEndEstimate(routeId){
   const start=routeStartTime(route);
   return cleanTimeValue(addMinutesToHHMM(start, routeTotalMinutes(routeId)));
 }
+
+function roadAdjustedMiles(miles){return (parseFloat(miles)||0)*1.25;}
+function driveMinutesForMiles(miles){return (roadAdjustedMiles(miles)/35)*60;}
+function stopServiceMinutes(stop){return 5+((tCases(stop)*0.03)/60);}
+function routePointSequence(routeId){
+  const route=routes.find(r=>r.id===routeId);
+  if(!route)return [];
+  const pts=[];
+  const init=routeInitialDepot(route), fin=routeFinalDepot(route);
+  if(init&&init.lat&&init.lng)pts.push({type:'depot-start',label:'START',name:depotLabel(init,'Start Depot'),city:init.shipCity||'',state:init.shipState||'',lat:init.lat,lng:init.lng,depot:init});
+  stops.filter(s=>s.routeId===routeId&&s.lat&&s.lng).sort((a,b)=>a.seq-b.seq).forEach(s=>pts.push({type:'stop',stop:s,name:s.customerName||'Stop',city:s.city||'',state:s.state||'',lat:s.lat,lng:s.lng}));
+  if(fin&&fin.lat&&fin.lng)pts.push({type:'depot-end',label:'END',name:depotLabel(fin,'End Depot'),city:fin.shipCity||'',state:fin.shipState||'',lat:fin.lat,lng:fin.lng,depot:fin});
+  return pts;
+}
+function routeTimelineRows(routeId){
+  const route=routes.find(r=>r.id===routeId);
+  const pts=routePointSequence(routeId);
+  if(!route||!pts.length)return [];
+  let cursor=timeToMinutes(routeStartTime(route));
+  if(cursor===null)cursor=0;
+  const startup=parseFloat(route.startupTime)||0;
+  const windup=parseFloat(route.windupTime)||0;
+  const rows=[];
+  pts.forEach((pt,i)=>{
+    let legMiles=0, driveMins=0, arrive=cursor, depart=cursor;
+    if(i===0){
+      depart=cursor+startup;
+    }else{
+      const prev=pts[i-1];
+      legMiles=haversine(prev.lat,prev.lng,pt.lat,pt.lng);
+      driveMins=driveMinutesForMiles(legMiles);
+      arrive=cursor+driveMins;
+      if(pt.type==='stop') depart=arrive+stopServiceMinutes(pt.stop);
+      else depart=pt.type==='depot-end'?arrive+windup:arrive;
+    }
+    rows.push({...pt,legMiles,driveMins,arrive,depart,serviceMins:pt.type==='stop'?stopServiceMinutes(pt.stop):0});
+    cursor=depart;
+  });
+  return rows;
+}
+function minutesToHHMM(total){
+  if(total===null||total===undefined||!isFinite(total))return '—';
+  const normalized=((Math.round(total)%1440)+1440)%1440;
+  const h=Math.floor(normalized/60), m=normalized%60;
+  return String(h).padStart(2,'0')+':'+String(m).padStart(2,'0');
+}
+function toggleRouteFilter(routeId){
+  activeStopFilterId=null;
+  activeRouteFilterId=activeRouteFilterId===routeId?null:routeId;
+  if(activeRouteFilterId) expanded.add(routeId);
+  renderRoutes();renderUA();renderMap();
+}
+function toggleStopFilter(stopId){
+  activeRouteFilterId=null;
+  activeStopFilterId=activeStopFilterId===stopId?null:stopId;
+  const s=stops.find(x=>x.id===stopId);
+  if(activeStopFilterId&&s&&s.routeId) expanded.add(s.routeId);
+  renderRoutes();renderUA();renderMap();
+}
+function routeMatchesFilter(route){
+  if(activeRouteFilterId)return route.id===activeRouteFilterId;
+  if(activeStopFilterId){const s=stops.find(x=>x.id===activeStopFilterId);return s&&s.routeId===route.id;}
+  return true;
+}
+function stopMatchesFilter(stop){
+  if(activeStopFilterId)return stop.id===activeStopFilterId;
+  if(activeRouteFilterId)return stop.routeId===activeRouteFilterId;
+  return true;
+}
+function clearLeftFilter(){activeRouteFilterId=null;activeStopFilterId=null;renderRoutes();renderUA();renderMap();}
 
 function normalizeKey(value){return (value??'').toString().trim();}
 function findDepotByKey(key){
@@ -729,12 +805,13 @@ function renderRoutes(){
   const el=document.getElementById('routes-list');
   const sortSelect=document.getElementById('route-sort');
   if(sortSelect)sortSelect.value=routeSort;
-  document.getElementById('route-badge').textContent=routes.length+' routes';
+  document.getElementById('route-badge').innerHTML=(activeRouteFilterId||activeStopFilterId)?`<span class="filter-pill" onclick="clearLeftFilter()">Filtered ×</span>`:routes.length+' routes';
   if(!routes.length){
     el.innerHTML='<div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 13l4.553 2.276A1 1 0 0021 21.382V10.618a1 1 0 00-.553-.894L15 7m0 13V7m0 0L9 4"/></svg><p>No routes yet — import or create one</p></div>';
     return;
   }
-  el.innerHTML=sortedRoutesForDisplay().map((r)=>{
+  const displayRoutes=sortedRoutesForDisplay().filter(routeMatchesFilter);
+  el.innerHTML=displayRoutes.map((r)=>{
     const ri=routes.findIndex(x=>x.id===r.id);
     const color=COLORS[ri%COLORS.length];
     const rStops=stops.filter(s=>s.routeId===r.id).sort((a,b)=>a.seq-b.seq);
@@ -745,7 +822,7 @@ function renderRoutes(){
     const dname=r.driverFirstName?(r.driverFirstName+' '+(r.driverLastName||'')).trim():(drv?drv.name:'—');
     const isOpen=expanded.has(r.id);
     return`<div class="route-card" id="rc-${r.id}" draggable="true" ondragstart="onRouteDragStart(event,'${r.id}')" ondragend="onDragEnd()" onmouseenter="highlightRoute('${r.id}')" onmouseleave="clearMapHighlight()">
-      <div class="r-header" onclick="openRouteManifest('${r.id}')">
+      <div class="r-header" onclick="toggleRouteFilter('${r.id}')">
         <div class="r-colorbar" style="background:${color}"></div>
         <div class="r-info">
           <div class="r-name">${r.name}</div>
@@ -753,6 +830,7 @@ function renderRoutes(){
           <div class="r-timing">${fmtTiming(r)}${r.udfNumber1?' · UDF#1:'+r.udfNumber1:''}${r.initialLocationKey||r.finalLocationKey?' · Depot '+(r.initialLocationKey||'—')+' → '+(r.finalLocationKey||'—'):''}</div>
         </div>
         <div class="r-ctrl">
+          <button class="icon-btn" title="Open Manifest" onclick="event.stopPropagation();openRouteManifest('${r.id}')">▤</button>
           <input type="checkbox" class="r-chk" id="rchk-${r.id}" ${r.selected?'checked':''} onclick="event.stopPropagation();routeCheck('${r.id}',this.checked)"/>
           <span class="chev ${isOpen?'open':''}" title="Expand route" onclick="event.stopPropagation();toggleExpand('${r.id}',event)">&#9660;</span>
         </div>
@@ -761,7 +839,7 @@ function renderRoutes(){
         ondragover="event.preventDefault()" ondrop="dropOnRoute(event,'${r.id}')">
         ${renderDepotRouteRow(r,'initial',color)}
         ${rStops.map(s=>`
-        <div class="stop-row" draggable="true" id="srow-${s.id}" onmouseenter="highlightStop('${s.id}')" onmouseleave="clearMapHighlight()"
+        <div class="stop-row" draggable="true" id="srow-${s.id}" onclick="toggleStopFilter('${s.id}')" onmouseenter="highlightStop('${s.id}')" onmouseleave="clearMapHighlight()"
           ondragstart="onDragStart(event,'${s.id}','${r.id}')"
           ondragover="onDragOver(event,'${s.id}')"
           ondrop="onDropStop(event,'${s.id}','${r.id}')"
@@ -774,8 +852,8 @@ function renderRoutes(){
             <div class="s-detail">${s.orderNumber||''} &middot; ${tCases(s)}cs &middot; ${s.city||''} ${s.state||''}</div>
           </div>
           <div class="s-acts">
-            <button class="icon-btn" title="Zoom to" onclick="flyTo('${s.id}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg></button>
-            <button class="icon-btn" title="Unassign" onclick="unassign('${s.id}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+            <button class="icon-btn" title="Zoom to" onclick="event.stopPropagation();flyTo('${s.id}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg></button>
+            <button class="icon-btn" title="Unassign" onclick="event.stopPropagation();unassign('${s.id}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
           </div>
         </div>`).join('')}
         ${renderDepotRouteRow(r,'final',color)}
@@ -789,8 +867,8 @@ function renderRoutes(){
 
 function renderUA(){
   const el=document.getElementById('ua-list');
-  const ua=stops.filter(s=>!s.routeId);
-  document.getElementById('ua-badge').textContent=ua.length+' stops';
+  const ua=stops.filter(s=>!s.routeId).filter(stopMatchesFilter);
+  document.getElementById('ua-badge').innerHTML=(activeRouteFilterId||activeStopFilterId)?`<span class="filter-pill" onclick="clearLeftFilter()">Filtered ×</span>`:ua.length+' stops';
   if(!ua.length){
     el.innerHTML='<div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><p>All stops assigned!</p></div>';
     return;
@@ -799,7 +877,7 @@ function renderUA(){
     const pc=potColors[s.id];
     const hasPref=!!(s.preferredResourceKey&&s.preferredResourceKey.toString().trim());
     const isWC=s.willCallIndicator==='Y'||s.willCallIndicator==='1'||s.willCallIndicator===1||s.willCallIndicator===true;
-    return`<div class="ua-row" draggable="true" id="urow-${s.id}" onmouseenter="highlightStop('${s.id}')" onmouseleave="clearMapHighlight()"
+    return`<div class="ua-row" draggable="true" id="urow-${s.id}" onclick="toggleStopFilter('${s.id}')" onmouseenter="highlightStop('${s.id}')" onmouseleave="clearMapHighlight()"
       ondragstart="onDragStart(event,'${s.id}',null)" ondragend="onDragEnd()">
       <input type="checkbox" class="ua-chk" ${s.uiChecked?'checked':''}
         onclick="setCheck('${s.id}',this.checked);event.stopPropagation()"/>
@@ -808,7 +886,7 @@ function renderUA(){
         <div class="ua-name">${s.customerName||'Stop'}${hasPref?'<span class="tag tag-pref">&#11088; Pref</span>':''}${isWC?'<span class="tag tag-wc">Will Call</span>':''}</div>
         <div class="ua-detail">${s.orderNumber||''} &middot; ${tCases(s)}cs &middot; ${s.city||''} ${s.state||''}${pc?`<span class="tag-pot" style="background:${pc};margin-left:4px;">&#128204; Suggested</span>`:''}</div>
       </div>
-      <select class="ua-assign" onchange="assignStop('${s.id}',this.value);this.value=''">
+      <select class="ua-assign" onclick="event.stopPropagation()" onchange="assignStop('${s.id}',this.value);this.value=''">
         <option value="">Assign&hellip;</option>
         ${routes.map(r=>`<option value="${r.id}">${r.name}</option>`).join('')}
       </select>
@@ -838,6 +916,8 @@ function renderMap(){
   markers={}; polylines={};
   stops.forEach(s=>{
     if(!s.lat||!s.lng) return;
+    if(activeStopFilterId && s.id!==activeStopFilterId) return;
+    if(activeRouteFilterId && s.routeId!==activeRouteFilterId) return;
     if(mapCleared && !visibleStopIds.has(s.id) && !(s.routeId&&visibleRouteIds.has(s.routeId))) return;
     const color=s.routeId?routeColor(s.routeId):(potColors[s.id]||'#5c6480');
     const label=s.routeId?s.seq:'?';
@@ -862,11 +942,14 @@ function renderMap(){
       const original=ev.originalEvent||{};
       openStopContextMenu(s.id, original.clientX || 0, original.clientY || 0);
     });
+    m.on('click',()=>toggleStopFilter(s.id));
     m.on('mouseover',()=>highlightStop(s.id));
     m.on('mouseout',()=>clearMapHighlight());
     markers[s.id]=m;
   });
   routes.forEach((r,ri)=>{
+    if(activeRouteFilterId && r.id!==activeRouteFilterId) return;
+    if(activeStopFilterId && !stops.some(s=>s.id===activeStopFilterId&&s.routeId===r.id)) return;
     if(mapCleared && !visibleRouteIds.has(r.id)) return;
     const color=COLORS[ri%COLORS.length];
     const init=routeInitialDepot(r);
@@ -1083,6 +1166,23 @@ function ensureCustomMapView(){
 function clearMapView(){
   mapCleared=true;visibleStopIds.clear();visibleRouteIds.clear();renderMap();showToast('Map cleared. Drag routes or stops back onto the map.');
 }
+
+function showSelectedRoutesOnMap(){
+  const selected=routes.filter(r=>r.selected);
+  if(!selected.length){showToast('Select route checkboxes first');return;}
+  ensureCustomMapView();
+  selected.forEach(r=>visibleRouteIds.add(r.id));
+  renderMap();
+  showToast(`Displayed ${selected.length} selected route(s) on the map`);
+}
+function showSelectedUnassignedOnMap(){
+  const selected=stops.filter(s=>!s.routeId&&s.uiChecked);
+  if(!selected.length){showToast('Select unassigned stop checkboxes first');return;}
+  ensureCustomMapView();
+  selected.forEach(s=>visibleStopIds.add(s.id));
+  renderMap();
+  showToast(`Displayed ${selected.length} selected unassigned stop(s) on the map`);
+}
 function displayAllRoutesOnMap(){
   mapCleared=true;
   routes.forEach(r=>visibleRouteIds.add(r.id));
@@ -1265,38 +1365,40 @@ function renderRouteManifest(){
     <div class="manifest-stat"><div class="val">${cleanTimeValue(data.start)||'—'}</div><div class="lbl">Start Time</div></div>
     <div class="manifest-stat"><div class="val">${cleanTimeValue(data.end)||'—'}</div><div class="lbl">Stop Time</div></div>`;
 
-  const init=routeInitialDepot(route);
-  const fin=routeFinalDepot(route);
-  const depotRow=(depot,label)=>{
-    if(!depot)return '';
-    return `<div class="manifest-row depot">
-      <div class="manifest-seq">${label}</div>
-      <div class="manifest-customer"><div class="manifest-name">${escapeHtml(depot.name||'Depot')}</div><div class="manifest-detail">LocationKey: ${escapeHtml(depot.locationKey||'')}</div></div>
-      <div>${escapeHtml(depot.shipCity||'')} ${escapeHtml(depot.shipState||'')}</div><div>—</div><div>—</div><div>—</div><div>Depot</div>
-    </div>`;
-  };
-  const stopRows=data.stops.map(s=>`
-    <div class="manifest-row stop" id="manifest-stop-${s.id}" draggable="true"
+  const timeline=routeTimelineRows(activeManifestRouteId);
+  const rows=timeline.map((pt,idx)=>{
+    const isDepot=pt.type!=='stop';
+    const s=pt.stop||{};
+    const seq=isDepot?(pt.label||'DEPOT'):(s.seq||idx);
+    const name=escapeHtml(pt.name||'Stop');
+    const detail=isDepot?`LocationKey: ${escapeHtml(pt.depot?.locationKey||'')}`:`${escapeHtml(s.orderNumber||'')} · ${escapeHtml(s.address||'')} ${escapeHtml(s.city||'')} ${escapeHtml(s.state||'')}`;
+    const dragAttrs=isDepot?'':`id="manifest-stop-${s.id}" draggable="true"
       ondragstart="manifestDragStart(event,'${s.id}')"
       ondragover="manifestDragOver(event,'${s.id}')"
       ondragleave="manifestDragLeave(event)"
       ondrop="manifestDrop(event,'${s.id}')"
       ondragend="manifestDragEnd()"
-      onmouseenter="highlightStop('${s.id}')" onmouseleave="clearMapHighlight()">
-      <div class="manifest-seq">${s.seq}</div>
-      <div class="manifest-customer"><div class="manifest-name">${escapeHtml(s.customerName||'Stop')}</div><div class="manifest-detail">${escapeHtml(s.orderNumber||'')} · ${escapeHtml(s.address||'')} ${escapeHtml(s.city||'')} ${escapeHtml(s.state||'')}</div></div>
-      <div>${escapeHtml(s.city||'')} ${escapeHtml(s.state||'')}</div>
-      <div>${tCases(s)}</div>
-      <div>${Math.round(tWeight(s)).toLocaleString()}</div>
-      <div>${tCube(s).toFixed(1)}</div>
-      <div>${escapeHtml(s.earliestTimeWindow||'—')} - ${escapeHtml(s.latestTimeWindow||'—')}</div>
-    </div>`).join('');
+      onclick="toggleStopFilter('${s.id}')"
+      onmouseenter="highlightStop('${s.id}')" onmouseleave="clearMapHighlight()"`;
+    return `<div class="manifest-row ${isDepot?'depot':'stop'}" ${dragAttrs}>
+      <div class="manifest-seq">${seq}</div>
+      <div class="manifest-customer"><div class="manifest-name">${name}</div><div class="manifest-detail">${detail}</div></div>
+      <div>${escapeHtml(pt.city||'')} ${escapeHtml(pt.state||'')}</div>
+      <div>${isDepot?'—':tCases(s)}</div>
+      <div>${isDepot?'—':Math.round(tWeight(s)).toLocaleString()}</div>
+      <div>${isDepot?'—':tCube(s).toFixed(1)}</div>
+      <div>${pt.legMiles?pt.legMiles.toFixed(1):'—'}</div>
+      <div>${pt.driveMins?fmtMinutes(pt.driveMins):'—'}</div>
+      <div>${isDepot?'—':fmtMinutes(pt.serviceMins)}</div>
+      <div>${minutesToHHMM(pt.arrive)}</div>
+      <div>${minutesToHHMM(pt.depart)}</div>
+      <div>${isDepot?'Depot':`${escapeHtml(s.earliestTimeWindow||'—')} - ${escapeHtml(s.latestTimeWindow||'—')}`}</div>
+    </div>`;
+  }).join('');
 
   document.getElementById('manifest-list').innerHTML=`
-    <div class="manifest-row header"><div>Seq</div><div>Stop / Customer</div><div>City</div><div>Cases</div><div>Weight</div><div>Cube</div><div>Window</div></div>
-    ${depotRow(init,'START')}
-    ${stopRows || '<div class="manifest-row"><div>—</div><div>No assigned stops</div><div></div><div></div><div></div><div></div><div></div></div>'}
-    ${depotRow(fin,'END')}`;
+    <div class="manifest-row header"><div>Seq</div><div>Stop / Customer</div><div>City</div><div>Cases</div><div>Weight</div><div>Cube</div><div>Leg Mi</div><div>Drive</div><div>Service</div><div>Arrive</div><div>Depart</div><div>Window</div></div>
+    ${rows || '<div class="manifest-row"><div>—</div><div>No assigned stops</div><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div></div>'}`;
 }
 function manifestDragStart(e,stopId){
   manifestDragStopId=stopId;
@@ -1347,7 +1449,7 @@ function unassignAllStopsFromManifest(){
 // JOBS
 // ============================================================
 function runPreferredJob(){
-  const ua=stops.filter(s=>!s.routeId);
+  const ua=stops.filter(s=>!s.routeId).filter(stopMatchesFilter);
   if(!ua.length){showToast('No unassigned stops');return;}
 
   let assigned=0,noMatch=0,noPref=0,noRouteUdf=0;
@@ -1395,7 +1497,7 @@ function runPotentialJob(){
   const radiusMiles=parseFloat(radiusInput?.value)||15;
   if(radiusMiles<=0){showToast('Routing Radius must be greater than 0 miles');return;}
 
-  const ua=stops.filter(s=>!s.routeId);
+  const ua=stops.filter(s=>!s.routeId).filter(stopMatchesFilter);
   const targets=ua.filter(s=>s.uiChecked).length?ua.filter(s=>s.uiChecked):ua;
   if(!targets.length){showToast('No unassigned stops to analyze');return;}
   const routed=stops.filter(s=>s.routeId&&s.lat&&s.lng);
