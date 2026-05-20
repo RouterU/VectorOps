@@ -1,0 +1,2082 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>RouteDesk v2</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Sora:wght@400;500;600&display=swap" rel="stylesheet"/>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh;display:flex;flex-direction:column;overflow:hidden;font-size:13px;}
+:root{
+  --bg0:#0f1117;--bg1:#171b25;--bg2:#1e2330;--bg3:#252a3a;--bg4:#2c3347;
+  --border:#2e3447;--border2:#3d4560;
+  --text1:#e8e6e0;--text2:#9ca3b8;--text3:#5c6480;
+  --accent:#4f8cff;--success:#3ecf8e;--warn:#f59e0b;--danger:#ef4444;--purple:#a78bfa;
+}
+.topbar{display:flex;align-items:center;gap:8px;padding:0 14px;height:50px;background:var(--bg1);border-bottom:1px solid var(--border);flex-shrink:0;z-index:200;}
+.logo{font-family:'DM Mono',monospace;font-size:14px;font-weight:500;color:var(--accent);letter-spacing:-.5px;white-space:nowrap;}
+.logo span{color:var(--text2);}
+.logo small{font-size:9px;color:var(--text3);margin-left:3px;}
+.topbar-sep{width:1px;height:24px;background:var(--border);flex-shrink:0;margin:0 2px;}
+.topbar-group{display:flex;gap:5px;align-items:center;}
+.topbar-label{font-size:10px;color:var(--text3);white-space:nowrap;}
+.date-input,.time-input,.radius-input{background:var(--bg3);border:1px solid var(--border);border-radius:5px;color:var(--text1);font-size:11px;font-family:'Sora',sans-serif;padding:4px 6px;}
+.date-input{width:130px;}.time-input{width:82px;}.radius-input{width:64px;}
+.date-input:focus,.time-input:focus,.radius-input:focus{outline:none;border-color:var(--accent);}
+.topbar-actions{display:flex;gap:5px;margin-left:auto;align-items:center;flex-wrap:nowrap;}
+.btn{display:inline-flex;align-items:center;gap:4px;padding:5px 10px;border-radius:6px;font-size:11px;font-family:'Sora',sans-serif;font-weight:500;cursor:pointer;border:1px solid var(--border2);background:var(--bg3);color:var(--text1);transition:all .15s;white-space:nowrap;}
+.btn:hover{background:var(--bg2);border-color:var(--accent);}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff;}
+.btn.primary:hover{background:#3b7ae8;}
+.btn.success{background:var(--success);border-color:var(--success);color:#0f1117;font-weight:600;}
+.btn.success:hover{background:#32b87a;}
+.btn.warn{background:var(--warn);border-color:var(--warn);color:#0f1117;font-weight:600;}
+.btn.warn:hover{background:#d97706;}
+.btn.purple{background:var(--purple);border-color:var(--purple);color:#fff;}
+.btn.purple:hover{background:#8b5cf6;}
+.btn svg{width:12px;height:12px;flex-shrink:0;}
+.btn:disabled{opacity:.4;cursor:not-allowed;}
+
+/* Stats */
+.stats-bar{display:flex;border-bottom:1px solid var(--border);background:var(--bg1);flex-shrink:0;}
+.stat{padding:5px 12px;border-right:1px solid var(--border);text-align:center;min-width:0;}
+.stat-val{font-family:'DM Mono',monospace;font-size:13px;font-weight:500;color:var(--text1);}
+.stat-lbl{font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.4px;}
+
+/* Layout */
+.main{display:flex;flex:1;overflow:hidden;}
+.left-panel{width:370px;flex-shrink:0;display:flex;flex-direction:column;overflow:hidden;background:var(--bg1);border-right:1px solid var(--border);}
+.app-tabs{display:flex;border-bottom:1px solid var(--border);flex-shrink:0;}
+.app-tab{flex:1;padding:7px;text-align:center;font-size:11px;font-weight:600;color:var(--text2);cursor:pointer;border-bottom:2px solid transparent;transition:all .15s;}
+.app-tab.active{color:var(--accent);border-bottom-color:var(--accent);background:rgba(79,140,255,.05);}
+
+/* Apply bar */
+.apply-bar{display:flex;align-items:center;gap:7px;padding:5px 10px;background:var(--bg2);border-bottom:1px solid var(--border);flex-shrink:0;}
+.apply-bar label{font-size:10px;color:var(--text2);cursor:pointer;}
+
+/* Quadrants */
+.quadrant{display:flex;flex-direction:column;overflow:hidden;}
+.q-header{display:flex;align-items:center;gap:6px;padding:5px 10px;background:var(--bg2);border-bottom:1px solid var(--border);flex-shrink:0;}
+.q-title{font-size:10px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.6px;flex:1;}
+.q-body{overflow-y:auto;flex:1;}
+.q-body::-webkit-scrollbar{width:3px;}
+.q-body::-webkit-scrollbar-thumb{background:var(--border2);border-radius:3px;}
+
+/* Splitter */
+.splitter{height:5px;background:var(--border2);cursor:row-resize;flex-shrink:0;display:flex;align-items:center;justify-content:center;transition:background .15s;}
+.splitter::after{content:'';width:32px;height:2px;border-radius:1px;background:var(--border);}
+.splitter:hover,.splitter.dragging{background:var(--accent);}
+
+/* Route cards */
+.route-card{border-bottom:1px solid var(--border);}
+.r-header{display:flex;align-items:center;gap:7px;padding:7px 8px;cursor:pointer;user-select:none;transition:background .1s;}
+.r-header:hover{background:var(--bg2);}
+.r-colorbar{width:3px;min-height:34px;border-radius:2px;flex-shrink:0;align-self:stretch;}
+.r-info{flex:1;min-width:0;}
+.r-name{font-size:12px;font-weight:600;color:var(--text1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.r-meta{font-size:10px;color:var(--text2);margin-top:1px;}
+.r-timing{font-size:9px;color:var(--text3);}
+.r-ctrl{display:flex;align-items:center;gap:5px;flex-shrink:0;}
+.r-chk{width:13px;height:13px;accent-color:var(--accent);cursor:pointer;}
+.chev{color:var(--text3);font-size:9px;transition:transform .18s;display:inline-block;}
+.chev.open{transform:rotate(180deg);}
+.r-stops{padding:0 0 4px 12px;display:none;}
+.r-stops.open{display:block;}
+
+/* Stop rows */
+.stop-row{display:flex;align-items:center;gap:6px;padding:4px 6px 4px 2px;border-radius:5px;margin:2px 4px 2px 0;cursor:grab;border:1px solid transparent;user-select:none;transition:all .1s;}
+.stop-row:hover{background:var(--bg3);border-color:var(--border);}
+.stop-row.dragging{opacity:.3;}
+.stop-row.drag-over{border-color:var(--accent);background:rgba(79,140,255,.12);}
+.s-seq{font-family:'DM Mono',monospace;font-size:10px;color:var(--text3);width:16px;text-align:right;flex-shrink:0;}
+.s-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0;}
+.s-info{flex:1;min-width:0;}
+.s-name{font-size:11px;color:var(--text1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.s-detail{font-size:9px;color:var(--text2);}
+.s-acts{display:flex;gap:2px;flex-shrink:0;}
+.icon-btn{background:none;border:none;cursor:pointer;color:var(--text3);padding:2px;border-radius:3px;display:flex;align-items:center;transition:color .12s;}
+.icon-btn:hover{color:var(--text1);}
+.icon-btn svg{width:11px;height:11px;}
+
+/* Unassigned */
+.ua-row{display:flex;align-items:center;gap:6px;padding:5px 10px;border-bottom:1px solid var(--border);cursor:grab;user-select:none;transition:background .1s;}
+.ua-row:hover{background:var(--bg2);}
+.ua-row.dragging{opacity:.3;}
+.ua-chk{width:12px;height:12px;accent-color:var(--accent);cursor:pointer;flex-shrink:0;}
+.ua-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0;}
+.ua-info{flex:1;min-width:0;}
+.ua-name{font-size:11px;color:var(--text1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.ua-detail{font-size:9px;color:var(--text2);}
+.ua-assign{background:var(--bg3);border:1px solid var(--border);border-radius:4px;color:var(--text1);font-size:10px;font-family:'Sora',sans-serif;padding:2px 4px;max-width:100px;flex-shrink:0;}
+.tag{display:inline-block;padding:1px 4px;border-radius:3px;font-size:8px;font-weight:700;margin-left:3px;vertical-align:middle;}
+.tag-pref{background:rgba(167,139,250,.2);color:var(--purple);}
+.tag-wc{background:rgba(239,68,68,.2);color:var(--danger);}
+.tag-pot{font-size:8px;font-weight:700;padding:1px 4px;border-radius:3px;color:#000;margin-left:3px;vertical-align:middle;}
+
+/* Drivers */
+.driver-card{padding:9px 12px;border-bottom:1px solid var(--border);}
+.d-name{font-size:12px;font-weight:600;color:var(--text1);}
+.d-meta{font-size:10px;color:var(--text2);margin-top:2px;}
+.d-truck{font-size:9px;color:var(--text3);margin-top:1px;}
+
+/* Map */
+.map-area{flex:1;position:relative;}
+#map{width:100%;height:100%;}
+.map-legend{position:absolute;top:10px;right:10px;background:rgba(23,27,37,.93);border:1px solid var(--border);border-radius:8px;padding:8px 12px;z-index:500;min-width:130px;max-height:260px;overflow-y:auto;}
+.map-legend-title{font-size:10px;font-weight:600;color:var(--text2);margin-bottom:5px;text-transform:uppercase;letter-spacing:.5px;}
+.legend-item{display:flex;align-items:center;gap:6px;margin-bottom:3px;}
+.legend-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0;}
+.legend-label{font-size:10px;color:var(--text1);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+
+
+/* Map right-click stop menu */
+.stop-context-menu{position:fixed;z-index:3000;min-width:210px;background:var(--bg1);border:1px solid var(--border2);border-radius:10px;box-shadow:0 16px 40px rgba(0,0,0,.55);padding:6px;display:none;}
+.stop-context-title{font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;padding:6px 8px 4px;border-bottom:1px solid var(--border);margin-bottom:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.stop-context-item{width:100%;display:flex;align-items:center;justify-content:space-between;gap:8px;background:transparent;border:none;color:var(--text1);font-family:'Sora',sans-serif;font-size:11px;text-align:left;padding:7px 8px;border-radius:7px;cursor:pointer;}
+.stop-context-item:hover{background:var(--bg3);}
+.stop-context-item.disabled{opacity:.45;cursor:not-allowed;}
+.route-sort{background:var(--bg3);border:1px solid var(--border);border-radius:5px;color:var(--text1);font-size:10px;font-family:'Sora',sans-serif;padding:2px 5px;max-width:132px;}
+.left-highlight{background:rgba(79,140,255,.18)!important;border-color:var(--accent)!important;box-shadow:inset 0 0 0 1px rgba(79,140,255,.35);}
+.leaflet-marker-icon.map-marker-highlight{filter:drop-shadow(0 0 10px #fff) brightness(1.35);transform:scale(1.35);transform-origin:center center;z-index:9999!important;}
+.depot-map-label{display:inline-flex;align-items:center;gap:4px;max-width:170px;padding:4px 8px;border-radius:8px;background:rgba(15,17,23,.96);border:2px solid currentColor;box-shadow:0 2px 10px rgba(0,0,0,.55);font-family:'Sora',sans-serif;font-size:10px;font-weight:700;color:inherit;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.depot-map-label .depot-type{font-family:'DM Mono',monospace;font-size:8px;opacity:.82;letter-spacing:.3px;}
+.depot-map-label .depot-name{overflow:hidden;text-overflow:ellipsis;}
+.map-controls{position:absolute;top:10px;left:76px;z-index:600;display:flex;gap:6px;align-items:center;background:rgba(23,27,37,.9);border:1px solid var(--border);border-radius:8px;padding:6px;}
+.map-drop-hint{font-size:10px;color:var(--text3);padding:0 4px;white-space:nowrap;}
+.stop-context-item.disabled{opacity:.4;cursor:not-allowed;}
+.stop-context-item.disabled:hover{background:transparent;}
+.stop-context-routes{max-height:190px;overflow-y:auto;margin-top:4px;border-top:1px solid var(--border);padding-top:4px;}
+.stop-context-route-dot{width:7px;height:7px;border-radius:50%;display:inline-block;margin-right:6px;vertical-align:middle;}
+
+
+/* Route Manifest Modal */
+.manifest-modal{width:1320px;max-width:98vw;max-height:94vh;}
+.manifest-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-bottom:12px;}
+.manifest-stat{background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:8px;text-align:center;}
+.manifest-stat .val{font-family:'DM Mono',monospace;font-size:15px;color:var(--text1);font-weight:600;}
+.manifest-stat .lbl{font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.4px;margin-top:2px;}
+.manifest-route-list{border:1px solid var(--border);border-radius:10px;background:var(--bg2);max-height:62vh;overflow:auto;}
+.manifest-row{display:grid;grid-template-columns:60px 420px 180px 90px 110px 90px 180px;gap:10px;align-items:center;padding:9px 12px;border-bottom:1px solid var(--border);font-size:11px;min-width:1180px;}
+.manifest-row:last-child{border-bottom:none;}
+.manifest-row.header{background:var(--bg3);color:var(--text3);font-size:9px;text-transform:uppercase;letter-spacing:.5px;font-weight:700;position:sticky;top:0;z-index:2;}
+.manifest-row.stop{cursor:grab;}
+.manifest-row.stop:hover{background:rgba(79,140,255,.10);}
+.manifest-row.dragging{opacity:.35;}
+.manifest-row.drag-over{box-shadow:inset 0 0 0 2px var(--accent);background:rgba(79,140,255,.16);}
+.manifest-row.depot{background:rgba(167,139,250,.09);color:var(--text2);cursor:default;}
+.manifest-seq{font-family:'DM Mono',monospace;color:var(--text3);}
+.manifest-customer{min-width:0;}
+.manifest-name{font-weight:600;color:var(--text1);white-space:normal;overflow:visible;text-overflow:clip;line-height:1.25;}
+.manifest-detail{color:var(--text3);font-size:9px;margin-top:2px;white-space:normal;overflow:visible;text-overflow:clip;line-height:1.2;}
+
+/* Modals */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.78);z-index:2000;display:flex;align-items:center;justify-content:center;}
+.modal{background:var(--bg1);border:1px solid var(--border2);border-radius:12px;padding:20px;width:520px;max-width:96vw;max-height:90vh;overflow-y:auto;}
+.modal h2{font-size:14px;font-weight:600;margin-bottom:12px;color:var(--text1);}
+.modal-actions{display:flex;gap:7px;justify-content:flex-end;margin-top:12px;}
+.file-drop{border:2px dashed var(--border2);border-radius:8px;padding:22px;text-align:center;cursor:pointer;transition:all .2s;margin-bottom:10px;}
+.file-drop:hover,.file-drop.dragover{border-color:var(--accent);background:rgba(79,140,255,.05);}
+.file-drop svg{width:26px;height:26px;color:var(--text3);display:block;margin:0 auto 6px;}
+.file-drop p{font-size:12px;color:var(--text2);}
+.file-drop span{font-size:10px;color:var(--text3);}
+.input-row{display:flex;gap:7px;margin-bottom:7px;}
+.field{display:flex;flex-direction:column;gap:3px;flex:1;}
+.field label{font-size:10px;color:var(--text2);}
+.field input,.field select{background:var(--bg3);border:1px solid var(--border);border-radius:5px;color:var(--text1);font-size:11px;font-family:'Sora',sans-serif;padding:5px 7px;width:100%;}
+.field input:focus,.field select:focus{outline:none;border-color:var(--accent);}
+.shdr{font-size:10px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;margin:10px 0 5px;padding-bottom:3px;border-bottom:1px solid var(--border);}
+.empty-state{text-align:center;padding:24px 14px;color:var(--text3);font-size:11px;}
+.empty-state svg{width:28px;height:28px;margin:0 auto 7px;opacity:.3;display:block;}
+.toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:var(--bg2);border:1px solid var(--border2);border-radius:7px;padding:8px 16px;font-size:11px;z-index:9999;animation:fadeUp .2s ease;pointer-events:none;max-width:90vw;text-align:center;}
+@keyframes fadeUp{from{opacity:0;transform:translateX(-50%) translateY(8px);}to{opacity:1;transform:translateX(-50%) translateY(0);}}
+.job-result{background:var(--bg3);border:1px solid var(--border);border-radius:6px;padding:10px 12px;font-size:11px;color:var(--text2);margin-top:8px;line-height:1.8;}
+.job-result strong{color:var(--text1);}
+.imp-tabs{display:flex;border:1px solid var(--border);border-radius:6px;overflow:hidden;margin-bottom:10px;}
+.imp-tab{flex:1;padding:5px;text-align:center;font-size:10px;cursor:pointer;color:var(--text2);background:var(--bg2);border-right:1px solid var(--border);}
+.imp-tab:last-child{border-right:none;}
+.imp-tab.active{background:var(--accent);color:#fff;font-weight:600;}
+</style>
+</head>
+<body>
+
+<!-- TOP BAR -->
+<div class="topbar">
+  <div class="logo">Route<span>Desk</span><small>v2</small></div>
+  <div class="topbar-sep"></div>
+  <div class="topbar-group">
+    <span class="topbar-label">Date</span>
+    <input type="date" class="date-input" id="route-date"/>
+  </div>
+  <div class="topbar-group">
+    <span class="topbar-label">Start</span>
+    <input type="time" class="time-input" id="global-start" value="06:00"/>
+    <span class="topbar-label">End</span>
+    <input type="time" class="time-input" id="global-end" value="18:00"/>
+    <button class="btn" onclick="applyTimeToRoutes()" title="Apply to selected routes">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+      Apply
+    </button>
+  </div>
+  <div class="topbar-sep"></div>
+  <div class="topbar-actions">
+    <button class="btn" onclick="openImport()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+      Import
+    </button>
+    <button class="btn" onclick="openAddStop()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+      Add Stop
+    </button>
+    <button class="btn" onclick="openAddRoute()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+      New Route
+    </button>
+    <button class="btn purple" onclick="runPreferredJob()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+      Preferred Job
+    </button>
+    <div class="topbar-group" title="Miles used by the Potential Routes job">
+      <span class="topbar-label">Radius</span>
+      <input type="number" class="radius-input" id="routing-radius" value="15" min="0.1" step="0.1"/>
+      <span class="topbar-label">mi</span>
+    </div>
+    <button class="btn warn" onclick="runPotentialJob()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+      Potential Routes
+    </button>
+    <button class="btn success" onclick="exportExcel()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      Export
+    </button>
+  </div>
+</div>
+
+<!-- STATS -->
+<div id="stats-bar" class="stats-bar"></div>
+
+<!-- MAIN -->
+<div class="main">
+  <!-- LEFT -->
+  <div class="left-panel" id="left-panel">
+    <div class="app-tabs">
+      <div class="app-tab active" id="apptab-routing" onclick="switchAppTab('routing')">&#128506; Routing</div>
+      <div class="app-tab" id="apptab-drivers" onclick="switchAppTab('drivers')">&#128666; Drivers</div>
+    </div>
+
+    <!-- ROUTING VIEW -->
+    <div id="view-routing" style="display:flex;flex-direction:column;flex:1;overflow:hidden;">
+      <!-- Apply bar -->
+      <div class="apply-bar">
+        <input type="checkbox" id="chk-all" onchange="toggleAllRouteChecks(this.checked)" style="accent-color:var(--accent);width:13px;height:13px;"/>
+        <label for="chk-all">Apply to All Routes</label>
+        <span style="flex:1"></span>
+        <span id="sel-count" style="font-size:10px;color:var(--text3);"></span>
+      </div>
+
+      <!-- Routes quadrant -->
+      <div class="quadrant" id="q-routes" style="flex:1;min-height:120px;">
+        <div class="q-header">
+          <span class="q-title">Routes</span>
+          <select id="route-sort" class="route-sort" onchange="setRouteSort(this.value)" title="Optional route sorting">
+            <option value="">Sort By...</option>
+            <option value="name">Name</option>
+            <option value="stops">Stops Per Route</option>
+            <option value="time">Total Time</option>
+            <option value="miles">Miles</option>
+          </select>
+          <span id="route-badge" style="font-size:10px;color:var(--text3);"></span>
+        </div>
+        <div class="q-body" id="routes-list"></div>
+      </div>
+
+      <!-- Splitter -->
+      <div class="splitter" id="splitter"></div>
+
+      <!-- Unassigned quadrant -->
+      <div class="quadrant" id="q-ua" style="flex:1;min-height:100px;">
+        <div class="q-header">
+          <span class="q-title">Unassigned Stops</span>
+          <div style="display:flex;gap:5px;align-items:center;">
+            <button class="btn success" id="assign-potential-btn" style="display:none;padding:2px 7px;font-size:9px;" onclick="assignToPotentialRoutes()">Assign to Potential Routes</button>
+            <button class="btn" style="padding:2px 7px;font-size:9px;" onclick="checkAllUA(true)">All</button>
+            <button class="btn" style="padding:2px 7px;font-size:9px;" onclick="checkAllUA(false)">None</button>
+            <span id="ua-badge" style="font-size:10px;color:var(--text3);"></span>
+          </div>
+        </div>
+        <div class="q-body" id="ua-list"></div>
+      </div>
+    </div>
+
+    <!-- DRIVERS VIEW -->
+    <div id="view-drivers" style="display:none;flex:1;overflow-y:auto;">
+      <div id="drivers-list"></div>
+    </div>
+  </div>
+
+  <!-- MAP -->
+  <div class="map-area">
+    <div class="map-controls">
+      <button class="btn" onclick="clearMapView()" title="Remove all routes and stops from the map">Clear Map</button>
+      <button class="btn" onclick="displayAllRoutesOnMap()" title="Display every assigned route on the map">Display All Routes</button>
+      <button class="btn" onclick="displayAllUnassignedStopsOnMap()" title="Display every unassigned stop on the map">Display All Unassigned Stops</button>
+      <span class="map-drop-hint">Drag routes/stops here to display</span>
+    </div>
+    <div id="map"></div>
+    <div class="map-legend" id="map-legend">
+      <div class="map-legend-title">Routes</div>
+      <div id="legend-items"></div>
+    </div>
+  </div>
+</div>
+
+
+<!-- Map Stop Right-Click Menu -->
+<div id="stop-context-menu" class="stop-context-menu"></div>
+
+<!-- ===== MODALS ===== -->
+
+<!-- Import Modal -->
+<div id="import-modal" style="display:none" class="modal-overlay">
+  <div class="modal">
+    <h2>Import Templates</h2>
+    <div class="imp-tabs">
+      <div class="imp-tab active" id="itab-all" onclick="setImportMode('all')">All Templates</div>
+      <div class="imp-tab" id="itab-routes" onclick="setImportMode('routes')">Routes Only</div>
+      <div class="imp-tab" id="itab-drivers" onclick="setImportMode('drivers')">Drivers Only</div>
+      <div class="imp-tab" id="itab-stops" onclick="setImportMode('stops')">Stops Only</div>
+      <div class="imp-tab" id="itab-depots" onclick="setImportMode('depots')">Depots Only</div>
+    </div>
+    <div id="imp-drop" class="file-drop"
+      onclick="document.getElementById('file-in').click()"
+      ondragover="event.preventDefault();this.classList.add('dragover')"
+      ondragleave="this.classList.remove('dragover')"
+      ondrop="handleDrop(event)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+      <p>Click or drag &amp; drop Excel / CSV file here</p>
+      <span id="imp-hint">Upload one file with sheets named "Routes", "Drivers", "Stops", and "Depot Locations" — or load individually</span>
+    </div>
+    <input type="file" id="file-in" accept=".xlsx,.xls,.csv" style="display:none" onchange="handleFileSelect(this)"/>
+    <div id="imp-preview"></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal('import-modal')">Cancel</button>
+      <button class="btn primary" id="imp-confirm" onclick="confirmImport()" style="display:none">Import Data</button>
+    </div>
+  </div>
+</div>
+
+<!-- Add Stop Modal -->
+<div id="add-stop-modal" style="display:none" class="modal-overlay">
+  <div class="modal">
+    <h2>Add Stop</h2>
+    <div class="shdr">Customer</div>
+    <div class="input-row">
+      <div class="field"><label>Customer Name *</label><input id="s-name" placeholder="Acme Foods"/></div>
+      <div class="field"><label>ORDER_NUMBER</label><input id="s-ord" placeholder="ORD-001"/></div>
+    </div>
+    <div class="input-row">
+      <div class="field"><label>SHIP_TO_ID</label><input id="s-shipto"/></div>
+      <div class="field"><label>CUSTOMER_NUMBER</label><input id="s-cust"/></div>
+    </div>
+    <div class="shdr">Location</div>
+    <div class="input-row">
+      <div class="field"><label>Address</label><input id="s-addr" placeholder="123 Main St"/></div>
+      <div class="field"><label>City</label><input id="s-city"/></div>
+    </div>
+    <div class="input-row">
+      <div class="field"><label>State</label><input id="s-state" style=""/></div>
+      <div class="field"><label>Zip</label><input id="s-zip"/></div>
+    </div>
+    <div class="input-row">
+      <div class="field"><label>Latitude *</label><input id="s-lat" type="number" step="any" placeholder="41.8781"/></div>
+      <div class="field"><label>Longitude *</label><input id="s-lng" type="number" step="any" placeholder="-87.6298"/></div>
+    </div>
+    <div class="shdr">Time Windows</div>
+    <div class="input-row">
+      <div class="field"><label>Earliest Time Window</label><input id="s-etw" type="time"/></div>
+      <div class="field"><label>Latest Time Window</label><input id="s-ltw" type="time"/></div>
+    </div>
+    <div class="shdr">Load (DRY)</div>
+    <div class="input-row">
+      <div class="field"><label>Cases</label><input id="s-cases" type="number" value="0"/></div>
+      <div class="field"><label>Weight</label><input id="s-weight" type="number" step="any" value="0"/></div>
+      <div class="field"><label>Cube</label><input id="s-cube" type="number" step="any" value="0"/></div>
+    </div>
+    <div class="shdr">Routing Preferences</div>
+    <div class="input-row">
+      <div class="field"><label>Preferred Resource Key</label><input id="s-prefkey"/></div>
+      <div class="field"><label>Route Sequence</label><input id="s-prefseq" type="number"/></div>
+    </div>
+    <div class="input-row">
+      <div class="field"><label>Assign to Route</label>
+        <select id="s-route"><option value="">— Unassigned —</option></select>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal('add-stop-modal')">Cancel</button>
+      <button class="btn primary" onclick="saveStop()">Add Stop</button>
+    </div>
+  </div>
+</div>
+
+<!-- Add Route Modal -->
+<div id="add-route-modal" style="display:none" class="modal-overlay">
+  <div class="modal">
+    <h2>New Route</h2>
+    <div class="input-row">
+      <div class="field"><label>Route Name *</label><input id="r-name" placeholder="North Shore"/></div>
+      <div class="field"><label>RouteTemplateKey</label><input id="r-key" placeholder="R-01"/></div>
+    </div>
+    <div class="input-row">
+      <div class="field"><label>DriverKey</label><input id="r-dkey"/></div>
+      <div class="field"><label>TruckKey</label><input id="r-tkey"/></div>
+    </div>
+    <div class="shdr">Timing</div>
+    <div class="input-row">
+      <div class="field"><label>Earliest Start</label><input id="r-est" type="time" value="06:00"/></div>
+      <div class="field"><label>Latest Start</label><input id="r-lst" type="time" value="08:00"/></div>
+      <div class="field"><label>Latest End</label><input id="r-let" type="time" value="16:00"/></div>
+    </div>
+    <div class="input-row">
+      <div class="field"><label>Startup Time (min)</label><input id="r-sup" type="number" value="15"/></div>
+      <div class="field"><label>Windup Time (min)</label><input id="r-wnd" type="number" value="15"/></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal('add-route-modal')">Cancel</button>
+      <button class="btn primary" onclick="saveRoute()">Create Route</button>
+    </div>
+  </div>
+</div>
+
+
+<!-- Route Manifest Modal -->
+<div id="route-manifest-modal" style="display:none" class="modal-overlay">
+  <div class="modal manifest-modal">
+    <h2 id="manifest-title">Route Manifest</h2>
+    <div id="manifest-stats" class="manifest-stats"></div>
+    <div id="manifest-list" class="manifest-route-list"></div>
+    <div class="modal-actions">
+      <button class="btn warn" onclick="unassignAllStopsFromManifest()">Unassign All Stops</button>
+      <button class="btn" onclick="closeModal('route-manifest-modal')">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- Job Results Modal -->
+<div id="job-modal" style="display:none" class="modal-overlay">
+  <div class="modal">
+    <h2 id="job-title">Job Results</h2>
+    <div id="job-body"></div>
+    <div class="modal-actions">
+      <button class="btn primary" onclick="closeModal('job-modal')">Done</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// STATE
+// ============================================================
+const COLORS=['#4f8cff','#3ecf8e','#f59e0b','#ef4444','#a78bfa','#fb923c','#38bdf8','#f472b6','#34d399','#fbbf24','#60a5fa','#86efac'];
+let routes=[], stops=[], drivers=[], depotLocations=[];
+let mapCleared=false;
+const visibleStopIds=new Set();
+const visibleRouteIds=new Set();
+let activeManifestRouteId=null, manifestDragStopId=null;
+let appTab='routing', importMode='all', pendingWB=null;
+let dragState=null, map, markers={}, polylines={}, expanded=new Set();
+let contextStopId=null;
+let potColors={}; // stopId -> color
+let potRouteSuggestions={}; // stopId -> suggested routeId from Potential Routes job
+let routeSort=""; // optional route sort; blank keeps import/original order
+
+// ============================================================
+// INIT
+// ============================================================
+window.addEventListener('DOMContentLoaded',()=>{
+  document.getElementById('route-date').value=new Date().toISOString().slice(0,10);
+  map=L.map('map',{zoomControl:true}).setView([39.5,-98.35],4);
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{
+    maxZoom:19, subdomains:'abcd',
+    attribution:'&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> &copy; <a href="https://carto.com/">CARTO</a>'
+  }).addTo(map);
+  const mapEl=document.getElementById('map');
+  mapEl.addEventListener('dragover',e=>e.preventDefault());
+  mapEl.addEventListener('drop',dropOnMap);
+  initSplitter();
+  render();
+});
+
+// ============================================================
+// SPLITTER
+// ============================================================
+function initSplitter(){
+  const sp=document.getElementById('splitter');
+  const qr=document.getElementById('q-routes');
+  const qu=document.getElementById('q-ua');
+  let dragging=false, startY=0, startH=0;
+  sp.addEventListener('mousedown',e=>{
+    dragging=true; startY=e.clientY; startH=qr.offsetHeight;
+    sp.classList.add('dragging');
+    document.body.style.userSelect='none'; document.body.style.cursor='row-resize';
+  });
+  window.addEventListener('mousemove',e=>{
+    if(!dragging) return;
+    const d=e.clientY-startY;
+    const vr=document.getElementById('view-routing');
+    const maxH=vr.offsetHeight-120;
+    const newH=Math.max(80,Math.min(startH+d,maxH));
+    qr.style.flex='none'; qr.style.height=newH+'px'; qu.style.flex='1';
+  });
+  window.addEventListener('mouseup',()=>{
+    dragging=false; sp.classList.remove('dragging');
+    document.body.style.userSelect=''; document.body.style.cursor='';
+  });
+}
+
+// ============================================================
+// HELPERS
+// ============================================================
+function uid(){return '_'+Math.random().toString(36).slice(2,9)+Date.now().toString(36);}
+function escapeHtml(value){
+  return (value??'').toString().replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function routeColor(routeId){const i=routes.findIndex(r=>r.id===routeId);return i>=0?COLORS[i%COLORS.length]:'#5c6480';}
+function tCases(s){return(s.dryCases||0)+(s.coolerCases||0)+(s.frozenCases||0)+(s.pkgCases||0);}
+function tWeight(s){return(s.dryWeight||0)+(s.coolerWeight||0)+(s.frozenWeight||0)+(s.pkgWeight||0);}
+function tCube(s){return(s.dryCube||0)+(s.coolerCube||0)+(s.frozenCube||0)+(s.pkgCube||0);}
+function haversine(lat1,lng1,lat2,lng2){
+  const R=3958.8,dLat=(lat2-lat1)*Math.PI/180,dLng=(lng2-lng1)*Math.PI/180;
+  const a=Math.sin(dLat/2)**2+Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLng/2)**2;
+  return R*2*Math.atan2(Math.sqrt(a),Math.sqrt(1-a));
+}
+function first4Digits(value){
+  const digits=(value??'').toString().replace(/\D/g,'');
+  return digits.length>=4?digits.slice(0,4):'';
+}
+function excelTimeToHHMM(value){
+  if(value===null||value===undefined||value==='')return '';
+  if(value instanceof Date && !isNaN(value)){
+    return String(value.getHours()).padStart(2,'0')+':'+String(value.getMinutes()).padStart(2,'0');
+  }
+  if(typeof value==='number'&&isFinite(value)){
+    const dayFraction=value%1;
+    if(value>=0&&value<1.000001){
+      const mins=Math.round(dayFraction*24*60);
+      return String(Math.floor(mins/60)%24).padStart(2,'0')+':'+String(mins%60).padStart(2,'0');
+    }
+  }
+  const str=value.toString().trim();
+  if(!str)return '';
+  if(/^0?\.\d+$/.test(str)){
+    const num=parseFloat(str);
+    const mins=Math.round(num*24*60);
+    return String(Math.floor(mins/60)%24).padStart(2,'0')+':'+String(mins%60).padStart(2,'0');
+  }
+  if(/^\d{1,2}:\d{2}/.test(str))return str.slice(0,5);
+  const num=parseFloat(str);
+  if(isFinite(num)&&num>=0&&num<1.000001){
+    const mins=Math.round(num*24*60);
+    return String(Math.floor(mins/60)%24).padStart(2,'0')+':'+String(mins%60).padStart(2,'0');
+  }
+  return str;
+}
+function timeToMinutes(value){
+  const t=excelTimeToHHMM(value);
+  const m=t.match(/^(\d{1,2}):(\d{2})/);
+  if(!m)return null;
+  return parseInt(m[1],10)*60+parseInt(m[2],10);
+}
+function routeDistanceMiles(routeId){
+  const route=routes.find(r=>r.id===routeId);
+  if(!route)return 0;
+  const pts=[];
+  const init=routeInitialDepot(route), fin=routeFinalDepot(route);
+  if(init&&init.lat&&init.lng)pts.push({lat:init.lat,lng:init.lng});
+  stops.filter(s=>s.routeId===routeId&&s.lat&&s.lng).sort((a,b)=>a.seq-b.seq).forEach(s=>pts.push({lat:s.lat,lng:s.lng}));
+  if(fin&&fin.lat&&fin.lng)pts.push({lat:fin.lat,lng:fin.lng});
+  let miles=0;
+  for(let i=1;i<pts.length;i++)miles+=haversine(pts[i-1].lat,pts[i-1].lng,pts[i].lat,pts[i].lng);
+  return miles;
+}
+function routeTotalMinutes(routeId){
+  const route=routes.find(r=>r.id===routeId);
+  if(!route)return 0;
+  const rs=stops.filter(s=>s.routeId===routeId);
+  // Total Time = Travel Time + Order Service Time + Startup Time + Windup Time
+  // Order Service Time = 5 minutes per stop + Cases x .03 seconds
+  const service=rs.reduce((a,s)=>a+5+((tCases(s)*0.03)/60),0);
+  const travel=(routeDistanceMiles(routeId)/35)*60;
+  return (parseFloat(route.startupTime)||0)+(parseFloat(route.windupTime)||0)+service+travel;
+}
+function fmtMinutes(mins){
+  if(!isFinite(mins)||mins<=0)return '0m';
+  const h=Math.floor(mins/60), m=Math.round(mins%60);
+  return h?`${h}h ${m}m`:`${m}m`;
+}
+function fmtTiming(r){
+  const p=[];
+  if(r.startupTime) p.push('+'+r.startupTime+'min startup');
+  if(r.earliestStartTime) p.push('Est:'+excelTimeToHHMM(r.earliestStartTime));
+  if(r.latestEndTime) p.push('End by:'+excelTimeToHHMM(r.latestEndTime));
+  return p.join(' · ')||'No time set';
+}
+
+function cleanTimeValue(value){
+  const t=excelTimeToHHMM(value);
+  const m=(t||'').toString().match(/^(\d{1,2}):(\d{2})/);
+  if(!m)return t||'';
+  return String(parseInt(m[1],10)).padStart(2,'0')+':'+m[2];
+}
+function routeStartTime(route){
+  return cleanTimeValue(route.earliestStartTime||route.latestStartTime||document.getElementById('global-start')?.value||'');
+}
+function addMinutesToHHMM(timeValue, minutes){
+  const base=timeToMinutes(timeValue);
+  if(base===null)return '';
+  const total=Math.round(base+(parseFloat(minutes)||0));
+  const normalized=((total%1440)+1440)%1440;
+  const h=Math.floor(normalized/60);
+  const m=normalized%60;
+  return String(h).padStart(2,'0')+':'+String(m).padStart(2,'0');
+}
+function routeEndEstimate(routeId){
+  const route=routes.find(r=>r.id===routeId);
+  if(!route)return '';
+  const start=routeStartTime(route);
+  return cleanTimeValue(addMinutesToHHMM(start, routeTotalMinutes(routeId)));
+}
+
+function normalizeKey(value){return (value??'').toString().trim();}
+function findDepotByKey(key){
+  const needle=normalizeKey(key);
+  if(!needle)return null;
+  return depotLocations.find(d=>normalizeKey(d.locationKey)===needle)||null;
+}
+function depotLabel(depot,fallback){
+  if(!depot)return fallback||'Depot not matched';
+  return depot.name||depot.locationType||depot.locationKey||fallback||'Depot';
+}
+function routeInitialDepot(route){return route.initialDepot||findDepotByKey(route.initialLocationKey);}
+function routeFinalDepot(route){return route.finalDepot||findDepotByKey(route.finalLocationKey);}
+function enrichRouteDepots(){
+  routes.forEach(route=>{
+    route.initialDepot=findDepotByKey(route.initialLocationKey);
+    route.finalDepot=findDepotByKey(route.finalLocationKey);
+    const dep=route.initialDepot;
+    if(dep&&dep.lat&&dep.lng){route.depotLat=dep.lat;route.depotLng=dep.lng;}
+  });
+}
+function renderDepotRouteRow(route,type,color){
+  const depot=type==='initial'?routeInitialDepot(route):routeFinalDepot(route);
+  const key=type==='initial'?route.initialLocationKey:route.finalLocationKey;
+  const label=type==='initial'?'START DEPOT':'END DEPOT';
+  const name=depotLabel(depot,key?`Location ${key}`:'No depot key');
+  const detail=depot?`${depot.shipCity||''} ${depot.shipState||''} ${depot.shipZipCode||''}`.trim():'Import Depot Locations to match LocationKey';
+  return `<div class="stop-row" style="cursor:default;opacity:.88;border-color:var(--border);background:rgba(79,140,255,.06);">
+    <span class="s-seq" style="width:42px;color:${color};">${type==='initial'?'START':'END'}</span>
+    <span class="s-dot" style="background:${color}"></span>
+    <div class="s-info">
+      <div class="s-name">${label}: ${name}</div>
+      <div class="s-detail">LocationKey: ${key||'—'}${detail?` &middot; ${detail}`:''}</div>
+    </div>
+  </div>`;
+}
+function depotLatLng(depot){return depot&&depot.lat&&depot.lng?[depot.lat,depot.lng]:null;}
+
+// ============================================================
+// RENDER
+// ============================================================
+function render(){
+  renderStats(); renderRoutes(); renderUA(); renderMap(); renderLegend(); updateApplyBar(); updateAssignPotentialButton();
+}
+
+function renderStats(){
+  const asgn=stops.filter(s=>s.routeId).length;
+  const ua=stops.filter(s=>!s.routeId).length;
+  const tc=stops.reduce((a,s)=>a+tCases(s),0);
+  const tw=stops.reduce((a,s)=>a+tWeight(s),0);
+  const tcu=stops.reduce((a,s)=>a+tCube(s),0);
+  document.getElementById('stats-bar').innerHTML=`
+    <div class="stat"><div class="stat-val">${routes.length}</div><div class="stat-lbl">Routes</div></div>
+    <div class="stat"><div class="stat-val">${asgn}</div><div class="stat-lbl">Assigned</div></div>
+    <div class="stat"><div class="stat-val">${ua}</div><div class="stat-lbl">Unassigned</div></div>
+    <div class="stat"><div class="stat-val">${drivers.length}</div><div class="stat-lbl">Drivers</div></div>
+    <div class="stat"><div class="stat-val">${depotLocations.length}</div><div class="stat-lbl">Depots</div></div>
+    <div class="stat"><div class="stat-val">${tc.toLocaleString()}</div><div class="stat-lbl">Cases</div></div>
+    <div class="stat"><div class="stat-val">${Math.round(tw).toLocaleString()}</div><div class="stat-lbl">Weight</div></div>
+    <div class="stat"><div class="stat-val">${tcu.toFixed(1)}</div><div class="stat-lbl">Cube</div></div>
+  `;
+}
+
+function sortedRoutesForDisplay(){
+  const list=[...routes];
+  if(!routeSort)return list;
+  list.sort((a,b)=>{
+    if(routeSort==='stops')return stops.filter(s=>s.routeId===b.id).length-stops.filter(s=>s.routeId===a.id).length || (a.name||'').localeCompare(b.name||'');
+    if(routeSort==='time')return routeTotalMinutes(b.id)-routeTotalMinutes(a.id) || (a.name||'').localeCompare(b.name||'');
+    if(routeSort==='miles')return routeDistanceMiles(b.id)-routeDistanceMiles(a.id) || (a.name||'').localeCompare(b.name||'');
+    if(routeSort==='name')return (a.name||'').localeCompare(b.name||'');
+    return 0;
+  });
+  return list;
+}
+function setRouteSort(value){routeSort=value;renderRoutes();}
+function renderRoutes(){
+  const el=document.getElementById('routes-list');
+  const sortSelect=document.getElementById('route-sort');
+  if(sortSelect)sortSelect.value=routeSort;
+  document.getElementById('route-badge').textContent=routes.length+' routes';
+  if(!routes.length){
+    el.innerHTML='<div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 13l4.553 2.276A1 1 0 0021 21.382V10.618a1 1 0 00-.553-.894L15 7m0 13V7m0 0L9 4"/></svg><p>No routes yet — import or create one</p></div>';
+    return;
+  }
+  el.innerHTML=sortedRoutesForDisplay().map((r)=>{
+    const ri=routes.findIndex(x=>x.id===r.id);
+    const color=COLORS[ri%COLORS.length];
+    const rStops=stops.filter(s=>s.routeId===r.id).sort((a,b)=>a.seq-b.seq);
+    const cs=rStops.reduce((a,s)=>a+tCases(s),0);
+    const wt=rStops.reduce((a,s)=>a+tWeight(s),0);
+    const cu=rStops.reduce((a,s)=>a+tCube(s),0);
+    const drv=drivers.find(d=>d.truckKey===r.truckKey||d.driverKey===r.driverKey);
+    const dname=r.driverFirstName?(r.driverFirstName+' '+(r.driverLastName||'')).trim():(drv?drv.name:'—');
+    const isOpen=expanded.has(r.id);
+    return`<div class="route-card" id="rc-${r.id}" draggable="true" ondragstart="onRouteDragStart(event,'${r.id}')" ondragend="onDragEnd()" onmouseenter="highlightRoute('${r.id}')" onmouseleave="clearMapHighlight()">
+      <div class="r-header" onclick="openRouteManifest('${r.id}')">
+        <div class="r-colorbar" style="background:${color}"></div>
+        <div class="r-info">
+          <div class="r-name">${r.name}</div>
+          <div class="r-meta">${rStops.length} stops &middot; ${cs}cs &middot; ${Math.round(wt)}lbs &middot; ${cu.toFixed(1)}cu &middot; ${routeDistanceMiles(r.id).toFixed(1)}mi &middot; ${fmtMinutes(routeTotalMinutes(r.id))} &middot; ${dname}</div>
+          <div class="r-timing">${fmtTiming(r)}${r.udfNumber1?' · UDF#1:'+r.udfNumber1:''}${r.initialLocationKey||r.finalLocationKey?' · Depot '+(r.initialLocationKey||'—')+' → '+(r.finalLocationKey||'—'):''}</div>
+        </div>
+        <div class="r-ctrl">
+          <input type="checkbox" class="r-chk" id="rchk-${r.id}" ${r.selected?'checked':''} onclick="event.stopPropagation();routeCheck('${r.id}',this.checked)"/>
+          <span class="chev ${isOpen?'open':''}" title="Expand route" onclick="event.stopPropagation();toggleExpand('${r.id}',event)">&#9660;</span>
+        </div>
+      </div>
+      <div class="r-stops ${isOpen?'open':''}" id="rstops-${r.id}"
+        ondragover="event.preventDefault()" ondrop="dropOnRoute(event,'${r.id}')">
+        ${renderDepotRouteRow(r,'initial',color)}
+        ${rStops.map(s=>`
+        <div class="stop-row" draggable="true" id="srow-${s.id}" onmouseenter="highlightStop('${s.id}')" onmouseleave="clearMapHighlight()"
+          ondragstart="onDragStart(event,'${s.id}','${r.id}')"
+          ondragover="onDragOver(event,'${s.id}')"
+          ondrop="onDropStop(event,'${s.id}','${r.id}')"
+          ondragleave="onDragLeave(event)"
+          ondragend="onDragEnd()">
+          <span class="s-seq">${s.seq}</span>
+          <span class="s-dot" style="background:${color}"></span>
+          <div class="s-info">
+            <div class="s-name">${s.customerName||'Stop'}</div>
+            <div class="s-detail">${s.orderNumber||''} &middot; ${tCases(s)}cs &middot; ${s.city||''} ${s.state||''}</div>
+          </div>
+          <div class="s-acts">
+            <button class="icon-btn" title="Zoom to" onclick="flyTo('${s.id}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg></button>
+            <button class="icon-btn" title="Unassign" onclick="unassign('${s.id}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button>
+          </div>
+        </div>`).join('')}
+        ${renderDepotRouteRow(r,'final',color)}
+        <div style="padding:3px 8px 4px 0;">
+          <button class="btn" style="width:100%;font-size:9px;padding:3px;" onclick="openAddStopForRoute('${r.id}')">+ Add stop to this route</button>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function renderUA(){
+  const el=document.getElementById('ua-list');
+  const ua=stops.filter(s=>!s.routeId);
+  document.getElementById('ua-badge').textContent=ua.length+' stops';
+  if(!ua.length){
+    el.innerHTML='<div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><p>All stops assigned!</p></div>';
+    return;
+  }
+  el.innerHTML=ua.map(s=>{
+    const pc=potColors[s.id];
+    const hasPref=!!(s.preferredResourceKey&&s.preferredResourceKey.toString().trim());
+    const isWC=s.willCallIndicator==='Y'||s.willCallIndicator==='1'||s.willCallIndicator===1||s.willCallIndicator===true;
+    return`<div class="ua-row" draggable="true" id="urow-${s.id}" onmouseenter="highlightStop('${s.id}')" onmouseleave="clearMapHighlight()"
+      ondragstart="onDragStart(event,'${s.id}',null)" ondragend="onDragEnd()">
+      <input type="checkbox" class="ua-chk" ${s.uiChecked?'checked':''}
+        onclick="setCheck('${s.id}',this.checked);event.stopPropagation()"/>
+      <span class="ua-dot" style="background:${pc||'var(--text3)'}"></span>
+      <div class="ua-info">
+        <div class="ua-name">${s.customerName||'Stop'}${hasPref?'<span class="tag tag-pref">&#11088; Pref</span>':''}${isWC?'<span class="tag tag-wc">Will Call</span>':''}</div>
+        <div class="ua-detail">${s.orderNumber||''} &middot; ${tCases(s)}cs &middot; ${s.city||''} ${s.state||''}${pc?`<span class="tag-pot" style="background:${pc};margin-left:4px;">&#128204; Suggested</span>`:''}</div>
+      </div>
+      <select class="ua-assign" onchange="assignStop('${s.id}',this.value);this.value=''">
+        <option value="">Assign&hellip;</option>
+        ${routes.map(r=>`<option value="${r.id}">${r.name}</option>`).join('')}
+      </select>
+    </div>`;
+  }).join('');
+}
+
+function renderDrivers(){
+  const el=document.getElementById('drivers-list');
+  if(!drivers.length){
+    el.innerHTML='<div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg><p>No drivers imported</p></div>';
+    return;
+  }
+  el.innerHTML=drivers.map(d=>{
+    const assignedRoute=routes.find(r=>r.truckKey===d.truckKey||r.driverKey===d.driverKey);
+    return`<div class="driver-card">
+      <div class="d-name">${d.name||d.truckId||'Driver'}</div>
+      <div class="d-meta">TruckKey: ${d.truckKey||'—'} &middot; Type: ${d.vehicleType||'—'} &middot; ${(d.active+'').toUpperCase()==='Y'||d.active===true?'&#10003; Active':'Inactive'}</div>
+      <div class="d-truck">TruckID: ${d.truckId||'—'} &middot; Company: ${d.company||'—'} &middot; ${assignedRoute?'Assigned: '+assignedRoute.name:'Not assigned'}</div>
+    </div>`;
+  }).join('');
+}
+
+function renderMap(){
+  Object.values(markers).forEach(m=>map.removeLayer(m));
+  Object.values(polylines).forEach(p=>map.removeLayer(p));
+  markers={}; polylines={};
+  stops.forEach(s=>{
+    if(!s.lat||!s.lng) return;
+    if(mapCleared && !visibleStopIds.has(s.id) && !(s.routeId&&visibleRouteIds.has(s.routeId))) return;
+    const color=s.routeId?routeColor(s.routeId):(potColors[s.id]||'#5c6480');
+    const label=s.routeId?s.seq:'?';
+    const icon=L.divIcon({className:'',
+      html:`<div style="width:24px;height:24px;border-radius:50%;background:${color};border:2px solid ${s.routeId?'#fff':'rgba(255,255,255,.35)'};display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;color:#fff;font-family:DM Mono,monospace;box-shadow:0 2px 8px rgba(0,0,0,.5);">${label}</div>`,
+      iconSize:[24,24],iconAnchor:[12,12]});
+    const m=L.marker([s.lat,s.lng],{icon}).addTo(map);
+    const r=routes.find(x=>x.id===s.routeId)||{};
+    m.bindPopup(`<div style="font-family:Sora,sans-serif;min-width:240px;font-size:12px;">
+      <b>${s.customerName||'Stop'}</b><br/>
+      <span style="color:#666;font-size:11px;">${s.address||''} ${s.city||''} ${s.state||''}</span>
+      <hr style="margin:5px 0;border-color:#eee;"/>
+      <b>Order:</b> ${s.orderNumber||'—'} &nbsp;|&nbsp; <b>Cases:</b> ${tCases(s)}<br/>
+      <b>Weight:</b> ${tWeight(s).toFixed(0)} &nbsp;|&nbsp; <b>Cube:</b> ${tCube(s).toFixed(1)}<br/>
+      <b>Window:</b> ${s.earliestTimeWindow||'—'} – ${s.latestTimeWindow||'—'}<br/>
+      ${r.name?`<b>Route:</b> ${r.name}`:'<b style="color:#f59e0b;">Unassigned</b>'}
+      ${s.preferredResourceKey?`<br/><b>Pref Key:</b> ${s.preferredResourceKey}`:''}
+      <br/><span style="font-size:10px;color:#999;">Right-click marker for actions</span>
+    </div>`);
+    m.on('contextmenu', function(ev){
+      L.DomEvent.preventDefault(ev);
+      const original=ev.originalEvent||{};
+      openStopContextMenu(s.id, original.clientX || 0, original.clientY || 0);
+    });
+    m.on('mouseover',()=>highlightStop(s.id));
+    m.on('mouseout',()=>clearMapHighlight());
+    markers[s.id]=m;
+  });
+  routes.forEach((r,ri)=>{
+    if(mapCleared && !visibleRouteIds.has(r.id)) return;
+    const color=COLORS[ri%COLORS.length];
+    const init=routeInitialDepot(r);
+    const fin=routeFinalDepot(r);
+    [[init,'START'],[fin,'END']].forEach(([depot,label])=>{
+      if(!depot||!depot.lat||!depot.lng)return;
+      const depotId=`depot-${r.id}-${label}`;
+      const depotName=(depot.name||depot.locationType||depot.locationKey||'Depot').toString();
+      const safeDepotName=escapeHtml(depotName);
+      const icon=L.divIcon({className:'',
+        html:`<div class="depot-map-label" style="color:${color};"><span class="depot-type">${label}</span><span class="depot-name">${safeDepotName}</span></div>`,
+        iconSize:null,iconAnchor:[10,16]});
+      const m=L.marker([depot.lat,depot.lng],{icon}).addTo(map);
+      m.bindPopup(`<div style="font-family:Sora,sans-serif;min-width:190px;font-size:12px;"><b>${label} DEPOT</b><br/><b>${depot.name||'Depot'}</b><br/>LocationKey: ${depot.locationKey||''}<br/>${depot.shipStreet||''}<br/>${depot.shipCity||''} ${depot.shipState||''} ${depot.shipZipCode||''}</div>`);
+      markers[depotId]=m;
+    });
+
+    const rs=stops.filter(s=>s.routeId===r.id&&s.lat&&s.lng).sort((a,b)=>a.seq-b.seq);
+    const points=[];
+    if(init&&init.lat&&init.lng)points.push([init.lat,init.lng]);
+    rs.forEach(s=>points.push([s.lat,s.lng]));
+    if(fin&&fin.lat&&fin.lng)points.push([fin.lat,fin.lng]);
+    if(points.length<2) return;
+    polylines[r.id]=L.polyline(points,{color,weight:2.5,opacity:.72,dashArray:'5,4'}).addTo(map);
+    polylines[r.id].on('mouseover',()=>highlightRoute(r.id));
+    polylines[r.id].on('mouseout',()=>clearMapHighlight());
+    polylines[r.id].on('contextmenu',ev=>{
+      L.DomEvent.preventDefault(ev);
+      const original=ev.originalEvent||{};
+      openRouteContextMenu(r.id, original.clientX||0, original.clientY||0);
+    });
+  });
+}
+
+function renderLegend(){
+  document.getElementById('legend-items').innerHTML=
+    routes.map((r,ri)=>`<div class="legend-item"><div class="legend-dot" style="background:${COLORS[ri%COLORS.length]}"></div><div class="legend-label">${r.name}</div></div>`).join('')||
+    '<div style="font-size:10px;color:var(--text3)">No routes</div>';
+}
+
+function updateApplyBar(){
+  const sel=routes.filter(r=>r.selected).length;
+  document.getElementById('sel-count').textContent=sel?`${sel} selected`:'';
+  document.getElementById('chk-all').checked=routes.length>0&&routes.every(r=>r.selected);
+}
+
+function updateAssignPotentialButton(){
+  const btn=document.getElementById('assign-potential-btn');
+  if(!btn)return;
+  const count=stops.filter(s=>!s.routeId&&potRouteSuggestions[s.id]).length;
+  btn.style.display=count>0?'inline-flex':'none';
+  btn.textContent=count>0?`Assign to Potential Routes (${count})`:'Assign to Potential Routes';
+}
+
+// ============================================================
+// UI ACTIONS
+// ============================================================
+function switchAppTab(t){
+  appTab=t;
+  document.getElementById('apptab-routing').className='app-tab'+(t==='routing'?' active':'');
+  document.getElementById('apptab-drivers').className='app-tab'+(t==='drivers'?' active':'');
+  document.getElementById('view-routing').style.display=t==='routing'?'flex':'none';
+  document.getElementById('view-drivers').style.display=t==='drivers'?'block':'none';
+  if(t==='drivers') renderDrivers();
+}
+
+function toggleExpand(id,e){
+  if(e&&(e.target.classList.contains('r-chk')||e.target.tagName==='INPUT')) return;
+  expanded.has(id)?expanded.delete(id):expanded.add(id);
+  renderRoutes();
+}
+
+function routeCheck(id,val){const r=routes.find(x=>x.id===id);if(r){r.selected=val;}updateApplyBar();}
+function toggleAllRouteChecks(val){routes.forEach(r=>r.selected=val);renderRoutes();updateApplyBar();}
+function setCheck(id,val){const s=stops.find(x=>x.id===id);if(s)s.uiChecked=val;}
+function checkAllUA(val){stops.filter(s=>!s.routeId).forEach(s=>s.uiChecked=val);renderUA();}
+
+function applyTimeToRoutes(){
+  const date=document.getElementById('route-date').value;
+  const start=document.getElementById('global-start').value;
+  const end=document.getElementById('global-end').value;
+  const sel=routes.filter(r=>r.selected);
+  if(!sel.length){showToast('Select routes using the checkboxes first');return;}
+  sel.forEach(r=>{if(date)r.date=date;if(start)r.earliestStartTime=start;if(end)r.latestEndTime=end;});
+  render(); showToast(`Updated ${sel.length} route(s)`);
+}
+
+function flyTo(sid){
+  const s=stops.find(x=>x.id===sid);
+  if(s&&s.lat&&s.lng){map.flyTo([s.lat,s.lng],14);markers[sid]?.openPopup();}
+}
+
+function unassign(sid){
+  const s=stops.find(x=>x.id===sid);if(s){s.routeId=null;s.seq=0;}
+  reseq();render();showToast('Stop unassigned');
+}
+
+function assignStop(sid,rid){
+  if(!rid)return;
+  const s=stops.find(x=>x.id===sid);if(!s)return;
+  s.routeId=rid;
+  s.seq=Math.max(0,...stops.filter(x=>x.routeId===rid).map(x=>x.seq))+1;
+  reseq();render();
+}
+
+function reseq(){
+  routes.forEach(r=>stops.filter(s=>s.routeId===r.id).sort((a,b)=>a.seq-b.seq).forEach((s,i)=>s.seq=i+1));
+}
+
+// Drag & drop
+function onRouteDragStart(e,routeId){dragState={routeId};if(e.dataTransfer)e.dataTransfer.setData('text/plain','route:'+routeId);}
+function onDragStart(e,sid,fromRoute){dragState={sid,fromRoute};document.getElementById('srow-'+sid)?.classList.add('dragging');document.getElementById('urow-'+sid)?.classList.add('dragging');}
+function onDragEnd(){dragState=null;document.querySelectorAll('.stop-row,.ua-row').forEach(el=>el.classList.remove('dragging','drag-over'));}
+function onDragOver(e,tid){e.preventDefault();if(!dragState||dragState.sid===tid)return;document.getElementById('srow-'+tid)?.classList.add('drag-over');}
+function onDragLeave(e){e.currentTarget.classList.remove('drag-over');}
+function onDropStop(e,tid,tRoute){
+  e.preventDefault();e.stopPropagation();
+  if(!dragState)return;
+  const s=stops.find(x=>x.id===dragState.sid);const t=stops.find(x=>x.id===tid);
+  if(!s||!t||s.id===t.id)return;
+  s.routeId=tRoute;
+  const tmp=s.seq;s.seq=t.seq;t.seq=tmp;
+  reseq();render();showToast('Stop moved');
+}
+function dropOnRoute(e,rid){
+  e.preventDefault();
+  if(!dragState||dragState.routeId)return;
+  const s=stops.find(x=>x.id===dragState.sid);if(!s)return;
+  s.routeId=rid;
+  s.seq=Math.max(0,...stops.filter(x=>x.routeId===rid&&x.id!==s.id).map(x=>x.seq))+1;
+  reseq();render();showToast('Stop added to route');
+}
+function dropOnMap(e){
+  e.preventDefault();
+  if(!dragState)return;
+  mapCleared=true;
+  if(dragState.routeId){
+    visibleRouteIds.add(dragState.routeId);
+    stops.filter(s=>s.routeId===dragState.routeId).forEach(s=>visibleStopIds.add(s.id));
+    renderMap();showToast('Route displayed on map');
+    return;
+  }
+  if(dragState.sid){
+    visibleStopIds.add(dragState.sid);
+    renderMap();showToast('Stop displayed on map');
+  }
+}
+
+
+// ============================================================
+// MAP RIGHT-CLICK STOP MENU
+// ============================================================
+function openStopContextMenu(stopId,x,y){
+  const menu=document.getElementById('stop-context-menu');
+  const stop=stops.find(s=>s.id===stopId);
+  if(!menu||!stop)return;
+  contextStopId=stopId;
+  const currentRoute=routes.find(r=>r.id===stop.routeId);
+  const routeOptions=routes.length
+    ? routes.map((r,ri)=>`
+      <button class="stop-context-item" onclick="contextAssignStop('${stopId}','${r.id}')">
+        <span><span class="stop-context-route-dot" style="background:${COLORS[ri%COLORS.length]}"></span>${r.name}</span>
+        <span style="color:var(--text3);font-size:10px;">${r.routeTemplateKey||''}</span>
+      </button>`).join('')
+    : '<div style="font-size:11px;color:var(--text3);padding:7px 8px;">No routes available</div>';
+
+  menu.innerHTML=`
+    <div class="stop-context-title">${stop.customerName||'Stop'} ${currentRoute?`&middot; ${currentRoute.name}`:'&middot; Unassigned'}</div>
+    <button class="stop-context-item ${stop.routeId?'':'disabled'}" onclick="${stop.routeId?`contextUnassignStop('${stopId}')`:'return false'}">
+      <span>Unassign</span><span>↩</span>
+    </button>
+    <button class="stop-context-item ${stop.routeId?'':'disabled'}" onclick="${stop.routeId?`contextResequenceRoute('${stop.routeId}')`:'return false'}">
+      <span>Resequence current route</span><span>⌁</span>
+    </button>
+    <button class="stop-context-item" onclick="contextRemoveStopFromMap('${stopId}')">
+      <span>Remove Stop from Map</span><span>✕</span>
+    </button>
+    <button class="stop-context-item ${stop.routeId?'':'disabled'}" onclick="${stop.routeId?`contextRemoveRouteFromMap('${stop.routeId}')`:'return false'}">
+      <span>Remove Route from Map</span><span>□</span>
+    </button>
+    <div class="stop-context-routes">
+      <div style="font-size:10px;color:var(--text3);padding:3px 8px 5px;text-transform:uppercase;letter-spacing:.5px;">Assign to Route</div>
+      ${routeOptions}
+    </div>`;
+
+  menu.style.display='block';
+  const rect=menu.getBoundingClientRect();
+  const left=Math.min(x, window.innerWidth-rect.width-12);
+  const top=Math.min(y, window.innerHeight-rect.height-12);
+  menu.style.left=Math.max(8,left)+'px';
+  menu.style.top=Math.max(8,top)+'px';
+}
+
+function openRouteContextMenu(routeId,x,y){
+  const menu=document.getElementById('stop-context-menu');
+  const route=routes.find(r=>r.id===routeId);
+  if(!menu||!route)return;
+  menu.innerHTML=`
+    <div class="stop-context-title">${route.name||'Route'}</div>
+    <button class="stop-context-item" onclick="contextResequenceRoute('${routeId}')"><span>Resequence Route</span><span>⌁</span></button>
+    <button class="stop-context-item" onclick="contextRemoveRouteFromMap('${routeId}')"><span>Remove Route from Map</span><span>□</span></button>`;
+  menu.style.display='block';
+  const rect=menu.getBoundingClientRect();
+  menu.style.left=Math.max(8,Math.min(x,window.innerWidth-rect.width-12))+'px';
+  menu.style.top=Math.max(8,Math.min(y,window.innerHeight-rect.height-12))+'px';
+}
+function ensureCustomMapView(){
+  if(!mapCleared){
+    stops.forEach(s=>visibleStopIds.add(s.id));
+    routes.forEach(r=>visibleRouteIds.add(r.id));
+    mapCleared=true;
+  }
+}
+function clearMapView(){
+  mapCleared=true;visibleStopIds.clear();visibleRouteIds.clear();renderMap();showToast('Map cleared. Drag routes or stops back onto the map.');
+}
+function displayAllRoutesOnMap(){
+  mapCleared=true;
+  routes.forEach(r=>visibleRouteIds.add(r.id));
+  stops.filter(s=>s.routeId).forEach(s=>visibleStopIds.add(s.id));
+  renderMap();
+  fitMapToVisible();
+  showToast('Displayed all routes on the map.');
+}
+function displayAllUnassignedStopsOnMap(){
+  mapCleared=true;
+  stops.filter(s=>!s.routeId).forEach(s=>visibleStopIds.add(s.id));
+  renderMap();
+  fitMapToVisible();
+  showToast('Displayed all unassigned stops on the map.');
+}
+function fitMapToVisible(){
+  const pts=[];
+  stops.forEach(s=>{
+    if(!s.lat||!s.lng)return;
+    if(!mapCleared || visibleStopIds.has(s.id) || (s.routeId&&visibleRouteIds.has(s.routeId)))pts.push([s.lat,s.lng]);
+  });
+  routes.forEach(r=>{
+    if(mapCleared&&!visibleRouteIds.has(r.id))return;
+    [routeInitialDepot(r),routeFinalDepot(r)].forEach(d=>{if(d&&d.lat&&d.lng)pts.push([d.lat,d.lng]);});
+  });
+  if(pts.length)map.fitBounds(L.latLngBounds(pts),{padding:[50,50],maxZoom:12});
+}
+function contextRemoveStopFromMap(stopId){
+  ensureCustomMapView();visibleStopIds.delete(stopId);renderMap();closeStopContextMenu();showToast('Stop removed from map');
+}
+function contextRemoveRouteFromMap(routeId){
+  ensureCustomMapView();visibleRouteIds.delete(routeId);stops.filter(s=>s.routeId===routeId).forEach(s=>visibleStopIds.delete(s.id));renderMap();closeStopContextMenu();showToast('Route removed from map');
+}
+function closeStopContextMenu(){
+  const menu=document.getElementById('stop-context-menu');
+  if(menu)menu.style.display='none';
+  contextStopId=null;
+}
+
+function contextAssignStop(stopId,routeId){
+  assignStop(stopId,routeId);
+  expanded.add(routeId);
+  closeStopContextMenu();
+  showToast('Stop assigned from map menu');
+}
+
+function contextUnassignStop(stopId){
+  unassign(stopId);
+  closeStopContextMenu();
+}
+
+function contextResequenceRoute(routeId){
+  const result=resequnceRouteByDistance(routeId);
+  closeStopContextMenu();
+  if(result.ok) showToast(`Resequenced ${result.count} stops by nearest distance`);
+  else showToast(result.message);
+}
+
+function getRouteDepotPoint(route,routeStops){
+  const init=routeInitialDepot(route);
+  if(init&&init.lat&&init.lng){
+    return {lat:init.lat,lng:init.lng,label:'initial depot'};
+  }
+  if(route&&route.depotLat&&route.depotLng){
+    return {lat:route.depotLat,lng:route.depotLng,label:'depot'};
+  }
+  const first=routeStops.slice().sort((a,b)=>a.seq-b.seq).find(s=>s.lat&&s.lng);
+  if(first) return {lat:first.lat,lng:first.lng,label:'first stop'};
+  return null;
+}
+
+function resequnceRouteByDistance(routeId){
+  const route=routes.find(r=>r.id===routeId);
+  if(!route)return {ok:false,message:'Route not found'};
+
+  const routeStops=stops.filter(s=>s.routeId===routeId&&s.lat&&s.lng);
+  if(routeStops.length<2)return {ok:false,message:'Route needs at least 2 geocoded stops to resequence'};
+
+  const start=getRouteDepotPoint(route,routeStops);
+  if(!start)return {ok:false,message:'No depot or geocoded stop found'};
+
+  const remaining=[...routeStops];
+  const ordered=[];
+  let current={lat:start.lat,lng:start.lng};
+
+  while(remaining.length){
+    let bestIndex=0;
+    let bestDistance=Infinity;
+    remaining.forEach((stop,index)=>{
+      const distance=haversine(current.lat,current.lng,stop.lat,stop.lng);
+      if(distance<bestDistance){
+        bestDistance=distance;
+        bestIndex=index;
+      }
+    });
+    const next=remaining.splice(bestIndex,1)[0];
+    ordered.push(next);
+    current={lat:next.lat,lng:next.lng};
+  }
+
+  ordered.forEach((stop,index)=>{stop.seq=index+1;});
+  expanded.add(routeId);
+  render();
+  return {ok:true,count:ordered.length};
+}
+
+document.addEventListener('click',e=>{
+  const menu=document.getElementById('stop-context-menu');
+  if(menu&&menu.style.display==='block'&&!menu.contains(e.target))closeStopContextMenu();
+});
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeStopContextMenu();});
+
+// ============================================================
+// MAP / LIST HIGHLIGHTING
+// ============================================================
+function clearMapHighlight(){
+  document.querySelectorAll('.left-highlight').forEach(el=>el.classList.remove('left-highlight'));
+  Object.values(markers).forEach(m=>m.getElement&&m.getElement()?.classList.remove('map-marker-highlight'));
+  routes.forEach((r,ri)=>{if(polylines[r.id])polylines[r.id].setStyle({color:COLORS[ri%COLORS.length],weight:2.5,opacity:.72,dashArray:'5,4'});});
+}
+function highlightStop(stopId){
+  clearMapHighlight();
+  document.getElementById('srow-'+stopId)?.classList.add('left-highlight');
+  document.getElementById('urow-'+stopId)?.classList.add('left-highlight');
+  const stop=stops.find(s=>s.id===stopId);
+  if(stop&&stop.routeId)document.getElementById('rc-'+stop.routeId)?.classList.add('left-highlight');
+  const marker=markers[stopId];
+  if(marker){marker.setZIndexOffset(1000);marker.getElement&&marker.getElement()?.classList.add('map-marker-highlight');}
+}
+function highlightRoute(routeId){
+  clearMapHighlight();
+  document.getElementById('rc-'+routeId)?.classList.add('left-highlight');
+  if(polylines[routeId])polylines[routeId].setStyle({weight:6,opacity:1,dashArray:null});
+  stops.filter(s=>s.routeId===routeId).forEach(s=>{
+    document.getElementById('srow-'+s.id)?.classList.add('left-highlight');
+    const marker=markers[s.id];
+    if(marker){marker.setZIndexOffset(900);marker.getElement&&marker.getElement()?.classList.add('map-marker-highlight');}
+  });
+}
+
+
+// ============================================================
+// ROUTE MANIFEST MODAL
+// ============================================================
+function openRouteManifest(routeId){
+  activeManifestRouteId=routeId;
+  expanded.add(routeId);
+  renderRouteManifest();
+  document.getElementById('route-manifest-modal').style.display='flex';
+  renderRoutes();
+}
+function routeManifestStats(routeId){
+  const route=routes.find(r=>r.id===routeId);
+  const rs=stops.filter(s=>s.routeId===routeId).sort((a,b)=>a.seq-b.seq);
+  return {
+    route,
+    stops:rs,
+    stopCount:rs.length,
+    cases:rs.reduce((a,s)=>a+tCases(s),0),
+    weight:rs.reduce((a,s)=>a+tWeight(s),0),
+    cube:rs.reduce((a,s)=>a+tCube(s),0),
+    time:routeTotalMinutes(routeId),
+    miles:routeDistanceMiles(routeId),
+    start:route?routeStartTime(route):'',
+    end:route?routeEndEstimate(routeId):''
+  };
+}
+function renderRouteManifest(){
+  const data=routeManifestStats(activeManifestRouteId);
+  const route=data.route;
+  if(!route)return;
+  document.getElementById('manifest-title').textContent=`Route Manifest: ${route.name||'Route'}`;
+  document.getElementById('manifest-stats').innerHTML=`
+    <div class="manifest-stat"><div class="val">${data.stopCount}</div><div class="lbl">Stops</div></div>
+    <div class="manifest-stat"><div class="val">${data.cases.toLocaleString()}</div><div class="lbl">Cases</div></div>
+    <div class="manifest-stat"><div class="val">${Math.round(data.weight).toLocaleString()}</div><div class="lbl">Weight</div></div>
+    <div class="manifest-stat"><div class="val">${data.cube.toFixed(1)}</div><div class="lbl">Cube</div></div>
+    <div class="manifest-stat"><div class="val">${fmtMinutes(data.time)}</div><div class="lbl">Time</div></div>
+    <div class="manifest-stat"><div class="val">${data.miles.toFixed(1)}</div><div class="lbl">Miles</div></div>
+    <div class="manifest-stat"><div class="val">${cleanTimeValue(data.start)||'—'}</div><div class="lbl">Start Time</div></div>
+    <div class="manifest-stat"><div class="val">${cleanTimeValue(data.end)||'—'}</div><div class="lbl">Stop Time</div></div>`;
+
+  const init=routeInitialDepot(route);
+  const fin=routeFinalDepot(route);
+  const depotRow=(depot,label)=>{
+    if(!depot)return '';
+    return `<div class="manifest-row depot">
+      <div class="manifest-seq">${label}</div>
+      <div class="manifest-customer"><div class="manifest-name">${escapeHtml(depot.name||'Depot')}</div><div class="manifest-detail">LocationKey: ${escapeHtml(depot.locationKey||'')}</div></div>
+      <div>${escapeHtml(depot.shipCity||'')} ${escapeHtml(depot.shipState||'')}</div><div>—</div><div>—</div><div>—</div><div>Depot</div>
+    </div>`;
+  };
+  const stopRows=data.stops.map(s=>`
+    <div class="manifest-row stop" id="manifest-stop-${s.id}" draggable="true"
+      ondragstart="manifestDragStart(event,'${s.id}')"
+      ondragover="manifestDragOver(event,'${s.id}')"
+      ondragleave="manifestDragLeave(event)"
+      ondrop="manifestDrop(event,'${s.id}')"
+      ondragend="manifestDragEnd()"
+      onmouseenter="highlightStop('${s.id}')" onmouseleave="clearMapHighlight()">
+      <div class="manifest-seq">${s.seq}</div>
+      <div class="manifest-customer"><div class="manifest-name">${escapeHtml(s.customerName||'Stop')}</div><div class="manifest-detail">${escapeHtml(s.orderNumber||'')} · ${escapeHtml(s.address||'')} ${escapeHtml(s.city||'')} ${escapeHtml(s.state||'')}</div></div>
+      <div>${escapeHtml(s.city||'')} ${escapeHtml(s.state||'')}</div>
+      <div>${tCases(s)}</div>
+      <div>${Math.round(tWeight(s)).toLocaleString()}</div>
+      <div>${tCube(s).toFixed(1)}</div>
+      <div>${escapeHtml(s.earliestTimeWindow||'—')} - ${escapeHtml(s.latestTimeWindow||'—')}</div>
+    </div>`).join('');
+
+  document.getElementById('manifest-list').innerHTML=`
+    <div class="manifest-row header"><div>Seq</div><div>Stop / Customer</div><div>City</div><div>Cases</div><div>Weight</div><div>Cube</div><div>Window</div></div>
+    ${depotRow(init,'START')}
+    ${stopRows || '<div class="manifest-row"><div>—</div><div>No assigned stops</div><div></div><div></div><div></div><div></div><div></div></div>'}
+    ${depotRow(fin,'END')}`;
+}
+function manifestDragStart(e,stopId){
+  manifestDragStopId=stopId;
+  document.getElementById('manifest-stop-'+stopId)?.classList.add('dragging');
+  if(e.dataTransfer)e.dataTransfer.setData('text/plain',stopId);
+}
+function manifestDragOver(e,targetStopId){
+  e.preventDefault();
+  if(manifestDragStopId&&manifestDragStopId!==targetStopId)document.getElementById('manifest-stop-'+targetStopId)?.classList.add('drag-over');
+}
+function manifestDragLeave(e){e.currentTarget.classList.remove('drag-over');}
+function manifestDragEnd(){
+  manifestDragStopId=null;
+  document.querySelectorAll('.manifest-row').forEach(el=>el.classList.remove('dragging','drag-over'));
+}
+function manifestDrop(e,targetStopId){
+  e.preventDefault();
+  if(!manifestDragStopId||manifestDragStopId===targetStopId)return;
+  const source=stops.find(s=>s.id===manifestDragStopId);
+  const target=stops.find(s=>s.id===targetStopId);
+  if(!source||!target||source.routeId!==target.routeId)return;
+  const routeId=source.routeId;
+  const ordered=stops.filter(s=>s.routeId===routeId).sort((a,b)=>a.seq-b.seq);
+  const from=ordered.findIndex(s=>s.id===source.id);
+  const to=ordered.findIndex(s=>s.id===target.id);
+  if(from<0||to<0)return;
+  const [moved]=ordered.splice(from,1);
+  ordered.splice(to,0,moved);
+  ordered.forEach((s,i)=>s.seq=i+1);
+  render();
+  renderRouteManifest();
+  showToast('Route sequence updated');
+}
+function unassignAllStopsFromManifest(){
+  if(!activeManifestRouteId)return;
+  const route=routes.find(r=>r.id===activeManifestRouteId);
+  const rs=stops.filter(s=>s.routeId===activeManifestRouteId);
+  if(!rs.length){showToast('No stops to unassign');return;}
+  if(!confirm(`Unassign all ${rs.length} stops from ${route?.name||'this route'}? Depot rows will stay on the route.`))return;
+  rs.forEach(s=>{s.routeId=null;s.seq=0;s.uiChecked=false;});
+  reseq();
+  render();
+  renderRouteManifest();
+  showToast(`Unassigned ${rs.length} stops from route`);
+}
+
+// ============================================================
+// JOBS
+// ============================================================
+function runPreferredJob(){
+  const ua=stops.filter(s=>!s.routeId);
+  if(!ua.length){showToast('No unassigned stops');return;}
+
+  let assigned=0,noMatch=0,noPref=0,noRouteUdf=0;
+
+  ua.forEach(s=>{
+    const pk=(s.preferredResourceKey||'').toString().trim();
+    const pref4=first4Digits(pk);
+
+    if(!pref4){noPref++;return;}
+
+    const route=routes.find(r=>first4Digits(r.udfNumber1)===pref4);
+
+    if(!route){
+      noMatch++;
+      return;
+    }
+
+    if(!first4Digits(route.udfNumber1)){
+      noRouteUdf++;
+      return;
+    }
+
+    s.routeId=route.id;
+    const prefSeq=parseInt(s.preferredRouteSequence)||0;
+    if(prefSeq>0){
+      s.seq=prefSeq;
+    } else {
+      s.seq=Math.max(0,...stops.filter(x=>x.routeId===route.id&&x.id!==s.id).map(x=>x.seq))+1;
+    }
+    expanded.add(route.id);
+    assigned++;
+  });
+
+  reseq();render();
+  showJob('&#11088; Preferred Resource / Position Job',`
+    <strong>Matching Logic:</strong> First 4 digits of order Preferred Resource Key matched to Route UDFNumber1<br/>
+    <strong>${assigned}</strong> stop(s) assigned to their preferred route<br/>
+    <strong>${noMatch}</strong> had a Preferred Resource Key but no route UDFNumber1 match was found<br/>
+    <strong>${noPref}</strong> had no usable 4-digit Preferred Resource Key value (skipped)
+  `);
+}
+
+function runPotentialJob(){
+  const radiusInput=document.getElementById('routing-radius');
+  const radiusMiles=parseFloat(radiusInput?.value)||15;
+  if(radiusMiles<=0){showToast('Routing Radius must be greater than 0 miles');return;}
+
+  const ua=stops.filter(s=>!s.routeId);
+  const targets=ua.filter(s=>s.uiChecked).length?ua.filter(s=>s.uiChecked):ua;
+  if(!targets.length){showToast('No unassigned stops to analyze');return;}
+  const routed=stops.filter(s=>s.routeId&&s.lat&&s.lng);
+  if(!routed.length){showToast('No routed stops to compare against');return;}
+  potColors={};
+  potRouteSuggestions={};
+  let matched=0;
+  targets.forEach(s=>{
+    if(!s.lat||!s.lng) return;
+    let bestDist=Infinity,bestRoute=null;
+    routed.forEach(r=>{
+      const d=haversine(s.lat,s.lng,r.lat,r.lng);
+      if(d<bestDist){bestDist=d;bestRoute=r.routeId;}
+    });
+    if(bestDist<=radiusMiles&&bestRoute){potColors[s.id]=routeColor(bestRoute);potRouteSuggestions[s.id]=bestRoute;matched++;}
+  });
+  render();
+  showJob('&#128269; Potential Routes Job',`
+    <strong>Routing Radius:</strong> ${radiusMiles} miles<br/>
+    <strong>${matched}</strong> of ${targets.length} stops are within ${radiusMiles} miles of a routed stop<br/>
+    <strong>${targets.length-matched}</strong> had no nearby routed stop (&gt;${radiusMiles} miles)<br/><br/>
+    Color-coded pins on the map and colored dots in the Unassigned panel show the suggested route.
+    Use the Assign dropdown or drag &amp; drop to confirm assignments.
+  `);
+}
+
+function assignToPotentialRoutes(){
+  const suggested=stops.filter(s=>!s.routeId&&potRouteSuggestions[s.id]);
+  if(!suggested.length){showToast('No potential route suggestions to assign');updateAssignPotentialButton();return;}
+
+  const affectedRoutes=new Set();
+  let assigned=0;
+
+  suggested.forEach(s=>{
+    const routeId=potRouteSuggestions[s.id];
+    const route=routes.find(r=>r.id===routeId);
+    if(!route)return;
+    s.routeId=routeId;
+    s.seq=Math.max(0,...stops.filter(x=>x.routeId===routeId&&x.id!==s.id).map(x=>x.seq||0))+1;
+    s.uiChecked=false;
+    affectedRoutes.add(routeId);
+    assigned++;
+  });
+
+  let resequencedRoutes=0;
+  affectedRoutes.forEach(routeId=>{
+    expanded.add(routeId);
+    const result=resequnceRouteByDistance(routeId);
+    if(result.ok)resequencedRoutes++;
+  });
+
+  suggested.forEach(s=>{
+    delete potColors[s.id];
+    delete potRouteSuggestions[s.id];
+  });
+
+  reseq();
+  render();
+  showJob('&#128204; Assign to Potential Routes',`
+    <strong>${assigned}</strong> suggested stop(s) assigned to their potential route<br/>
+    <strong>${resequencedRoutes}</strong> route(s) resequenced using nearest-distance order<br/><br/>
+    The route sequence was rebuilt after assignment to reduce drive miles based on the available geocodes.
+  `);
+}
+
+function showJob(title,html){
+  document.getElementById('job-title').innerHTML=title;
+  document.getElementById('job-body').innerHTML=`<div class="job-result">${html}</div>`;
+  document.getElementById('job-modal').style.display='flex';
+}
+
+// ============================================================
+// IMPORT
+// ============================================================
+function openImport(){
+  document.getElementById('import-modal').style.display='flex';
+  document.getElementById('imp-preview').innerHTML='';
+  document.getElementById('imp-confirm').style.display='none';
+  pendingWB=null;
+  document.getElementById('file-in').value='';
+}
+
+function setImportMode(m){
+  importMode=m;
+  ['all','routes','drivers','stops','depots'].forEach(x=>document.getElementById('itab-'+x).className='imp-tab'+(m===x?' active':''));
+  const hints={
+    all:'Upload one file with sheets named "Routes", "Drivers", "Stops", and "Depot Locations" — or load individually',
+    routes:'Upload your Route Template file. Include UDFNumber1, InitialLocationKey, and FinalLocationKey.',
+    drivers:'Upload your Driver Template file',
+    stops:'Upload your Stops/Orders Template file',
+    depots:'Upload your Depot Locations file with LocationKey, Name, Ship address fields, Latitude, and Longitude.'
+  };
+  document.getElementById('imp-hint').textContent=hints[m];
+}
+
+function handleDrop(e){
+  e.preventDefault();
+  document.getElementById('imp-drop').classList.remove('dragover');
+  const f=e.dataTransfer.files[0];if(f)readFile(f);
+}
+function handleFileSelect(inp){if(inp.files[0])readFile(inp.files[0]);}
+
+function detectImportSheetType(name,data){
+  if(!data||!data.length)return null;
+  const keys=Object.keys(data[0]).map(k=>k.toLowerCase().trim());
+  const sheetLower=name.toLowerCase().trim();
+
+  const hasLocationKey=keys.some(k=>k==='locationkey'||k==='location key'||k==='locationk');
+  const hasDepotAddress=keys.some(k=>k==='shipcity'||k==='ship city'||k==='shipzipcode'||k==='ship zip code'||k==='shipzipcode'||k==='shipstate'||k==='ship state');
+  const hasGeo=keys.some(k=>k==='latitude'||k==='lat')&&keys.some(k=>k==='longitude'||k==='long'||k==='lng');
+  const looksDepot=hasLocationKey&&(hasDepotAddress||sheetLower.includes('depot')||sheetLower.includes('location'))&&hasGeo;
+
+  const looksRoutes=keys.some(k=>
+    k.includes('routetemplatekey')||
+    k.includes('earlieststarttime')||
+    k==='startuptime'||
+    k==='winduptime'||
+    k==='udfnumber1'||
+    k==='initiallocationkey'||
+    k==='finallocationkey'
+  );
+
+  const looksDrivers=(keys.includes('truckkey')||keys.includes('truck key'))&&
+    (keys.includes('vehicletype')||keys.includes('vehicle type')||keys.includes('truckid')||keys.includes('truck id'))&&
+    !keys.some(k=>k.includes('routetemplatekey'));
+
+  const looksStops=keys.some(k=>
+    k==='order_number'||
+    k==='ship_to_id'||
+    k==='customer_number'||
+    k.includes('preferred resource key')||
+    k==='standard route'||
+    k==='standardroute'
+  );
+
+  // Strong sheet-name support for the provided master template.
+  if(sheetLower.includes('depot')||sheetLower==='depot locations')return looksDepot?'depots':null;
+  if(sheetLower.includes('route')&&!sheetLower.includes('stop'))return looksRoutes?'routes':null;
+  if(sheetLower.includes('driver')||sheetLower.includes('truck'))return looksDrivers?'drivers':null;
+  if(sheetLower.includes('stop')||sheetLower.includes('order'))return looksStops?'stops':null;
+
+  if(looksDepot)return 'depots';
+  if(looksRoutes)return 'routes';
+  if(looksDrivers)return 'drivers';
+  if(looksStops)return 'stops';
+  return null;
+}
+
+function readFile(file){
+  const reader=new FileReader();
+  reader.onload=e=>{
+    try{
+      const wb=XLSX.read(e.target.result,{type:'array'});
+      pendingWB=wb;
+      const sheetInfo=wb.SheetNames.map(name=>{
+        const data=XLSX.utils.sheet_to_json(wb.Sheets[name],{defval:''});
+        return {name, rows:data.length, type:detectImportSheetType(name,data)||'not detected'};
+      });
+      document.getElementById('imp-preview').innerHTML=`
+        <div style="margin-top:8px;font-size:11px;color:var(--text2);">
+          &#10003; <strong>${file.name}</strong><br/>
+          ${sheetInfo.map(s=>`<div style="display:flex;justify-content:space-between;gap:8px;border-bottom:1px solid var(--border);padding:4px 0;">
+            <span>${s.name} <span style="color:var(--text3);">(${s.rows} rows)</span></span>
+            <strong style="color:${s.type==='not detected'?'var(--warn)':'var(--success)'};">${s.type}</strong>
+          </div>`).join('')}
+          <br/><span style="color:var(--text3);">All Templates mode imports every detected tab from the workbook. Individual modes still import only the selected template type.</span>
+        </div>`;
+      document.getElementById('imp-confirm').style.display='';
+    }catch(err){showToast('Error reading file: '+err.message);}
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function confirmImport(){
+  if(!pendingWB){showToast('No workbook selected');return;}
+  const btn=document.getElementById('imp-confirm');
+  const originalText=btn?btn.textContent:'';
+  if(btn){btn.disabled=true;btn.textContent='Importing...';}
+
+  try{
+    let rc=0,dc=0,sc=0,lc=0, skipped=0;
+    const sheets=pendingWB.SheetNames.map(name=>{
+      const ws=pendingWB.Sheets[name];
+      const data=XLSX.utils.sheet_to_json(ws,{defval:'', raw:false});
+      return {name,data,type:detectImportSheetType(name,data)};
+    }).filter(x=>x.data.length);
+
+    // In All Templates mode, import depots first so route start/end locations can be attached immediately.
+    const ordered=importMode==='all'
+      ? [...sheets.filter(x=>x.type==='depots'), ...sheets.filter(x=>x.type==='routes'), ...sheets.filter(x=>x.type==='drivers'), ...sheets.filter(x=>x.type==='stops')]
+      : sheets;
+
+    ordered.forEach(({data,type})=>{
+      if(importMode==='all'){
+        if(type==='depots'){importDepots(data);lc+=data.length;return;}
+        if(type==='routes'){importRoutes(data);rc+=data.length;return;}
+        if(type==='drivers'){importDrivers(data);dc+=data.length;return;}
+        if(type==='stops'){importStops(data);sc+=data.length;return;}
+        skipped+=data.length;return;
+      }
+
+      // Individual modes still work. If the workbook only has one sheet, import that sheet as the selected type.
+      // If it has multiple sheets, only import sheets detected as the selected type.
+      const singleSheet=sheets.length===1;
+      if(importMode==='depots'&&(type==='depots'||singleSheet)){importDepots(data);lc+=data.length;return;}
+      if(importMode==='routes'&&(type==='routes'||singleSheet)){importRoutes(data);rc+=data.length;return;}
+      if(importMode==='drivers'&&(type==='drivers'||singleSheet)){importDrivers(data);dc+=data.length;return;}
+      if(importMode==='stops'&&(type==='stops'||singleSheet)){importStops(data);sc+=data.length;return;}
+      skipped+=data.length;
+    });
+
+    enrichRouteDepots();
+    reseq();
+
+    // Do not automatically draw every imported route/depot on the map. Large route templates can overload the map.
+    // The user can drag/click routes or stops onto the map, or run jobs that display suggestions.
+    mapCleared=true;
+    visibleStopIds.clear();
+    visibleRouteIds.clear();
+    potColors={};
+    if(typeof potRouteSuggestions!=='undefined') potRouteSuggestions={};
+
+    closeModal('import-modal');
+
+    // Let the modal close first, then render the data.
+    setTimeout(()=>{
+      render();
+      if(routes.length) expanded.add(routes[0].id);
+      renderRoutes();
+      const skipText=skipped?`, ${skipped} skipped/not detected`:'';
+      showToast(`Imported: ${rc} route rows, ${dc} driver rows, ${sc} stop rows, ${lc} depot rows${skipText}`);
+      if(btn){btn.disabled=false;btn.textContent=originalText||'Import Data';}
+    },25);
+  }catch(err){
+    console.error('Import failed:',err);
+    if(btn){btn.disabled=false;btn.textContent=originalText||'Import Data';}
+    showToast('Import failed: '+(err&&err.message?err.message:err));
+    alert('Import failed: '+(err&&err.message?err.message:err));
+  }
+}
+
+function gc(row,keys){
+  const rk=Object.keys(row);
+  for(const k of (Array.isArray(keys)?keys:[keys])){
+    const f=rk.find(x=>x.toLowerCase().trim()===k.toLowerCase().trim());
+    if(f!==undefined)return row[f];
+  }
+  return '';
+}
+
+function importDepots(data){
+  data.forEach(row=>{
+    const locationKey=(gc(row,['LocationKey','Location Key','LocationK'])||'').toString().trim();
+    if(!locationKey)return;
+    const lat=parseFloat(gc(row,['Latitude','latitude','Lat','lat']));
+    const lng=parseFloat(gc(row,['Longitude','longitude','Long','long','Lng','lng']));
+    const existing=depotLocations.find(d=>normalizeKey(d.locationKey)===normalizeKey(locationKey));
+    const obj={
+      id:existing?existing.id:uid(),
+      locationKey,
+      locationType:(gc(row,['Location Type','LocationType','Location T'])||'').toString(),
+      comment:(gc(row,['Comment'])||'').toString(),
+      name:(gc(row,['Name','name'])||'').toString(),
+      shipStreet:(gc(row,['ShipStreet','ShipStreet1','Ship Street','Ship Street 1'])||'').toString(),
+      shipStreet2:(gc(row,['ShipStreet2','Ship Street 2'])||'').toString(),
+      shipStreet3:(gc(row,['ShipStreet3','Ship Street 3'])||'').toString(),
+      shipCrossStreet:(gc(row,['ShipCrossStreet','Ship Cross Street'])||'').toString(),
+      shipCity:(gc(row,['ShipCity','Ship City'])||'').toString(),
+      shipState:(gc(row,['ShipState','Ship State'])||'').toString(),
+      shipZipCode:(gc(row,['ShipZipCode','Ship Zip Code','ShipZip','Ship Zip'])||'').toString(),
+      lng:isNaN(lng)?null:lng,
+      lat:isNaN(lat)?null:lat,
+      udfNumber1:(gc(row,['UDFNumber1','UDF Number 1'])||'').toString(),
+      serviceDuration:(gc(row,['ServiceDuration','Service Duration'])||'').toString(),
+      requirements:(gc(row,['Requirements'])||'').toString(),
+    };
+    if(existing)Object.assign(existing,obj); else depotLocations.push(obj);
+  });
+  enrichRouteDepots();
+}
+
+function importRoutes(data){
+  data.forEach(row=>{
+    const key=(gc(row,['RouteTemplateKey','Route Template Key'])||'').toString();
+    const name=(gc(row,['Name','name','RouteName','Route Name'])||key||'').toString().trim();
+    if(!name)return;
+    const existing=routes.find(r=>r.routeTemplateKey&&r.routeTemplateKey===key)||routes.find(r=>r.name===name);
+    const obj={
+      id:existing?existing.id:uid(),
+      name,
+      routeTemplateKey:key,
+      scheduleKey:(gc(row,['ScheduleKey','Schedule Key'])||'').toString(),
+      udfNumber1:(gc(row,['UDFNumber1','UDF Number 1','UDF Number1','UDFNumber 1'])||'').toString(),
+      initialLocationKey:(gc(row,['InitialLocationKey','Initial Location Key'])||'').toString(),
+      finalLocationKey:(gc(row,['FinalLocationKey','Final Location Key'])||'').toString(),
+      depotLat:parseFloat(gc(row,['DepotLatitude','Depot Latitude','InitialLatitude','Initial Latitude','Start Latitude']))||null,
+      depotLng:parseFloat(gc(row,['DepotLongitude','Depot Longitude','InitialLongitude','Initial Longitude','Start Longitude']))||null,
+      earliestStartTime:excelTimeToHHMM(gc(row,['EarliestStartTime','Earliest Start Time'])),
+      latestStartTime:excelTimeToHHMM(gc(row,['LatestStartTime','Latest Start Time'])),
+      latestEndTime:excelTimeToHHMM(gc(row,['LatestEndTime','Latest End Time'])),
+      startupTime:parseFloat(gc(row,['StartupTime','Startup Time']))||0,
+      windupTime:parseFloat(gc(row,['WindupTime','Windup Time']))||0,
+      driverKey:(gc(row,['DriverKey','Driver Key'])||'').toString(),
+      driverFirstName:(gc(row,['DriverFirstName','Driver First Name'])||'').toString(),
+      driverLastName:(gc(row,['DriverLastName','Driver Last Name'])||'').toString(),
+      truckKey:(gc(row,['TruckKey','Truck Key'])||'').toString(),
+      trailerKey:(gc(row,['TrailerKey','Trailer Key'])||'').toString(),
+      requirements:(gc(row,['Requirements'])||'').toString(),
+      work1Duration:(gc(row,['Work1Duration','Work1 Duration'])||'').toString(),
+      routingParameterKey:(gc(row,['RoutingParameterKey','Routing Parameter Key'])||'').toString(),
+      selected:false,
+    };
+    if(existing)Object.assign(existing,obj); else routes.push(obj);
+  });
+  enrichRouteDepots();
+}
+
+function importDrivers(data){
+  data.forEach(row=>{
+    const tk=(gc(row,['TruckKey','Truck Key'])||'').toString().trim();
+    if(!tk)return;
+    const existing=drivers.find(d=>d.truckKey===tk);
+    const obj={
+      id:existing?existing.id:uid(),
+      truckKey:tk,
+      active:(gc(row,['Active'])||'').toString(),
+      company:(gc(row,['Company'])||'').toString(),
+      cooler:(gc(row,['Cooler'])||'').toString(),
+      name:(gc(row,['Name','name'])||'').toString(),
+      requirements:(gc(row,['Requirements'])||'').toString(),
+      truckId:(gc(row,['TruckID','Truck ID'])||'').toString(),
+      vehicleType:(gc(row,['VehicleType','Vehicle Type'])||'').toString(),
+      vin:(gc(row,['VIN'])||'').toString(),
+      driverKey:(gc(row,['DriverKey','Driver Key'])||'').toString(),
+    };
+    if(existing)Object.assign(existing,obj); else drivers.push(obj);
+  });
+}
+
+function importStops(data){
+  data.forEach(row=>{
+    const latRaw=gc(row,['Latitude','latitude','Lat','lat']);
+    const lngRaw=gc(row,['Longitude','longitude','Long','long','Lng','lng']);
+    const lat=parseFloat(latRaw);
+    const lng=parseFloat(lngRaw);
+    if(isNaN(lat)||isNaN(lng))return;
+    const ordNum=(gc(row,['ORDER_NUMBER','Order Number','OrderNumber'])||'').toString().trim();
+    const existing=ordNum?stops.find(s=>s.orderNumber===ordNum):null;
+
+    const stdRoute=(gc(row,['Standard Route','StandardRoute'])||'').toString().trim();
+    const stdSeq=gc(row,['Standard Sequence','StandardSequence']);
+    const prefKey=(gc(row,['Preferred Resource Key','PreferredResourceKey'])||'').toString().trim();
+    const prefSeq=(gc(row,['Route Sequence','RouteSequence'])||'').toString().trim();
+
+    const obj={
+      id:existing?existing.id:uid(),
+      routeId:existing?existing.routeId:null,
+      seq:existing?existing.seq:0,
+      orderNumber:ordNum,
+      shipToId:(gc(row,['SHIP_TO_ID','Ship To ID'])||'').toString(),
+      customerNumber:(gc(row,['CUSTOMER_NUMBER','Customer Number'])||'').toString(),
+      orderType:(gc(row,['ORDER_TYPE','Order Type'])||'').toString(),
+      orderStatus:(gc(row,['ORDER_STATUS','Order Status'])||'').toString(),
+      district:(gc(row,['DISTRICT','District'])||'').toString(),
+      reqDeliveryDate:(gc(row,['REQ_DELIVERY_DATE','Req Delivery Date'])||'').toString(),
+      willCallIndicator:(gc(row,['WILL_CALL_INDICATOR','Will Call Indicator'])||'').toString(),
+      profit:(gc(row,['Profit'])||'').toString(),
+      customerName:(gc(row,['Customer Name','CustomerName'])||'').toString(),
+      address:(gc(row,['Address','address'])||'').toString(),
+      crossStreet:(gc(row,['Cross Street','CrossStreet'])||'').toString(),
+      city:(gc(row,['City','city'])||'').toString(),
+      state:(gc(row,['State','state'])||'').toString(),
+      zip:(gc(row,['Zip','ZIP','zip'])||'').toString(),
+      country:(gc(row,['Country','country'])||'').toString(),
+      lat,lng,
+      earliestTimeWindow:(gc(row,['Earliest Time Window','EarliestTimeWindow'])||'').toString(),
+      latestTimeWindow:(gc(row,['Latest Time Window','LatestTimeWindow'])||'').toString(),
+      fixedServiceTime:parseFloat(gc(row,['Fixed Service Time','FixedServiceTime']))||0,
+      variableServiceTime:parseFloat(gc(row,['Variable Service Time','VariableServiceTime']))||0,
+      preferredResourceKey:prefKey,
+      preferredResourceIndicator:(gc(row,['Preferred resource indicator'])||'').toString(),
+      restrictPreferredResource:(gc(row,['Restrict preferred resource'])||'').toString(),
+      preferredRouteSequence:prefSeq,
+      restrictRoutePosition:(gc(row,['Restrict route position'])||'').toString(),
+      standardRoute:stdRoute,
+      standardSequence:stdSeq,
+      comment:(gc(row,['Comment'])||'').toString(),
+      dryCases:parseFloat(gc(row,['DRY Total Cases','DRY Cases']))||0,
+      dryCube:parseFloat(gc(row,['DRY Cube']))||0,
+      dryWeight:parseFloat(gc(row,['DRY Weight']))||0,
+      coolerCases:parseFloat(gc(row,['Cooler Cases']))||0,
+      coolerCube:parseFloat(gc(row,['Cooler Cube']))||0,
+      coolerWeight:parseFloat(gc(row,['Cooler Weight']))||0,
+      frozenCases:parseFloat(gc(row,['Frozen Cases']))||0,
+      frozenCube:parseFloat(gc(row,['Frozen Cube']))||0,
+      frozenWeight:parseFloat(gc(row,['Frozen Weight']))||0,
+      pkgCases:parseFloat(gc(row,['Package cases','Package Cases']))||0,
+      pkgCube:parseFloat(gc(row,['Package cube','Package Cube']))||0,
+      pkgWeight:parseFloat(gc(row,['Package Weight']))||0,
+      uiChecked:false,
+    };
+
+    // Auto-assign via Standard Route
+    if(!obj.routeId&&stdRoute){
+      const mr=routes.find(r=>r.name===stdRoute||r.routeTemplateKey===stdRoute);
+      if(mr){obj.routeId=mr.id;obj.seq=parseFloat(stdSeq)||999;}
+    }
+    if(existing)Object.assign(existing,obj); else stops.push(obj);
+  });
+  reseq();
+}
+
+// ============================================================
+// ADD STOP / ROUTE MANUALLY
+// ============================================================
+function openAddStop(){
+  document.getElementById('add-stop-modal').style.display='flex';
+  const sel=document.getElementById('s-route');
+  sel.innerHTML='<option value="">— Unassigned —</option>'+routes.map(r=>`<option value="${r.id}">${r.name}</option>`).join('');
+}
+function openAddStopForRoute(rid){openAddStop();document.getElementById('s-route').value=rid;}
+function openAddRoute(){document.getElementById('add-route-modal').style.display='flex';}
+
+function saveStop(){
+  const name=document.getElementById('s-name').value.trim();
+  const lat=parseFloat(document.getElementById('s-lat').value);
+  const lng=parseFloat(document.getElementById('s-lng').value);
+  if(!name){showToast('Customer name required');return;}
+  if(isNaN(lat)||isNaN(lng)){showToast('Valid Lat/Long required');return;}
+  const rid=document.getElementById('s-route').value||null;
+  const maxSeq=rid?Math.max(0,...stops.filter(s=>s.routeId===rid).map(s=>s.seq)):0;
+  stops.push({
+    id:uid(),routeId:rid,seq:rid?maxSeq+1:0,
+    customerName:name,lat,lng,
+    orderNumber:document.getElementById('s-ord').value,
+    shipToId:document.getElementById('s-shipto').value,
+    customerNumber:document.getElementById('s-cust').value,
+    address:document.getElementById('s-addr').value,
+    city:document.getElementById('s-city').value,
+    state:document.getElementById('s-state').value,
+    zip:document.getElementById('s-zip').value,
+    earliestTimeWindow:document.getElementById('s-etw').value,
+    latestTimeWindow:document.getElementById('s-ltw').value,
+    dryCases:parseInt(document.getElementById('s-cases').value)||0,
+    dryWeight:parseFloat(document.getElementById('s-weight').value)||0,
+    dryCube:parseFloat(document.getElementById('s-cube').value)||0,
+    coolerCases:0,coolerWeight:0,coolerCube:0,
+    frozenCases:0,frozenWeight:0,frozenCube:0,
+    pkgCases:0,pkgWeight:0,pkgCube:0,
+    preferredResourceKey:document.getElementById('s-prefkey').value,
+    preferredRouteSequence:document.getElementById('s-prefseq').value,
+    uiChecked:false,
+  });
+  closeModal('add-stop-modal');render();showToast('Stop added');
+  ['s-name','s-ord','s-shipto','s-cust','s-addr','s-city','s-state','s-zip','s-lat','s-lng','s-etw','s-ltw','s-cases','s-weight','s-cube','s-prefkey','s-prefseq'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
+}
+
+function saveRoute(){
+  const name=document.getElementById('r-name').value.trim();
+  if(!name){showToast('Route name required');return;}
+  routes.push({
+    id:uid(),name,
+    routeTemplateKey:document.getElementById('r-key').value,
+    driverKey:document.getElementById('r-dkey').value,
+    truckKey:document.getElementById('r-tkey').value,
+    earliestStartTime:document.getElementById('r-est').value,
+    latestStartTime:document.getElementById('r-lst').value,
+    latestEndTime:document.getElementById('r-let').value,
+    startupTime:parseFloat(document.getElementById('r-sup').value)||0,
+    depotLat:null,
+    depotLng:null,
+    windupTime:parseFloat(document.getElementById('r-wnd').value)||0,
+    selected:false,
+  });
+  closeModal('add-route-modal');render();showToast('Route created');
+  ['r-name','r-key','r-dkey','r-tkey'].forEach(id=>{document.getElementById(id).value='';});
+}
+
+// ============================================================
+// EXPORT
+// ============================================================
+function exportExcel(){
+  if(!stops.length&&!routes.length){showToast('No data to export');return;}
+  const wb=XLSX.utils.book_new();
+
+  // Tab 1: Route Summary
+  const summary=routes.map(r=>{
+    const rs=stops.filter(s=>s.routeId===r.id);
+    const drv=drivers.find(d=>d.truckKey===r.truckKey||d.driverKey===r.driverKey);
+    const dname=r.driverFirstName?(r.driverFirstName+' '+(r.driverLastName||'')).trim():(drv?drv.name:'');
+    return{
+      'Route Number':r.routeTemplateKey||'',
+      'Route Name':r.name||'',
+      'Date':r.date||document.getElementById('route-date').value||'',
+      'Earliest Start Time':r.earliestStartTime||'',
+      'Latest Start Time':r.latestStartTime||'',
+      'Latest End Time':r.latestEndTime||'',
+      'Startup Time (min)':r.startupTime||0,
+      'Windup Time (min)':r.windupTime||0,
+      'Number of Stops':rs.length,
+      'Total Cases':rs.reduce((a,s)=>a+tCases(s),0),
+      'Total Weight':parseFloat(rs.reduce((a,s)=>a+tWeight(s),0).toFixed(2)),
+      'Total Cube':parseFloat(rs.reduce((a,s)=>a+tCube(s),0).toFixed(2)),
+      'Driver Name':dname,
+      'Driver Key':r.driverKey||'',
+      'Truck Key':r.truckKey||'',
+      'Trailer Key':r.trailerKey||'',
+      'Schedule Key':r.scheduleKey||'',
+      'UDFNumber1':r.udfNumber1||'',
+      'InitialLocationKey':r.initialLocationKey||'',
+      'Initial Depot Name':routeInitialDepot(r)?.name||'',
+      'FinalLocationKey':r.finalLocationKey||'',
+      'Final Depot Name':routeFinalDepot(r)?.name||'',
+      'Routing Parameter Key':r.routingParameterKey||'',
+    };
+  });
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(summary.length?summary:[{Note:'No routes'}]),'Route Summary');
+
+  // Tab 2: Route Manifest
+  const manifest=[];
+  routes.forEach(r=>{
+    const rs=stops.filter(s=>s.routeId===r.id).sort((a,b)=>a.seq-b.seq);
+    const drv=drivers.find(d=>d.truckKey===r.truckKey||d.driverKey===r.driverKey);
+    const dname=r.driverFirstName?(r.driverFirstName+' '+(r.driverLastName||'')).trim():(drv?drv.name:'');
+    const initDepot=routeInitialDepot(r);
+    const finalDepot=routeFinalDepot(r);
+    if(initDepot){
+      manifest.push({
+        'Route Number':r.routeTemplateKey||'',
+        'Route Name':r.name||'',
+        'Driver Name':dname,
+        'Driver Key':r.driverKey||'',
+        'Truck Key':r.truckKey||'',
+        'Stop Sequence':'START',
+        'Stop Type':'Initial Depot',
+        'Customer Name':initDepot.name||'Initial Depot',
+        'ORDER_NUMBER':'',
+        'SHIP_TO_ID':initDepot.locationKey||'',
+        'CUSTOMER_NUMBER':'',
+        'Address':initDepot.shipStreet||'',
+        'Cross Street':initDepot.shipCrossStreet||'',
+        'City':initDepot.shipCity||'',
+        'State':initDepot.shipState||'',
+        'Zip':initDepot.shipZipCode||'',
+        'Country':'',
+        'Latitude':initDepot.lat||'',
+        'Longitude':initDepot.lng||'',
+      });
+    }
+    rs.forEach(s=>{
+      manifest.push({
+        'Route Number':r.routeTemplateKey||'',
+        'Route Name':r.name||'',
+        'Driver Name':dname,
+        'Driver Key':r.driverKey||'',
+        'Truck Key':r.truckKey||'',
+        'Stop Sequence':s.seq,
+        'Stop Type':'Order',
+        'Customer Name':s.customerName||'',
+        'ORDER_NUMBER':s.orderNumber||'',
+        'SHIP_TO_ID':s.shipToId||'',
+        'CUSTOMER_NUMBER':s.customerNumber||'',
+        'Address':s.address||'',
+        'Cross Street':s.crossStreet||'',
+        'City':s.city||'',
+        'State':s.state||'',
+        'Zip':s.zip||'',
+        'Country':s.country||'',
+        'Latitude':s.lat||'',
+        'Longitude':s.lng||'',
+        'Earliest Time Window':s.earliestTimeWindow||'',
+        'Latest Time Window':s.latestTimeWindow||'',
+        'Fixed Service Time':s.fixedServiceTime||0,
+        'Variable Service Time':s.variableServiceTime||0,
+        'DRY Cases':s.dryCases||0,
+        'DRY Weight':s.dryWeight||0,
+        'DRY Cube':s.dryCube||0,
+        'Cooler Cases':s.coolerCases||0,
+        'Cooler Weight':s.coolerWeight||0,
+        'Cooler Cube':s.coolerCube||0,
+        'Frozen Cases':s.frozenCases||0,
+        'Frozen Weight':s.frozenWeight||0,
+        'Frozen Cube':s.frozenCube||0,
+        'Package Cases':s.pkgCases||0,
+        'Package Weight':s.pkgWeight||0,
+        'Package Cube':s.pkgCube||0,
+        'Total Cases':tCases(s),
+        'Total Weight':parseFloat(tWeight(s).toFixed(2)),
+        'Total Cube':parseFloat(tCube(s).toFixed(2)),
+        'ORDER_TYPE':s.orderType||'',
+        'ORDER_STATUS':s.orderStatus||'',
+        'DISTRICT':s.district||'',
+        'REQ_DELIVERY_DATE':s.reqDeliveryDate||'',
+        'WILL_CALL_INDICATOR':s.willCallIndicator||'',
+        'Preferred Resource Key':s.preferredResourceKey||'',
+        'Route Sequence':s.preferredRouteSequence||'',
+        'Comment':s.comment||'',
+      });
+    });
+    if(finalDepot){
+      manifest.push({
+        'Route Number':r.routeTemplateKey||'',
+        'Route Name':r.name||'',
+        'Driver Name':dname,
+        'Driver Key':r.driverKey||'',
+        'Truck Key':r.truckKey||'',
+        'Stop Sequence':'END',
+        'Stop Type':'Final Depot',
+        'Customer Name':finalDepot.name||'Final Depot',
+        'ORDER_NUMBER':'',
+        'SHIP_TO_ID':finalDepot.locationKey||'',
+        'CUSTOMER_NUMBER':'',
+        'Address':finalDepot.shipStreet||'',
+        'Cross Street':finalDepot.shipCrossStreet||'',
+        'City':finalDepot.shipCity||'',
+        'State':finalDepot.shipState||'',
+        'Zip':finalDepot.shipZipCode||'',
+        'Country':'',
+        'Latitude':finalDepot.lat||'',
+        'Longitude':finalDepot.lng||'',
+      });
+    }
+  });
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(manifest.length?manifest:[{Note:'No assigned stops'}]),'Route Manifest');
+
+  // Tab 3: Unassigned
+  const ua=stops.filter(s=>!s.routeId).map(s=>({
+    'Customer Name':s.customerName||'',
+    'ORDER_NUMBER':s.orderNumber||'',
+    'SHIP_TO_ID':s.shipToId||'',
+    'Address':s.address||'',
+    'City':s.city||'',
+    'State':s.state||'',
+    'Zip':s.zip||'',
+    'Latitude':s.lat||'',
+    'Longitude':s.lng||'',
+    'Total Cases':tCases(s),
+    'Total Weight':parseFloat(tWeight(s).toFixed(2)),
+    'Total Cube':parseFloat(tCube(s).toFixed(2)),
+    'Preferred Resource Key':s.preferredResourceKey||'',
+    'Route Sequence':s.preferredRouteSequence||'',
+    'Earliest Time Window':s.earliestTimeWindow||'',
+    'Latest Time Window':s.latestTimeWindow||'',
+    'WILL_CALL_INDICATOR':s.willCallIndicator||'',
+    'Comment':s.comment||'',
+  }));
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(ua.length?ua:[{Note:'No unassigned stops'}]),'Unassigned Stops');
+
+  const depotExport=depotLocations.map(d=>({
+    'LocationKey':d.locationKey||'',
+    'Location Type':d.locationType||'',
+    'Name':d.name||'',
+    'ShipStreet':d.shipStreet||'',
+    'ShipStreet2':d.shipStreet2||'',
+    'ShipStreet3':d.shipStreet3||'',
+    'ShipCrossStreet':d.shipCrossStreet||'',
+    'ShipCity':d.shipCity||'',
+    'ShipState':d.shipState||'',
+    'ShipZipCode':d.shipZipCode||'',
+    'Longitude':d.lng||'',
+    'Latitude':d.lat||'',
+    'UDFNumber1':d.udfNumber1||'',
+    'ServiceDuration':d.serviceDuration||'',
+    'Requirements':d.requirements||'',
+  }));
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(depotExport.length?depotExport:[{Note:'No depots imported'}]),'Depot Locations');
+
+  const date=document.getElementById('route-date').value||new Date().toISOString().slice(0,10);
+  XLSX.writeFile(wb,`RouteDesk_${date}.xlsx`);
+  showToast('Exported: Route Summary, Route Manifest, Unassigned Stops, Depot Locations');
+}
+
+// ============================================================
+// UTILS
+// ============================================================
+function closeModal(id){document.getElementById(id).style.display='none';}
+function showToast(msg){
+  const t=document.createElement('div');t.className='toast';t.textContent=msg;
+  document.body.appendChild(t);setTimeout(()=>t.remove(),3200);
+}
+document.addEventListener('click',e=>{if(e.target.classList.contains('modal-overlay'))e.target.style.display='none';});
+</script>
+</body>
+</html>
