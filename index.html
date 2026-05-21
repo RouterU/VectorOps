@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>RouteDesk v2 - Depot Preview + Manifest Seq Fix</title>
+<title>RouteDesk v2 - Live Route Sequence Manifest</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -1634,12 +1634,14 @@ function renderRouteManifest(){
     <div class="manifest-stat"><div class="val">${cleanTimeValue(data.end)||'—'}</div><div class="lbl">Stop Time</div></div>`;
 
   const timeline=routeTimelineRows(activeManifestRouteId);
+  let liveStopSeq=0;
   const rows=timeline.map((pt,idx)=>{
     const isDepot=pt.type!=='stop';
     const s=pt.stop||{};
-    const seq=isDepot?(pt.label||'DEPOT'):(s.seq||idx);
+    const liveSeq=isDepot?(pt.label||'DEPOT'):(++liveStopSeq);
+    const seq=liveSeq;
     const name=escapeHtml(pt.name||'Stop');
-    const seqDisplay=isDepot?(pt.label||'DEPOT'):(s.seq||idx);
+    const seqDisplay=liveSeq;
     const displayName=isDepot?name:`#${escapeHtml(seqDisplay)} · ${name}`;
     const detail=isDepot?`LocationKey: ${escapeHtml(pt.depot?.locationKey||'')}`:`${escapeHtml(s.orderNumber||'')} · ${escapeHtml(s.address||'')} ${escapeHtml(s.city||'')} ${escapeHtml(s.state||'')}`;
     const violationClass=pt.twStatus==='LATE'?' tw-violation':'';
