@@ -117,7 +117,7 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
 .tag-wc{background:rgba(239,68,68,.2);color:var(--danger);}
 .tag-pot{font-size:8px;font-weight:700;padding:1px 4px;border-radius:3px;color:#000;margin-left:3px;vertical-align:middle;}
 
-/* Trucks */
+/* Drivers */
 .driver-card{padding:9px 12px;border-bottom:1px solid var(--border);}
 .d-name{font-size:12px;font-weight:600;color:var(--text1);}
 .d-meta{font-size:10px;color:var(--text2);margin-top:2px;}
@@ -176,9 +176,6 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
 .stop-detail-field{background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:8px;min-width:0;}
 .stop-detail-field .lbl{font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.4px;margin-bottom:3px;}
 .stop-detail-field .val{font-size:12px;color:var(--text1);word-break:break-word;}
-.stop-detail-field input,.stop-detail-field select,.stop-detail-field textarea{background:var(--bg2);border:1px solid var(--border);border-radius:6px;color:var(--text1);font-size:11px;font-family:'Sora',sans-serif;padding:6px 7px;width:100%;min-width:0;}
-.stop-detail-field textarea{min-height:62px;resize:vertical;}
-.stop-detail-field input:focus,.stop-detail-field select:focus,.stop-detail-field textarea:focus{outline:none;border-color:var(--accent);}
 .stop-detail-modal{width:760px;max-width:96vw;}
 .route-drop-target{stroke-width:8!important;opacity:.95!important;filter:drop-shadow(0 0 8px #fff);}
 .tw-badge{display:inline-block;padding:2px 6px;border-radius:4px;font-size:9px;font-weight:700;}
@@ -239,6 +236,16 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
       Apply
     </button>
+    <button class="btn" onclick="clearSession()" title="Reset the whole session" style="background:#ef4444;border-color:#ef4444;color:#fff;font-weight:700;">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <polyline points="3 6 5 6 21 6"/>
+        <path d="M19 6l-1 14H6L5 6"/>
+        <path d="M10 11v6"/>
+        <path d="M14 11v6"/>
+        <path d="M9 6V4h6v2"/>
+      </svg>
+      Clear Session
+    </button>
   </div>
   <div class="topbar-sep"></div>
   <div class="topbar-actions">
@@ -291,7 +298,7 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
   <div class="left-panel" id="left-panel">
     <div class="app-tabs">
       <div class="app-tab active" id="apptab-routing" onclick="switchAppTab('routing')">&#128506; Routing</div>
-      <div class="app-tab" id="apptab-drivers" onclick="switchAppTab('drivers')">&#128666; Trucks</div>
+      <div class="app-tab" id="apptab-drivers" onclick="switchAppTab('drivers')">&#128666; Drivers</div>
     </div>
 
     <!-- ROUTING VIEW -->
@@ -379,7 +386,7 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
     <div class="imp-tabs">
       <div class="imp-tab active" id="itab-all" onclick="setImportMode('all')">All Templates</div>
       <div class="imp-tab" id="itab-routes" onclick="setImportMode('routes')">Routes Only</div>
-      <div class="imp-tab" id="itab-drivers" onclick="setImportMode('drivers')">Trucks Only</div>
+      <div class="imp-tab" id="itab-drivers" onclick="setImportMode('drivers')">Drivers Only</div>
       <div class="imp-tab" id="itab-stops" onclick="setImportMode('stops')">Stops Only</div>
       <div class="imp-tab" id="itab-depots" onclick="setImportMode('depots')">Depots Only</div>
     </div>
@@ -390,7 +397,7 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
       ondrop="handleDrop(event)">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
       <p>Click or drag &amp; drop Excel / CSV file here</p>
-      <span id="imp-hint">Upload one file with sheets named "Routes", "Trucks", "Stops", and "Depot Locations" — or load individually</span>
+      <span id="imp-hint">Upload one file with sheets named "Routes", "Drivers", "Stops", and "Depot Locations" — or load individually</span>
     </div>
     <div id="route-day-filter" style="margin:10px 0 8px;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg2);">
       <div style="font-size:10px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:7px;">Route Day Filter <span style="font-weight:400;color:var(--text3);text-transform:none;letter-spacing:0;">(uses Route Templates UDFString2)</span></div>
@@ -519,20 +526,6 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
     <div id="stop-detail-body"></div>
     <div class="modal-actions">
       <button class="btn" onclick="closeModal('stop-detail-modal')">Close</button>
-      <button class="btn primary" onclick="saveStopDetail()">Save Changes</button>
-    </div>
-  </div>
-</div>
-
-<!-- Route Detail Modal -->
-<div id="route-detail-modal" style="display:none" class="modal-overlay">
-  <div class="modal stop-detail-modal">
-    <h2 id="route-detail-title">Route Template Details</h2>
-    <div id="route-detail-body"></div>
-    <div class="modal-actions">
-      <button class="btn" onclick="openRouteManifestFromDetail()">Open Manifest</button>
-      <button class="btn" onclick="closeModal('route-detail-modal')">Close</button>
-      <button class="btn primary" onclick="saveRouteDetail()">Save Changes</button>
     </div>
   </div>
 </div>
@@ -579,7 +572,7 @@ let routes=[], stops=[], drivers=[], depotLocations=[];
 let mapCleared=false;
 const visibleStopIds=new Set();
 const visibleRouteIds=new Set();
-let activeManifestRouteId=null, activeDetailStopId=null, activeDetailRouteId=null, manifestDragStopId=null;
+let activeManifestRouteId=null, manifestDragStopId=null;
 let pendingOptimizationMode='selected';
 let appTab='routing', importMode='all', pendingWB=null;
 let dragState=null, map, markers={}, polylines={}, roadPolylines={}, expanded=new Set();
@@ -924,7 +917,7 @@ function renderStats(){
     <div class="stat"><div class="stat-val">${routes.length}</div><div class="stat-lbl">Routes</div></div>
     <div class="stat"><div class="stat-val">${asgn}</div><div class="stat-lbl">Assigned</div></div>
     <div class="stat"><div class="stat-val">${ua}</div><div class="stat-lbl">Unassigned</div></div>
-    <div class="stat"><div class="stat-val">${drivers.length}</div><div class="stat-lbl">Trucks</div></div>
+    <div class="stat"><div class="stat-val">${drivers.length}</div><div class="stat-lbl">Drivers</div></div>
     <div class="stat"><div class="stat-val">${depotLocations.length}</div><div class="stat-lbl">Depots</div></div>
     <div class="stat"><div class="stat-val">${tc.toLocaleString()}</div><div class="stat-lbl">Cases</div></div>
     <div class="stat"><div class="stat-val">${Math.round(tw).toLocaleString()}</div><div class="stat-lbl">Weight</div></div>
@@ -966,7 +959,7 @@ function renderRoutes(){
     const dname=r.driverFirstName?(r.driverFirstName+' '+(r.driverLastName||'')).trim():(drv?drv.name:'—');
     const isOpen=expanded.has(r.id);
     return`<div class="route-card" id="rc-${r.id}" draggable="true" ondragstart="onRouteDragStart(event,'${r.id}')" ondragend="onDragEnd()" onmouseenter="highlightRoute('${r.id}')" onmouseleave="clearMapHighlight()">
-      <div class="r-header" onclick="openRouteDetail('${r.id}')">
+      <div class="r-header" onclick="openRouteManifest('${r.id}')">
         <div class="r-colorbar" style="background:${color}"></div>
         <div class="r-info">
           <div class="r-name">${r.name}</div>
@@ -1041,13 +1034,13 @@ function renderUA(){
 function renderDrivers(){
   const el=document.getElementById('drivers-list');
   if(!drivers.length){
-    el.innerHTML='<div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg><p>No trucks imported</p></div>';
+    el.innerHTML='<div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg><p>No drivers imported</p></div>';
     return;
   }
   el.innerHTML=drivers.map(d=>{
     const assignedRoute=routes.find(r=>r.truckKey===d.truckKey||r.driverKey===d.driverKey);
     return`<div class="driver-card">
-      <div class="d-name">${d.name||d.truckId||'Truck'}</div>
+      <div class="d-name">${d.name||d.truckId||'Driver'}</div>
       <div class="d-meta">TruckKey: ${d.truckKey||'—'} &middot; Type: ${d.vehicleType||'—'} &middot; ${(d.active+'').toUpperCase()==='Y'||d.active===true?'&#10003; Active':'Inactive'}</div>
       <div class="d-truck">TruckID: ${d.truckId||'—'} &middot; Company: ${d.company||'—'} &middot; ${assignedRoute?'Assigned: '+assignedRoute.name:'Not assigned'}</div>
     </div>`;
@@ -1243,177 +1236,27 @@ function dropOnMap(e){
 
 
 // ============================================================
-// STOP DETAIL / ROUTE DETAIL + MAP MARKER DROP ON ROUTE LINE
+// STOP DETAIL + MAP MARKER DROP ON ROUTE LINE
 // ============================================================
-function detailInput(id,label,value,type='text'){
-  return `<div class="stop-detail-field"><div class="lbl">${escapeHtml(label)}</div><input id="${id}" type="${type}" value="${escapeHtml(value??'')}"/></div>`;
-}
-function detailTextArea(id,label,value){
-  return `<div class="stop-detail-field" style="grid-column:1/-1;"><div class="lbl">${escapeHtml(label)}</div><textarea id="${id}">${escapeHtml(value??'')}</textarea></div>`;
-}
-function detailSelect(id,label,value,options){
-  return `<div class="stop-detail-field"><div class="lbl">${escapeHtml(label)}</div><select id="${id}">${options.map(o=>`<option value="${escapeHtml(o.value)}" ${String(o.value)===String(value??'')?'selected':''}>${escapeHtml(o.label)}</option>`).join('')}</select></div>`;
-}
-function numVal(id){const n=parseFloat(document.getElementById(id)?.value);return isNaN(n)?0:n;}
-function strVal(id){return document.getElementById(id)?.value ?? '';}
-
 function openStopDetail(stopId){
   const s=stops.find(x=>x.id===stopId);
   if(!s)return;
-  activeDetailStopId=stopId;
-  const routeOptions=[{value:'',label:'— Unassigned —'},...routes.map(r=>({value:r.id,label:r.name||r.routeTemplateKey||'Route'}))];
-  document.getElementById('stop-detail-title').textContent=`Edit Stop Details: ${s.customerName||s.orderNumber||'Stop'}`;
-  document.getElementById('stop-detail-body').innerHTML=`<div class="stop-detail-grid">
-    ${detailInput('ed-s-customerName','Customer Name',s.customerName)}
-    ${detailInput('ed-s-orderNumber','Order Number',s.orderNumber)}
-    ${detailInput('ed-s-shipToId','Ship To ID',s.shipToId)}
-    ${detailInput('ed-s-customerNumber','Customer Number',s.customerNumber)}
-    ${detailSelect('ed-s-routeId','Assigned Route',s.routeId||'',routeOptions)}
-    ${detailInput('ed-s-seq','Sequence',s.seq||0,'number')}
-    ${detailInput('ed-s-address','Address',s.address)}
-    ${detailInput('ed-s-city','City',s.city)}
-    ${detailInput('ed-s-state','State',s.state)}
-    ${detailInput('ed-s-zip','Zip',s.zip)}
-    ${detailInput('ed-s-lat','Latitude',s.lat,'number')}
-    ${detailInput('ed-s-lng','Longitude',s.lng,'number')}
-    ${detailInput('ed-s-earliestTimeWindow','Earliest Time Window',cleanTimeValue(s.earliestTimeWindow),'time')}
-    ${detailInput('ed-s-latestTimeWindow','Latest Time Window',cleanTimeValue(s.latestTimeWindow),'time')}
-    ${detailInput('ed-s-dryCases','DRY Cases',s.dryCases||0,'number')}
-    ${detailInput('ed-s-dryWeight','DRY Weight',s.dryWeight||0,'number')}
-    ${detailInput('ed-s-dryCube','DRY Cube',s.dryCube||0,'number')}
-    ${detailInput('ed-s-coolerCases','Cooler Cases',s.coolerCases||0,'number')}
-    ${detailInput('ed-s-coolerWeight','Cooler Weight',s.coolerWeight||0,'number')}
-    ${detailInput('ed-s-coolerCube','Cooler Cube',s.coolerCube||0,'number')}
-    ${detailInput('ed-s-frozenCases','Frozen Cases',s.frozenCases||0,'number')}
-    ${detailInput('ed-s-frozenWeight','Frozen Weight',s.frozenWeight||0,'number')}
-    ${detailInput('ed-s-frozenCube','Frozen Cube',s.frozenCube||0,'number')}
-    ${detailInput('ed-s-preferredResourceKey','Preferred Resource Key',s.preferredResourceKey)}
-    ${detailInput('ed-s-preferredRouteSequence','Preferred Route Sequence',s.preferredRouteSequence)}
-    ${detailInput('ed-s-restrictRoutePosition','Restrict route position',s.restrictRoutePosition)}
-    ${detailInput('ed-s-orderType','Order Type',s.orderType)}
-    ${detailInput('ed-s-orderStatus','Order Status',s.orderStatus)}
-    ${detailInput('ed-s-district','District',s.district)}
-    ${detailInput('ed-s-willCallIndicator','Will Call',s.willCallIndicator)}
-    ${detailTextArea('ed-s-comment','Comment',s.comment)}
-  </div>`;
+  const route=routes.find(r=>r.id===s.routeId);
+  const fields=[
+    ['Customer Name',s.customerName],['Order Number',s.orderNumber],['Ship To ID',s.shipToId],['Customer Number',s.customerNumber],
+    ['Route',route?route.name:'Unassigned'],['Sequence',s.seq||'—'],['Address',s.address],['City/State/Zip',[s.city,s.state,s.zip].filter(Boolean).join(', ')],
+    ['Latitude / Longitude',s.lat&&s.lng?`${s.lat}, ${s.lng}`:'—'],['Earliest Time Window',s.earliestTimeWindow],['Latest Time Window',s.latestTimeWindow],
+    ['Total Cases',tCases(s)],['Total Weight',tWeight(s).toFixed(2)],['Total Cube',tCube(s).toFixed(2)],
+    ['Preferred Resource Key',s.preferredResourceKey],['Preferred Route Sequence',s.preferredRouteSequence],
+    ['Order Type',s.orderType],['Order Status',s.orderStatus],['District',s.district],['Will Call',s.willCallIndicator],
+    ['Comment',s.comment]
+  ];
+  document.getElementById('stop-detail-title').textContent=`Stop Details: ${s.customerName||s.orderNumber||'Stop'}`;
+  document.getElementById('stop-detail-body').innerHTML=`<div class="stop-detail-grid">${fields.map(([label,value])=>`
+    <div class="stop-detail-field"><div class="lbl">${escapeHtml(label)}</div><div class="val">${escapeHtml(value!==undefined&&value!==null&&value!==''?value:'—')}</div></div>
+  `).join('')}</div>`;
   document.getElementById('stop-detail-modal').style.display='flex';
 }
-function saveStopDetail(){
-  const s=stops.find(x=>x.id===activeDetailStopId);
-  if(!s)return;
-  const lat=parseFloat(strVal('ed-s-lat'));
-  const lng=parseFloat(strVal('ed-s-lng'));
-  if(isNaN(lat)||isNaN(lng)){showToast('Valid latitude and longitude are required');return;}
-  const oldRouteId=s.routeId||'';
-  s.customerName=strVal('ed-s-customerName');
-  s.orderNumber=strVal('ed-s-orderNumber');
-  s.shipToId=strVal('ed-s-shipToId');
-  s.customerNumber=strVal('ed-s-customerNumber');
-  s.routeId=strVal('ed-s-routeId')||null;
-  s.seq=parseInt(strVal('ed-s-seq'),10)||0;
-  s.address=strVal('ed-s-address');
-  s.city=strVal('ed-s-city');
-  s.state=strVal('ed-s-state');
-  s.zip=strVal('ed-s-zip');
-  s.lat=lat;
-  s.lng=lng;
-  s.earliestTimeWindow=strVal('ed-s-earliestTimeWindow');
-  s.latestTimeWindow=strVal('ed-s-latestTimeWindow');
-  s.dryCases=numVal('ed-s-dryCases');
-  s.dryWeight=numVal('ed-s-dryWeight');
-  s.dryCube=numVal('ed-s-dryCube');
-  s.coolerCases=numVal('ed-s-coolerCases');
-  s.coolerWeight=numVal('ed-s-coolerWeight');
-  s.coolerCube=numVal('ed-s-coolerCube');
-  s.frozenCases=numVal('ed-s-frozenCases');
-  s.frozenWeight=numVal('ed-s-frozenWeight');
-  s.frozenCube=numVal('ed-s-frozenCube');
-  s.preferredResourceKey=strVal('ed-s-preferredResourceKey');
-  s.preferredRouteSequence=strVal('ed-s-preferredRouteSequence');
-  s.restrictRoutePosition=strVal('ed-s-restrictRoutePosition');
-  s.orderType=strVal('ed-s-orderType');
-  s.orderStatus=strVal('ed-s-orderStatus');
-  s.district=strVal('ed-s-district');
-  s.willCallIndicator=strVal('ed-s-willCallIndicator');
-  s.comment=strVal('ed-s-comment');
-  if(s.routeId && !s.seq)s.seq=Math.max(0,...stops.filter(x=>x.routeId===s.routeId&&x.id!==s.id).map(x=>x.seq||0))+1;
-  if(oldRouteId!==s.routeId)expanded.add(s.routeId);
-  reseq();
-  render();
-  if(activeManifestRouteId)renderRouteManifest();
-  closeModal('stop-detail-modal');
-  showToast('Stop details updated');
-}
-
-function openRouteDetail(routeId){
-  const r=routes.find(x=>x.id===routeId);
-  if(!r)return;
-  activeDetailRouteId=routeId;
-  const init=routeInitialDepot(r), fin=routeFinalDepot(r);
-  document.getElementById('route-detail-title').textContent=`Edit Route Template Details: ${r.name||'Route'}`;
-  document.getElementById('route-detail-body').innerHTML=`<div class="stop-detail-grid">
-    ${detailInput('ed-r-name','Route Name',r.name)}
-    ${detailInput('ed-r-routeTemplateKey','RouteTemplateKey',r.routeTemplateKey)}
-    ${detailInput('ed-r-scheduleKey','ScheduleKey',r.scheduleKey)}
-    ${detailInput('ed-r-udfNumber1','UDFNumber1',r.udfNumber1)}
-    ${detailInput('ed-r-udfString2','UDFString2 / Route Day',r.udfString2)}
-    ${detailInput('ed-r-initialLocationKey','InitialLocationKey',r.initialLocationKey)}
-    ${detailInput('ed-r-finalLocationKey','FinalLocationKey',r.finalLocationKey)}
-    ${detailInput('ed-r-driverKey','DriverKey',r.driverKey)}
-    ${detailInput('ed-r-truckKey','TruckKey',r.truckKey)}
-    ${detailInput('ed-r-trailerKey','TrailerKey',r.trailerKey)}
-    ${detailInput('ed-r-driverFirstName','Driver First Name',r.driverFirstName)}
-    ${detailInput('ed-r-driverLastName','Driver Last Name',r.driverLastName)}
-    ${detailInput('ed-r-earliestStartTime','Earliest Start Time',cleanTimeValue(r.earliestStartTime),'time')}
-    ${detailInput('ed-r-latestStartTime','Latest Start Time',cleanTimeValue(r.latestStartTime),'time')}
-    ${detailInput('ed-r-latestEndTime','Latest End Time',cleanTimeValue(r.latestEndTime),'time')}
-    ${detailInput('ed-r-startupTime','Startup Time',r.startupTime||0,'number')}
-    ${detailInput('ed-r-windupTime','Windup Time',r.windupTime||0,'number')}
-    ${detailInput('ed-r-routingParameterKey','Routing Parameter Key',r.routingParameterKey)}
-    ${detailInput('ed-r-requirements','Requirements',r.requirements)}
-    ${detailInput('ed-r-work1Duration','Work1Duration',r.work1Duration)}
-    <div class="stop-detail-field"><div class="lbl">Initial Depot Match</div><div class="val">${escapeHtml(init?depotLabel(init,'Depot'):'No matching depot found')}</div></div>
-    <div class="stop-detail-field"><div class="lbl">Final Depot Match</div><div class="val">${escapeHtml(fin?depotLabel(fin,'Depot'):'No matching depot found')}</div></div>
-  </div>`;
-  document.getElementById('route-detail-modal').style.display='flex';
-}
-function saveRouteDetail(){
-  const r=routes.find(x=>x.id===activeDetailRouteId);
-  if(!r)return;
-  const name=strVal('ed-r-name').trim();
-  if(!name){showToast('Route name is required');return;}
-  r.name=name;
-  r.routeTemplateKey=strVal('ed-r-routeTemplateKey');
-  r.scheduleKey=strVal('ed-r-scheduleKey');
-  r.udfNumber1=strVal('ed-r-udfNumber1');
-  r.udfString2=strVal('ed-r-udfString2');
-  r.initialLocationKey=strVal('ed-r-initialLocationKey');
-  r.finalLocationKey=strVal('ed-r-finalLocationKey');
-  r.driverKey=strVal('ed-r-driverKey');
-  r.truckKey=strVal('ed-r-truckKey');
-  r.trailerKey=strVal('ed-r-trailerKey');
-  r.driverFirstName=strVal('ed-r-driverFirstName');
-  r.driverLastName=strVal('ed-r-driverLastName');
-  r.earliestStartTime=strVal('ed-r-earliestStartTime');
-  r.latestStartTime=strVal('ed-r-latestStartTime');
-  r.latestEndTime=strVal('ed-r-latestEndTime');
-  r.startupTime=numVal('ed-r-startupTime');
-  r.windupTime=numVal('ed-r-windupTime');
-  r.routingParameterKey=strVal('ed-r-routingParameterKey');
-  r.requirements=strVal('ed-r-requirements');
-  r.work1Duration=strVal('ed-r-work1Duration');
-  enrichRouteDepots();
-  expanded.add(r.id);
-  render();
-  closeModal('route-detail-modal');
-  showToast('Route template details updated');
-}
-function openRouteManifestFromDetail(){
-  const routeId=activeDetailRouteId;
-  closeModal('route-detail-modal');
-  if(routeId)openRouteManifest(routeId);
-}
-
 function pointSegmentDistancePx(p,a,b){
   const dx=b.x-a.x, dy=b.y-a.y;
   if(dx===0&&dy===0)return p.distanceTo(a);
@@ -2343,9 +2186,9 @@ function setImportMode(m){
   importMode=m;
   ['all','routes','drivers','stops','depots'].forEach(x=>document.getElementById('itab-'+x).className='imp-tab'+(m===x?' active':''));
   const hints={
-    all:'Upload one file with sheets named "Routes", "Trucks", "Stops", and "Depot Locations" — or load individually',
+    all:'Upload one file with sheets named "Routes", "Drivers", "Stops", and "Depot Locations" — or load individually',
     routes:'Upload your Route Template file. Include UDFNumber1, UDFString2, InitialLocationKey, and FinalLocationKey.',
-    drivers:'Upload your Truck Template file',
+    drivers:'Upload your Driver Template file',
     stops:'Upload your Stops/Orders Template file',
     depots:'Upload your Depot Locations file with LocationKey, Name, Ship address fields, Latitude, and Longitude.'
   };
@@ -2440,7 +2283,7 @@ function readFile(file){
           &#10003; <strong>${file.name}</strong><br/>
           ${sheetInfo.map(s=>`<div style="display:flex;justify-content:space-between;gap:8px;border-bottom:1px solid var(--border);padding:4px 0;">
             <span>${s.name} <span style="color:var(--text3);">(${s.rows} rows)</span></span>
-            <strong style="color:${s.type==='not detected'?'var(--warn)':(s.type==='reference only'?'var(--text3)':'var(--success)')};">${s.type==='drivers'?'trucks':s.type}</strong>
+            <strong style="color:${s.type==='not detected'?'var(--warn)':(s.type==='reference only'?'var(--text3)':'var(--success)')};">${s.type}</strong>
           </div>`).join('')}
           <br/><span style="color:var(--text3);">All Templates mode imports every detected tab from the workbook. Individual modes still import only the selected template type.</span>
         </div>`;
@@ -2509,7 +2352,7 @@ function confirmImport(){
       expanded.clear();
       renderRoutes();
       const skipText=skipped?`, ${skipped} skipped/not detected`:'';
-      showToast(`Imported: ${rc} route rows, ${dc} truck rows, ${sc} stop rows, ${lc} depot rows${skipText}`);
+      showToast(`Imported: ${rc} route rows, ${dc} driver rows, ${sc} stop rows, ${lc} depot rows${skipText}`);
       if(btn){btn.disabled=false;btn.textContent=originalText||'Import Data';}
     },25);
   }catch(err){
@@ -2763,30 +2606,74 @@ function saveRoute(){
 }
 
 // ============================================================
+// CLEAR SESSION
+// ============================================================
+function clearSession(){
+  const confirmClear = confirm(
+    'Clear the entire session?\n\nThis will remove:\n• All routes\n• All stops\n• All trucks\n• All depots\n• All map data\n• All session assignments'
+  );
+
+  if(!confirmClear) return;
+
+  routes = [];
+  stops = [];
+  drivers = [];
+  depotLocations = [];
+
+  expanded.clear();
+  visibleStopIds.clear();
+  visibleRouteIds.clear();
+
+  potColors = {};
+  potRouteSuggestions = {};
+
+  activeManifestRouteId = null;
+  activeDetailStopId = null;
+  activeDetailRouteId = null;
+  manifestDragStopId = null;
+  pendingOptimizationMode = 'selected';
+
+  dragState = null;
+  contextStopId = null;
+  routeSort = '';
+  activeRouteFilterId = null;
+  activeStopFilterId = null;
+  mapCleared = true;
+
+  Object.values(markers).forEach(m=>{
+    try{ map.removeLayer(m); }catch(e){}
+  });
+  Object.values(polylines).forEach(p=>{
+    try{ map.removeLayer(p); }catch(e){}
+  });
+  Object.values(roadPolylines).forEach(p=>{
+    try{ map.removeLayer(p); }catch(e){}
+  });
+
+  markers = {};
+  polylines = {};
+  roadPolylines = {};
+
+  document.querySelectorAll('.modal-overlay').forEach(m=>{
+    m.style.display='none';
+  });
+
+  if(document.getElementById('chk-all')) document.getElementById('chk-all').checked=false;
+  if(document.getElementById('route-sort')) document.getElementById('route-sort').value='';
+
+  closeStopContextMenu();
+  render();
+  showToast('Session cleared');
+}
+
+// ============================================================
 // EXPORT
 // ============================================================
 function exportExcel(){
   if(!stops.length&&!routes.length){showToast('No data to export');return;}
   const wb=XLSX.utils.book_new();
 
-  // Tab 1: Totals Summary
-  const usedRoutes=routes.filter(r=>stops.some(s=>s.routeId===r.id));
-  const routedStops=stops.filter(s=>s.routeId);
-  const totalRunMinutes=usedRoutes.reduce((a,r)=>a+routeTotalMinutes(r.id),0);
-  const totalCasesShipped=routedStops.reduce((a,s)=>a+tCases(s),0);
-  const totalMiles=usedRoutes.reduce((a,r)=>a+routeDistanceMiles(r.id),0);
-  const totalsSummary=[{
-    'Export Date':document.getElementById('route-date').value||new Date().toISOString().slice(0,10),
-    'Number of Routes Used':usedRoutes.length,
-    'Stops Routed':routedStops.length,
-    'Total Run Time of Routes':fmtMinutes(totalRunMinutes),
-    'Total Run Time Minutes':parseFloat(totalRunMinutes.toFixed(2)),
-    'Total Cases Shipped':totalCasesShipped,
-    'Total Miles':parseFloat(totalMiles.toFixed(2)),
-  }];
-  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(totalsSummary),'Totals Summary');
-
-  // Tab 2: Route Summary
+  // Tab 1: Route Summary
   const summary=routes.map(r=>{
     const rs=stops.filter(s=>s.routeId===r.id);
     const drv=drivers.find(d=>d.truckKey===r.truckKey||d.driverKey===r.driverKey);
@@ -2823,7 +2710,7 @@ function exportExcel(){
   });
   XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(summary.length?summary:[{Note:'No routes'}]),'Route Summary');
 
-  // Tab 3: Route Manifest
+  // Tab 2: Route Manifest
   const manifest=[];
   routes.forEach(r=>{
     const drv=drivers.find(d=>d.truckKey===r.truckKey||d.driverKey===r.driverKey);
@@ -2893,7 +2780,7 @@ function exportExcel(){
   });
   XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(manifest.length?manifest:[{Note:'No assigned stops'}]),'Route Manifest');
 
-  // Tab 4: Unassigned
+  // Tab 3: Unassigned
   const ua=stops.filter(s=>!s.routeId).map(s=>({
     'Customer Name':s.customerName||'',
     'ORDER_NUMBER':s.orderNumber||'',
@@ -2937,7 +2824,7 @@ function exportExcel(){
 
   const date=document.getElementById('route-date').value||new Date().toISOString().slice(0,10);
   XLSX.writeFile(wb,`RouteDesk_${date}.xlsx`);
-  showToast('Exported: Totals Summary, Route Summary, Route Manifest, Unassigned Stops, Depot Locations');
+  showToast('Exported: Route Summary, Route Manifest, Unassigned Stops, Depot Locations');
 }
 
 // ============================================================
