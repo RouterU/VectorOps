@@ -142,8 +142,10 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
 .route-sort{background:var(--bg3);border:1px solid var(--border);border-radius:5px;color:var(--text1);font-size:10px;font-family:'Sora',sans-serif;padding:2px 5px;max-width:132px;}
 .left-highlight{background:rgba(79,140,255,.18)!important;border-color:var(--accent)!important;box-shadow:inset 0 0 0 1px rgba(79,140,255,.35);}
 .leaflet-marker-icon.map-marker-highlight{filter:drop-shadow(0 0 10px #fff) brightness(1.35);transform:scale(1.35);transform-origin:center center;z-index:9999!important;}
-.depot-map-label{display:inline-flex;align-items:center;gap:4px;max-width:170px;padding:4px 8px;border-radius:8px;background:rgba(15,17,23,.96);border:2px solid currentColor;box-shadow:0 2px 10px rgba(0,0,0,.55);font-family:'Sora',sans-serif;font-size:10px;font-weight:700;color:inherit;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
-.depot-map-label .depot-type{font-family:'DM Mono',monospace;font-size:8px;opacity:.82;letter-spacing:.3px;}
+.depot-map-label{display:inline-flex;align-items:center;gap:6px;max-width:190px;padding:5px 9px;border-radius:10px;background:rgba(15,17,23,.96);border:2px solid currentColor;box-shadow:0 3px 12px rgba(0,0,0,.58);font-family:'Sora',sans-serif;font-size:10px;font-weight:800;color:inherit;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.depot-map-label .depot-building{width:18px;height:18px;display:inline-flex;align-items:center;justify-content:center;border-radius:5px;background:currentColor;color:#0f1117;flex-shrink:0;font-size:12px;line-height:1;}
+.depot-map-label .depot-text{display:flex;flex-direction:column;min-width:0;line-height:1.05;}
+.depot-map-label .depot-type{font-family:'DM Mono',monospace;font-size:8px;opacity:.82;letter-spacing:.3px;font-weight:700;}
 .depot-map-label .depot-name{overflow:hidden;text-overflow:ellipsis;}
 .map-controls{position:absolute;top:10px;left:76px;z-index:600;display:flex;gap:6px;align-items:center;background:rgba(23,27,37,.9);border:1px solid var(--border);border-radius:8px;padding:6px;}
 .map-drop-hint{font-size:10px;color:var(--text3);padding:0 4px;white-space:nowrap;}
@@ -528,6 +530,7 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
     <h2 id="stop-detail-title">Stop Details</h2>
     <div id="stop-detail-body"></div>
     <div class="modal-actions">
+      <button class="btn" style="margin-right:auto;background:#ef4444;border-color:#ef4444;color:#fff;" onclick="removeStopFromSession()">Remove From Session</button>
       <button class="btn" onclick="closeModal('stop-detail-modal')">Close</button>
       <button class="btn primary" onclick="saveStopDetail()">Save Changes</button>
     </div>
@@ -540,6 +543,7 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
     <h2 id="route-detail-title">Route Template Details</h2>
     <div id="route-detail-body"></div>
     <div class="modal-actions">
+      <button class="btn" style="margin-right:auto;background:#ef4444;border-color:#ef4444;color:#fff;" onclick="removeRouteFromSession()">Remove From Session</button>
       <button class="btn" onclick="openRouteManifestFromDetail()">Open Manifest</button>
       <button class="btn" onclick="closeModal('route-detail-modal')">Close</button>
       <button class="btn primary" onclick="saveRouteDetail()">Save Changes</button>
@@ -1112,7 +1116,7 @@ function renderMap(){
       const depotName=(depot.name||depot.locationType||depot.locationKey||'Depot').toString();
       const safeDepotName=escapeHtml(depotName);
       const icon=L.divIcon({className:'',
-        html:`<div class="depot-map-label" style="color:${color};"><span class="depot-type">${label}</span><span class="depot-name">${safeDepotName}</span></div>`,
+        html:`<div class="depot-map-label" style="color:${color};"><span class="depot-building">🏢</span><span class="depot-text"><span class="depot-type">${label} DEPOT</span><span class="depot-name">${safeDepotName}</span></span></div>`,
         iconSize:null,iconAnchor:[10,16]});
       const m=L.marker([depot.lat,depot.lng],{icon}).addTo(map);
       m.bindPopup(`<div style="font-family:Sora,sans-serif;min-width:190px;font-size:12px;"><b>${label} DEPOT</b><br/><b>${depot.name||'Depot'}</b><br/>LocationKey: ${depot.locationKey||''}<br/>${depot.shipStreet||''}<br/>${depot.shipCity||''} ${depot.shipState||''} ${depot.shipZipCode||''}</div>`);
@@ -1242,7 +1246,9 @@ function dropOnMap(e){
   if(dragState.routeId){
     visibleRouteIds.add(dragState.routeId);
     stops.filter(s=>s.routeId===dragState.routeId).forEach(s=>visibleStopIds.add(s.id));
-    renderMap();showToast('Route displayed on map');
+    renderMap();
+    fitRouteToMap(dragState.routeId);
+    showToast('Route displayed on map');
     return;
   }
   if(dragState.sid){
@@ -1424,6 +1430,73 @@ function openRouteManifestFromDetail(){
   if(routeId)openRouteManifest(routeId);
 }
 
+
+function removeStopFromSession(){
+  const stop=stops.find(s=>s.id===activeDetailStopId);
+  if(!stop){showToast('Stop not found');return;}
+  const name=stop.customerName||stop.orderNumber||'this stop';
+  if(!confirm(`Remove ${name} from this routing session?`))return;
+  stops=stops.filter(s=>s.id!==stop.id);
+  visibleStopIds.delete(stop.id);
+  delete potColors[stop.id];
+  delete potRouteSuggestions[stop.id];
+  if(markers[stop.id]){
+    try{map.removeLayer(markers[stop.id]);}catch(e){}
+    delete markers[stop.id];
+  }
+  reseq();
+  activeDetailStopId=null;
+  closeModal('stop-detail-modal');
+  render();
+  if(activeManifestRouteId)renderRouteManifest();
+  showToast('Stop removed from session');
+}
+
+function removeRouteFromSession(){
+  const route=routes.find(r=>r.id===activeDetailRouteId);
+  if(!route){showToast('Route not found');return;}
+  const assignedCount=stops.filter(s=>s.routeId===route.id).length;
+  const msg=assignedCount
+    ? `Remove ${route.name||'this route'} from this routing session?\n\n${assignedCount} assigned stop(s) will become unassigned.`
+    : `Remove ${route.name||'this route'} from this routing session?`;
+  if(!confirm(msg))return;
+
+  stops.forEach(s=>{
+    if(s.routeId===route.id){
+      s.routeId=null;
+      s.seq=0;
+    }
+  });
+
+  routes=routes.filter(r=>r.id!==route.id);
+  expanded.delete(route.id);
+  visibleRouteIds.delete(route.id);
+
+  if(polylines[route.id]){
+    try{map.removeLayer(polylines[route.id]);}catch(e){}
+    delete polylines[route.id];
+  }
+  if(roadPolylines[route.id]){
+    try{map.removeLayer(roadPolylines[route.id]);}catch(e){}
+    delete roadPolylines[route.id];
+  }
+
+  Object.keys(markers).forEach(key=>{
+    if(key.startsWith(`depot-${route.id}-`)){
+      try{map.removeLayer(markers[key]);}catch(e){}
+      delete markers[key];
+    }
+  });
+
+  activeDetailRouteId=null;
+  if(activeManifestRouteId===route.id)activeManifestRouteId=null;
+  closeModal('route-detail-modal');
+  closeModal('route-manifest-modal');
+  reseq();
+  render();
+  showToast('Route removed from session');
+}
+
 function pointSegmentDistancePx(p,a,b){
   const dx=b.x-a.x, dy=b.y-a.y;
   if(dx===0&&dy===0)return p.distanceTo(a);
@@ -1571,6 +1644,7 @@ function showSelectedRoutesOnMap(){
   ensureCustomMapView();
   selected.forEach(r=>visibleRouteIds.add(r.id));
   renderMap();
+  fitRoutesToMap(selected.map(r=>r.id));
   showToast(`Displayed ${selected.length} selected route(s) on the map`);
 }
 function showSelectedUnassignedOnMap(){
@@ -1608,6 +1682,37 @@ function fitMapToVisible(){
   });
   if(pts.length)map.fitBounds(L.latLngBounds(pts),{padding:[50,50],maxZoom:12});
 }
+function fitRouteToMap(routeId){
+  const route=routes.find(r=>r.id===routeId);
+  if(!route||!map)return;
+  const pts=[];
+  [routeInitialDepot(route),routeFinalDepot(route)].forEach(d=>{
+    if(d&&d.lat&&d.lng)pts.push([d.lat,d.lng]);
+  });
+  stops.filter(s=>s.routeId===routeId&&s.lat&&s.lng).forEach(s=>pts.push([s.lat,s.lng]));
+  if(pts.length===1){
+    map.flyTo(pts[0],13);
+  }else if(pts.length>1){
+    map.fitBounds(L.latLngBounds(pts),{padding:[70,70],maxZoom:13});
+  }
+}
+function fitRoutesToMap(routeIds){
+  const pts=[];
+  (routeIds||[]).forEach(routeId=>{
+    const route=routes.find(r=>r.id===routeId);
+    if(!route)return;
+    [routeInitialDepot(route),routeFinalDepot(route)].forEach(d=>{
+      if(d&&d.lat&&d.lng)pts.push([d.lat,d.lng]);
+    });
+    stops.filter(s=>s.routeId===routeId&&s.lat&&s.lng).forEach(s=>pts.push([s.lat,s.lng]));
+  });
+  if(pts.length===1){
+    map.flyTo(pts[0],13);
+  }else if(pts.length>1){
+    map.fitBounds(L.latLngBounds(pts),{padding:[70,70],maxZoom:13});
+  }
+}
+
 function contextRemoveStopFromMap(stopId){
   ensureCustomMapView();visibleStopIds.delete(stopId);renderMap();closeStopContextMenu();showToast('Stop removed from map');
 }
@@ -1943,7 +2048,6 @@ function runPreferredJob(){
     }
 
     affectedRouteIds.add(route.id);
-    expanded.add(route.id);
     assigned++;
   });
 
@@ -3025,7 +3129,7 @@ function exportExcel(){
 // ============================================================
 // UTILS
 // ============================================================
-function closeModal(id){document.getElementById(id).style.display='none';}
+function closeModal(id){const el=document.getElementById(id);if(el)el.style.display='none';}
 function showToast(msg){
   const t=document.createElement('div');t.className='toast';t.textContent=msg;
   document.body.appendChild(t);setTimeout(()=>t.remove(),3200);
