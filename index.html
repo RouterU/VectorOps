@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-<title>RouteDesk v2</title>
+<title>RouteDesk v2 - Depot Preview + Manifest Seq Fix</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -182,7 +182,7 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
 .tw-ok{background:rgba(62,207,142,.16);color:var(--success);}
 .tw-wait{background:rgba(245,158,11,.16);color:var(--warn);}
 .tw-late{background:rgba(239,68,68,.20);color:#fecaca;}
-.manifest-seq{font-family:'DM Mono',monospace;color:var(--text3);}
+.manifest-seq{font-family:'DM Mono',monospace;color:var(--text1);font-weight:700;}
 .manifest-customer{min-width:0;}
 .manifest-name{font-weight:600;color:var(--text1);white-space:normal;overflow:visible;text-overflow:clip;line-height:1.25;}
 .manifest-detail{color:var(--text3);font-size:9px;margin-top:2px;white-space:normal;overflow:visible;text-overflow:clip;line-height:1.2;}
@@ -1639,6 +1639,8 @@ function renderRouteManifest(){
     const s=pt.stop||{};
     const seq=isDepot?(pt.label||'DEPOT'):(s.seq||idx);
     const name=escapeHtml(pt.name||'Stop');
+    const seqDisplay=isDepot?(pt.label||'DEPOT'):(s.seq||idx);
+    const displayName=isDepot?name:`#${escapeHtml(seqDisplay)} · ${name}`;
     const detail=isDepot?`LocationKey: ${escapeHtml(pt.depot?.locationKey||'')}`:`${escapeHtml(s.orderNumber||'')} · ${escapeHtml(s.address||'')} ${escapeHtml(s.city||'')} ${escapeHtml(s.state||'')}`;
     const violationClass=pt.twStatus==='LATE'?' tw-violation':'';
     const twClass=pt.twStatus==='LATE'?'tw-late':(pt.twStatus==='WAIT'?'tw-wait':'tw-ok');
@@ -1652,7 +1654,7 @@ function renderRouteManifest(){
       onmouseenter="highlightStop('${s.id}')" onmouseleave="clearMapHighlight()"`;
     return `<div class="manifest-row ${isDepot?'depot':'stop'}${violationClass}" ${dragAttrs}>
       <div class="manifest-seq">${seq}</div>
-      <div class="manifest-customer"><div class="manifest-name">${name}</div><div class="manifest-detail">${detail}</div></div>
+      <div class="manifest-customer"><div class="manifest-name">${displayName}</div><div class="manifest-detail">${detail}</div></div>
       <div>${escapeHtml(pt.city||'')} ${escapeHtml(pt.state||'')}</div>
       <div>${isDepot?'—':tCases(s)}</div>
       <div>${isDepot?'—':Math.round(tWeight(s)).toLocaleString()}</div>
@@ -2213,6 +2215,10 @@ function detectImportSheetType(name,data){
   const hasGeo=keys.some(k=>k==='latitude'||k==='lat')&&keys.some(k=>k==='longitude'||k==='long'||k==='lng');
   const looksDepot=hasLocationKey&&(hasDepotAddress||sheetLower.includes('depot')||sheetLower.includes('location'))&&hasGeo;
 
+  // Helper/reference tabs in the upload template should not show as failed imports.
+  // They are intentionally ignored by the import process.
+  if(sheetLower.includes('day code') || sheetLower.includes('reference'))return 'reference only';
+
   const looksRoutes=keys.some(k=>
     k.includes('routetemplatekey')||
     k.includes('earlieststarttime')||
@@ -2265,7 +2271,7 @@ function readFile(file){
           &#10003; <strong>${file.name}</strong><br/>
           ${sheetInfo.map(s=>`<div style="display:flex;justify-content:space-between;gap:8px;border-bottom:1px solid var(--border);padding:4px 0;">
             <span>${s.name} <span style="color:var(--text3);">(${s.rows} rows)</span></span>
-            <strong style="color:${s.type==='not detected'?'var(--warn)':'var(--success)'};">${s.type}</strong>
+            <strong style="color:${s.type==='not detected'?'var(--warn)':(s.type==='reference only'?'var(--text3)':'var(--success)')};">${s.type}</strong>
           </div>`).join('')}
           <br/><span style="color:var(--text3);">All Templates mode imports every detected tab from the workbook. Individual modes still import only the selected template type.</span>
         </div>`;
@@ -2300,6 +2306,7 @@ function confirmImport(){
         if(type==='routes'){rc+=importRoutes(data);return;}
         if(type==='drivers'){importDrivers(data);dc+=data.length;return;}
         if(type==='stops'){importStops(data);sc+=data.length;return;}
+        if(type==='reference only'){return;}
         skipped+=data.length;return;
       }
 
@@ -2310,6 +2317,7 @@ function confirmImport(){
       if(importMode==='routes'&&(type==='routes'||singleSheet)){rc+=importRoutes(data);return;}
       if(importMode==='drivers'&&(type==='drivers'||singleSheet)){importDrivers(data);dc+=data.length;return;}
       if(importMode==='stops'&&(type==='stops'||singleSheet)){importStops(data);sc+=data.length;return;}
+      if(type==='reference only')return;
       skipped+=data.length;
     });
 
