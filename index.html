@@ -534,7 +534,7 @@ const visibleRouteIds=new Set();
 let activeManifestRouteId=null, manifestDragStopId=null;
 let pendingOptimizationMode='selected';
 let appTab='routing', importMode='all', pendingWB=null;
-let dragState=null, map, markers={}, polylines={}, expanded=new Set();
+let dragState=null, map, markers={}, polylines={}, roadPolylines={}, expanded=new Set();
 let darkTileLayer=null, satelliteTileLayer=null, currentMapLayer='dark';
 let contextStopId=null;
 let potColors={}; // stopId -> color
@@ -1223,6 +1223,9 @@ function openStopContextMenu(stopId,x,y){
     <button class="stop-context-item ${stop.routeId?'':'disabled'}" onclick="${stop.routeId?`contextResequenceRoute('${stop.routeId}')`:'return false'}">
       <span>Resequence current route</span><span>⌁</span>
     </button>
+    <button class="stop-context-item ${stop.routeId?'':'disabled'}" onclick="${stop.routeId?`contextShowAlongRoad('${stop.routeId}')`:'return false'}">
+      <span>Show Along The Road</span><span>🛣</span>
+    </button>
     <button class="stop-context-item" onclick="contextRemoveStopFromMap('${stopId}')">
       <span>Remove Stop from Map</span><span>✕</span>
     </button>
@@ -1249,6 +1252,7 @@ function openRouteContextMenu(routeId,x,y){
   menu.innerHTML=`
     <div class="stop-context-title">${route.name||'Route'}</div>
     <button class="stop-context-item" onclick="contextResequenceRoute('${routeId}')"><span>Resequence Route</span><span>⌁</span></button>
+    <button class="stop-context-item" onclick="contextShowAlongRoad('${routeId}')"><span>Show Along The Road</span><span>🛣</span></button>
     <button class="stop-context-item" onclick="contextRemoveRouteFromMap('${routeId}')"><span>Remove Route from Map</span><span>□</span></button>`;
   menu.style.display='block';
   const rect=menu.getBoundingClientRect();
@@ -1263,7 +1267,7 @@ function ensureCustomMapView(){
   }
 }
 function clearMapView(){
-  mapCleared=true;visibleStopIds.clear();visibleRouteIds.clear();renderMap();showToast('Map cleared. Drag routes or stops back onto the map.');
+  mapCleared=true;visibleStopIds.clear();visibleRouteIds.clear();Object.values(roadPolylines).forEach(p=>map.removeLayer(p));roadPolylines={};renderMap();showToast('Map cleared. Drag routes or stops back onto the map.');
 }
 
 function showSelectedRoutesOnMap(){
@@ -1313,7 +1317,7 @@ function contextRemoveStopFromMap(stopId){
   ensureCustomMapView();visibleStopIds.delete(stopId);renderMap();closeStopContextMenu();showToast('Stop removed from map');
 }
 function contextRemoveRouteFromMap(routeId){
-  ensureCustomMapView();visibleRouteIds.delete(routeId);stops.filter(s=>s.routeId===routeId).forEach(s=>visibleStopIds.delete(s.id));renderMap();closeStopContextMenu();showToast('Route removed from map');
+  ensureCustomMapView();visibleRouteIds.delete(routeId);stops.filter(s=>s.routeId===routeId).forEach(s=>visibleStopIds.delete(s.id));if(roadPolylines[routeId]){map.removeLayer(roadPolylines[routeId]);delete roadPolylines[routeId];}renderMap();closeStopContextMenu();showToast('Route removed from map');
 }
 function closeStopContextMenu(){
   const menu=document.getElementById('stop-context-menu');
@@ -1326,6 +1330,53 @@ function contextAssignStop(stopId,routeId){
   expanded.add(routeId);
   closeStopContextMenu();
   showToast('Stop assigned from map menu');
+}
+
+
+async function contextShowAlongRoad(routeId){
+  closeStopContextMenu();
+  await showAlongRoad(routeId);
+}
+
+async function showAlongRoad(routeId){
+  const route=routes.find(r=>r.id===routeId);
+  if(!route){showToast('Route not found');return;}
+  const points=routePointSequence(routeId).filter(p=>p.lat&&p.lng);
+  if(points.length<2){showToast('Need at least 2 mapped points to show the road route');return;}
+  if(points.length>100){showToast('Too many stops for public road routing. Try a smaller route first.');return;}
+
+  const color=routeColor(routeId);
+  const coords=points.map(p=>`${p.lng},${p.lat}`).join(';');
+  const url=`https://router.project-osrm.org/route/v1/driving/${coords}?overview=full&geometries=geojson&steps=false`;
+  showToast(`Building road line for ${route.name || 'route'}...`);
+
+  try{
+    const response=await fetch(url);
+    if(!response.ok)throw new Error('Road service did not return a route');
+    const data=await response.json();
+    const geometry=data?.routes?.[0]?.geometry;
+    if(!geometry)throw new Error('No road geometry returned');
+
+    if(roadPolylines[routeId]){
+      map.removeLayer(roadPolylines[routeId]);
+      delete roadPolylines[routeId];
+    }
+
+    if(polylines[routeId]){
+      polylines[routeId].setStyle({opacity:.18,dashArray:'3,8',weight:2});
+    }
+
+    roadPolylines[routeId]=L.geoJSON(geometry,{
+      style:{color,weight:5,opacity:.92,dashArray:null}
+    }).addTo(map);
+
+    roadPolylines[routeId].bindPopup(`<div style="font-family:Sora,sans-serif;font-size:12px;"><b>${escapeHtml(route.name||'Route')}</b><br/>Road-following route preview<br/><span style="color:#666;font-size:11px;">Powered by public OSRM road data</span></div>`);
+    const bounds=roadPolylines[routeId].getBounds();
+    if(bounds.isValid())map.fitBounds(bounds,{padding:[60,60],maxZoom:13});
+    showToast(`Road line displayed for ${route.name || 'route'}`);
+  }catch(err){
+    showToast('Could not build road line: '+(err.message||err));
+  }
 }
 
 function contextUnassignStop(stopId){
