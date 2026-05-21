@@ -2769,7 +2769,24 @@ function exportExcel(){
   if(!stops.length&&!routes.length){showToast('No data to export');return;}
   const wb=XLSX.utils.book_new();
 
-  // Tab 1: Route Summary
+  // Tab 1: Totals Summary
+  const usedRoutes=routes.filter(r=>stops.some(s=>s.routeId===r.id));
+  const routedStops=stops.filter(s=>s.routeId);
+  const totalRunMinutes=usedRoutes.reduce((a,r)=>a+routeTotalMinutes(r.id),0);
+  const totalCasesShipped=routedStops.reduce((a,s)=>a+tCases(s),0);
+  const totalMiles=usedRoutes.reduce((a,r)=>a+routeDistanceMiles(r.id),0);
+  const totalsSummary=[{
+    'Export Date':document.getElementById('route-date').value||new Date().toISOString().slice(0,10),
+    'Number of Routes Used':usedRoutes.length,
+    'Stops Routed':routedStops.length,
+    'Total Run Time of Routes':fmtMinutes(totalRunMinutes),
+    'Total Run Time Minutes':parseFloat(totalRunMinutes.toFixed(2)),
+    'Total Cases Shipped':totalCasesShipped,
+    'Total Miles':parseFloat(totalMiles.toFixed(2)),
+  }];
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(totalsSummary),'Totals Summary');
+
+  // Tab 2: Route Summary
   const summary=routes.map(r=>{
     const rs=stops.filter(s=>s.routeId===r.id);
     const drv=drivers.find(d=>d.truckKey===r.truckKey||d.driverKey===r.driverKey);
@@ -2806,7 +2823,7 @@ function exportExcel(){
   });
   XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(summary.length?summary:[{Note:'No routes'}]),'Route Summary');
 
-  // Tab 2: Route Manifest
+  // Tab 3: Route Manifest
   const manifest=[];
   routes.forEach(r=>{
     const drv=drivers.find(d=>d.truckKey===r.truckKey||d.driverKey===r.driverKey);
@@ -2876,7 +2893,7 @@ function exportExcel(){
   });
   XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(manifest.length?manifest:[{Note:'No assigned stops'}]),'Route Manifest');
 
-  // Tab 3: Unassigned
+  // Tab 4: Unassigned
   const ua=stops.filter(s=>!s.routeId).map(s=>({
     'Customer Name':s.customerName||'',
     'ORDER_NUMBER':s.orderNumber||'',
@@ -2920,7 +2937,7 @@ function exportExcel(){
 
   const date=document.getElementById('route-date').value||new Date().toISOString().slice(0,10);
   XLSX.writeFile(wb,`RouteDesk_${date}.xlsx`);
-  showToast('Exported: Route Summary, Route Manifest, Unassigned Stops, Depot Locations');
+  showToast('Exported: Totals Summary, Route Summary, Route Manifest, Unassigned Stops, Depot Locations');
 }
 
 // ============================================================
