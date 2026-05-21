@@ -1724,7 +1724,8 @@ function runPreferredJob(){
   const ua=stops.filter(s=>!s.routeId).filter(stopMatchesFilter);
   if(!ua.length){showToast('No unassigned stops');return;}
 
-  let assigned=0,noMatch=0,noPref=0,noRouteUdf=0;
+  let assigned=0,noMatch=0,noPref=0,noRouteUdf=0,positionLocked=0,positionMissing=0;
+  const affectedRouteIds=new Set();
 
   ua.forEach(s=>{
     const pk=(s.preferredResourceKey||'').toString().trim();
@@ -1745,23 +1746,74 @@ function runPreferredJob(){
     }
 
     s.routeId=route.id;
-    const prefSeq=parseInt(s.preferredRouteSequence)||0;
-    if(prefSeq>0){
+
+    const prefSeq=parseInt(s.preferredRouteSequence||s.routeSequence,10)||0;
+    const restrictPosition=isYesFlag(s.restrictRoutePosition);
+
+    // Correction: only force the imported Route Sequence when Restrict route position = Yes.
+    // If it is not restricted, the preferred stop is assigned to the route and placed at the end
+    // before the route is resequenced around any locked positions.
+    if(restrictPosition&&prefSeq>0){
       s.seq=prefSeq;
+      positionLocked++;
     } else {
-      s.seq=Math.max(0,...stops.filter(x=>x.routeId===route.id&&x.id!==s.id).map(x=>x.seq))+1;
+      s.seq=Math.max(0,...stops.filter(x=>x.routeId===route.id&&x.id!==s.id).map(x=>x.seq||0))+1;
+      if(restrictPosition&&!prefSeq)positionMissing++;
     }
+
+    affectedRouteIds.add(route.id);
     expanded.add(route.id);
     assigned++;
   });
 
-  reseq();render();
+  resequenceRoutesRespectingPreferredLocks([...affectedRouteIds]);
+  render();
   showJob('&#11088; Preferred Resource / Position Job',`
     <strong>Matching Logic:</strong> First 4 digits of order Preferred Resource Key matched to Route UDFNumber1<br/>
     <strong>${assigned}</strong> stop(s) assigned to their preferred route<br/>
+    <strong>${positionLocked}</strong> stop(s) locked to their Route Sequence because Restrict route position = Yes<br/>
+    <strong>${positionMissing}</strong> stop(s) had Restrict route position = Yes but no usable Route Sequence<br/>
     <strong>${noMatch}</strong> had a Preferred Resource Key but no route UDFNumber1 match was found<br/>
     <strong>${noPref}</strong> had no usable 4-digit Preferred Resource Key value (skipped)
   `);
+}
+
+function isYesFlag(value){
+  const v=(value??'').toString().trim().toLowerCase();
+  return ['yes','y','true','1','x'].includes(v);
+}
+
+function resequenceRoutesRespectingPreferredLocks(routeIds){
+  routeIds.forEach(routeId=>{
+    const routeStops=stops.filter(s=>s.routeId===routeId);
+    if(!routeStops.length)return;
+
+    const used=new Set();
+    const locked=routeStops
+      .filter(s=>isYesFlag(s.restrictRoutePosition)&&(parseInt(s.preferredRouteSequence||s.routeSequence,10)||0)>0)
+      .sort((a,b)=>(parseInt(a.preferredRouteSequence||a.routeSequence,10)||0)-(parseInt(b.preferredRouteSequence||b.routeSequence,10)||0));
+
+    locked.forEach(s=>{
+      let pos=parseInt(s.preferredRouteSequence||s.routeSequence,10)||0;
+      while(pos>0&&used.has(pos))pos++;
+      if(pos>0){
+        s.seq=pos;
+        used.add(pos);
+      }
+    });
+
+    const flexible=routeStops
+      .filter(s=>!locked.includes(s))
+      .sort((a,b)=>(a.seq||999999)-(b.seq||999999));
+
+    let next=1;
+    flexible.forEach(s=>{
+      while(used.has(next))next++;
+      s.seq=next;
+      used.add(next);
+      next++;
+    });
+  });
 }
 
 function runPotentialJob(){
