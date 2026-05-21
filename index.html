@@ -383,6 +383,20 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
       <p>Click or drag &amp; drop Excel / CSV file here</p>
       <span id="imp-hint">Upload one file with sheets named "Routes", "Drivers", "Stops", and "Depot Locations" — or load individually</span>
     </div>
+    <div id="route-day-filter" style="margin:10px 0 8px;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg2);">
+      <div style="font-size:10px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:7px;">Route Day Filter <span style="font-weight:400;color:var(--text3);text-transform:none;letter-spacing:0;">(uses Route Templates UDFString2)</span></div>
+      <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;font-size:10px;color:var(--text2);">
+        <label style="display:flex;align-items:center;gap:5px;cursor:pointer;"><input type="checkbox" class="route-day-chk" value="D_1_MONDAY" style="accent-color:var(--accent);"> Monday</label>
+        <label style="display:flex;align-items:center;gap:5px;cursor:pointer;"><input type="checkbox" class="route-day-chk" value="D_2_TUESDAY" style="accent-color:var(--accent);"> Tuesday</label>
+        <label style="display:flex;align-items:center;gap:5px;cursor:pointer;"><input type="checkbox" class="route-day-chk" value="D_3_WEDNESDAY" style="accent-color:var(--accent);"> Wednesday</label>
+        <label style="display:flex;align-items:center;gap:5px;cursor:pointer;"><input type="checkbox" class="route-day-chk" value="D_4_THURSDAY" style="accent-color:var(--accent);"> Thursday</label>
+        <label style="display:flex;align-items:center;gap:5px;cursor:pointer;"><input type="checkbox" class="route-day-chk" value="D_5_FRIDAY" style="accent-color:var(--accent);"> Friday</label>
+        <label style="display:flex;align-items:center;gap:5px;cursor:pointer;"><input type="checkbox" class="route-day-chk" value="D_6_SATURDAY" style="accent-color:var(--accent);"> Saturday</label>
+        <label style="display:flex;align-items:center;gap:5px;cursor:pointer;"><input type="checkbox" class="route-day-chk" value="D_7_SUNDAY" style="accent-color:var(--accent);"> Sunday</label>
+        <button type="button" class="btn" style="padding:2px 6px;font-size:9px;justify-content:center;" onclick="clearRouteDayFilter()">Clear</button>
+      </div>
+      <div style="font-size:9px;color:var(--text3);margin-top:6px;">No day selected = import all route days.</div>
+    </div>
     <input type="file" id="file-in" accept=".xlsx,.xls,.csv" style="display:none" onchange="handleFileSelect(this)"/>
     <div id="imp-preview"></div>
     <div class="modal-actions">
@@ -2003,12 +2017,27 @@ function setImportMode(m){
   ['all','routes','drivers','stops','depots'].forEach(x=>document.getElementById('itab-'+x).className='imp-tab'+(m===x?' active':''));
   const hints={
     all:'Upload one file with sheets named "Routes", "Drivers", "Stops", and "Depot Locations" — or load individually',
-    routes:'Upload your Route Template file. Include UDFNumber1, InitialLocationKey, and FinalLocationKey.',
+    routes:'Upload your Route Template file. Include UDFNumber1, UDFString2, InitialLocationKey, and FinalLocationKey.',
     drivers:'Upload your Driver Template file',
     stops:'Upload your Stops/Orders Template file',
     depots:'Upload your Depot Locations file with LocationKey, Name, Ship address fields, Latitude, and Longitude.'
   };
   document.getElementById('imp-hint').textContent=hints[m];
+}
+
+function getSelectedRouteDayCodes(){
+  return Array.from(document.querySelectorAll('.route-day-chk:checked')).map(cb=>cb.value.toUpperCase().trim());
+}
+
+function clearRouteDayFilter(){
+  document.querySelectorAll('.route-day-chk').forEach(cb=>cb.checked=false);
+}
+
+function routeMatchesSelectedDay(row){
+  const selected=getSelectedRouteDayCodes();
+  if(!selected.length)return true;
+  const day=(gc(row,['UDFString2','UDF String 2','UDFString 2','UDF String2'])||'').toString().toUpperCase().trim();
+  return selected.includes(day);
 }
 
 function handleDrop(e){
@@ -2034,6 +2063,7 @@ function detectImportSheetType(name,data){
     k==='startuptime'||
     k==='winduptime'||
     k==='udfnumber1'||
+    k==='udfstring2'||
     k==='initiallocationkey'||
     k==='finallocationkey'
   );
@@ -2111,7 +2141,7 @@ function confirmImport(){
     ordered.forEach(({data,type})=>{
       if(importMode==='all'){
         if(type==='depots'){importDepots(data);lc+=data.length;return;}
-        if(type==='routes'){importRoutes(data);rc+=data.length;return;}
+        if(type==='routes'){rc+=importRoutes(data);return;}
         if(type==='drivers'){importDrivers(data);dc+=data.length;return;}
         if(type==='stops'){importStops(data);sc+=data.length;return;}
         skipped+=data.length;return;
@@ -2121,7 +2151,7 @@ function confirmImport(){
       // If it has multiple sheets, only import sheets detected as the selected type.
       const singleSheet=sheets.length===1;
       if(importMode==='depots'&&(type==='depots'||singleSheet)){importDepots(data);lc+=data.length;return;}
-      if(importMode==='routes'&&(type==='routes'||singleSheet)){importRoutes(data);rc+=data.length;return;}
+      if(importMode==='routes'&&(type==='routes'||singleSheet)){rc+=importRoutes(data);return;}
       if(importMode==='drivers'&&(type==='drivers'||singleSheet)){importDrivers(data);dc+=data.length;return;}
       if(importMode==='stops'&&(type==='stops'||singleSheet)){importStops(data);sc+=data.length;return;}
       skipped+=data.length;
@@ -2198,7 +2228,9 @@ function importDepots(data){
 }
 
 function importRoutes(data){
+  let imported=0;
   data.forEach(row=>{
+    if(!routeMatchesSelectedDay(row))return;
     const key=(gc(row,['RouteTemplateKey','Route Template Key'])||'').toString();
     const name=(gc(row,['Name','name','RouteName','Route Name'])||key||'').toString().trim();
     if(!name)return;
@@ -2209,6 +2241,7 @@ function importRoutes(data){
       routeTemplateKey:key,
       scheduleKey:(gc(row,['ScheduleKey','Schedule Key'])||'').toString(),
       udfNumber1:(gc(row,['UDFNumber1','UDF Number 1','UDF Number1','UDFNumber 1'])||'').toString(),
+      udfString2:(gc(row,['UDFString2','UDF String 2','UDFString 2','UDF String2'])||'').toString(),
       initialLocationKey:(gc(row,['InitialLocationKey','Initial Location Key'])||'').toString(),
       finalLocationKey:(gc(row,['FinalLocationKey','Final Location Key'])||'').toString(),
       depotLat:parseFloat(gc(row,['DepotLatitude','Depot Latitude','InitialLatitude','Initial Latitude','Start Latitude']))||null,
@@ -2229,8 +2262,10 @@ function importRoutes(data){
       selected:false,
     };
     if(existing)Object.assign(existing,obj); else routes.push(obj);
+    imported++;
   });
   enrichRouteDepots();
+  return imported;
 }
 
 function importDrivers(data){
@@ -2433,6 +2468,7 @@ function exportExcel(){
       'FinalLocationKey':r.finalLocationKey||'',
       'Final Depot Name':routeFinalDepot(r)?.name||'',
       'Routing Parameter Key':r.routingParameterKey||'',
+      'UDFString2':r.udfString2||'',
     };
   });
   XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(summary.length?summary:[{Note:'No routes'}]),'Route Summary');
