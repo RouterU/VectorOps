@@ -172,6 +172,12 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
 .manifest-row.depot{background:rgba(167,139,250,.09);color:var(--text2);cursor:default;}
 .manifest-row.tw-violation{background:rgba(239,68,68,.22);box-shadow:inset 4px 0 0 var(--danger);}
 .manifest-row.tw-violation .manifest-name{color:#fecaca;}
+.stop-detail-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px;margin-top:10px;}
+.stop-detail-field{background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:8px;min-width:0;}
+.stop-detail-field .lbl{font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.4px;margin-bottom:3px;}
+.stop-detail-field .val{font-size:12px;color:var(--text1);word-break:break-word;}
+.stop-detail-modal{width:760px;max-width:96vw;}
+.route-drop-target{stroke-width:8!important;opacity:.95!important;filter:drop-shadow(0 0 8px #fff);}
 .tw-badge{display:inline-block;padding:2px 6px;border-radius:4px;font-size:9px;font-weight:700;}
 .tw-ok{background:rgba(62,207,142,.16);color:var(--success);}
 .tw-wait{background:rgba(245,158,11,.16);color:var(--warn);}
@@ -503,6 +509,17 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
   </div>
 </div>
 
+<!-- Stop Detail Modal -->
+<div id="stop-detail-modal" style="display:none" class="modal-overlay">
+  <div class="modal stop-detail-modal">
+    <h2 id="stop-detail-title">Stop Details</h2>
+    <div id="stop-detail-body"></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal('stop-detail-modal')">Close</button>
+    </div>
+  </div>
+</div>
+
 <!-- Job Results Modal -->
 <div id="job-modal" style="display:none" class="modal-overlay">
   <div class="modal">
@@ -815,29 +832,26 @@ function minutesToHHMM(total){
   return String(h).padStart(2,'0')+':'+String(m).padStart(2,'0');
 }
 function toggleRouteFilter(routeId){
-  activeStopFilterId=null;
   activeRouteFilterId=activeRouteFilterId===routeId?null:routeId;
   if(activeRouteFilterId) expanded.add(routeId);
-  renderRoutes();renderUA();renderMap();
+  renderRoutes();
 }
 function toggleStopFilter(stopId){
-  activeRouteFilterId=null;
   activeStopFilterId=activeStopFilterId===stopId?null:stopId;
   const s=stops.find(x=>x.id===stopId);
   if(activeStopFilterId&&s&&s.routeId) expanded.add(s.routeId);
-  renderRoutes();renderUA();renderMap();
+  renderRoutes();
+  renderUA();
 }
 function routeMatchesFilter(route){
   if(activeRouteFilterId)return route.id===activeRouteFilterId;
-  if(activeStopFilterId){const s=stops.find(x=>x.id===activeStopFilterId);return s&&s.routeId===route.id;}
   return true;
 }
 function stopMatchesFilter(stop){
   if(activeStopFilterId)return stop.id===activeStopFilterId;
-  if(activeRouteFilterId)return stop.routeId===activeRouteFilterId;
   return true;
 }
-function clearLeftFilter(){activeRouteFilterId=null;activeStopFilterId=null;renderRoutes();renderUA();renderMap();}
+function clearLeftFilter(){activeRouteFilterId=null;activeStopFilterId=null;renderRoutes();renderUA();}
 
 function normalizeKey(value){return (value??'').toString().trim();}
 function findDepotByKey(key){
@@ -918,7 +932,7 @@ function renderRoutes(){
   const el=document.getElementById('routes-list');
   const sortSelect=document.getElementById('route-sort');
   if(sortSelect)sortSelect.value=routeSort;
-  document.getElementById('route-badge').innerHTML=(activeRouteFilterId||activeStopFilterId)?`<span class="filter-pill" onclick="clearLeftFilter()">Filtered ×</span>`:routes.length+' routes';
+  document.getElementById('route-badge').innerHTML=activeRouteFilterId?`<span class="filter-pill" onclick="activeRouteFilterId=null;renderRoutes()">Route Filter ×</span>`:routes.length+' routes';
   if(!routes.length){
     el.innerHTML='<div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 13l4.553 2.276A1 1 0 0021 21.382V10.618a1 1 0 00-.553-.894L15 7m0 13V7m0 0L9 4"/></svg><p>No routes yet — import or create one</p></div>';
     return;
@@ -935,7 +949,7 @@ function renderRoutes(){
     const dname=r.driverFirstName?(r.driverFirstName+' '+(r.driverLastName||'')).trim():(drv?drv.name:'—');
     const isOpen=expanded.has(r.id);
     return`<div class="route-card" id="rc-${r.id}" draggable="true" ondragstart="onRouteDragStart(event,'${r.id}')" ondragend="onDragEnd()" onmouseenter="highlightRoute('${r.id}')" onmouseleave="clearMapHighlight()">
-      <div class="r-header" onclick="toggleRouteFilter('${r.id}')">
+      <div class="r-header" onclick="openRouteManifest('${r.id}')">
         <div class="r-colorbar" style="background:${color}"></div>
         <div class="r-info">
           <div class="r-name">${r.name}</div>
@@ -952,7 +966,7 @@ function renderRoutes(){
         ondragover="event.preventDefault()" ondrop="dropOnRoute(event,'${r.id}')">
         ${renderDepotRouteRow(r,'initial',color)}
         ${rStops.map(s=>`
-        <div class="stop-row" draggable="true" id="srow-${s.id}" onclick="toggleStopFilter('${s.id}')" onmouseenter="highlightStop('${s.id}')" onmouseleave="clearMapHighlight()"
+        <div class="stop-row" draggable="true" id="srow-${s.id}" onclick="openStopDetail('${s.id}')" onmouseenter="highlightStop('${s.id}')" onmouseleave="clearMapHighlight()"
           ondragstart="onDragStart(event,'${s.id}','${r.id}')"
           ondragover="onDragOver(event,'${s.id}')"
           ondrop="onDropStop(event,'${s.id}','${r.id}')"
@@ -981,7 +995,7 @@ function renderRoutes(){
 function renderUA(){
   const el=document.getElementById('ua-list');
   const ua=stops.filter(s=>!s.routeId).filter(stopMatchesFilter);
-  document.getElementById('ua-badge').innerHTML=(activeRouteFilterId||activeStopFilterId)?`<span class="filter-pill" onclick="clearLeftFilter()">Filtered ×</span>`:ua.length+' stops';
+  document.getElementById('ua-badge').innerHTML=activeStopFilterId?`<span class="filter-pill" onclick="activeStopFilterId=null;renderRoutes();renderUA()">Stop Filter ×</span>`:ua.length+' stops';
   if(!ua.length){
     el.innerHTML='<div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg><p>All stops assigned!</p></div>';
     return;
@@ -990,7 +1004,7 @@ function renderUA(){
     const pc=potColors[s.id];
     const hasPref=!!(s.preferredResourceKey&&s.preferredResourceKey.toString().trim());
     const isWC=s.willCallIndicator==='Y'||s.willCallIndicator==='1'||s.willCallIndicator===1||s.willCallIndicator===true;
-    return`<div class="ua-row" draggable="true" id="urow-${s.id}" onclick="toggleStopFilter('${s.id}')" onmouseenter="highlightStop('${s.id}')" onmouseleave="clearMapHighlight()"
+    return`<div class="ua-row" draggable="true" id="urow-${s.id}" onclick="openStopDetail('${s.id}')" onmouseenter="highlightStop('${s.id}')" onmouseleave="clearMapHighlight()"
       ondragstart="onDragStart(event,'${s.id}',null)" ondragend="onDragEnd()">
       <input type="checkbox" class="ua-chk" ${s.uiChecked?'checked':''}
         onclick="setCheck('${s.id}',this.checked);event.stopPropagation()"/>
@@ -1029,15 +1043,13 @@ function renderMap(){
   markers={}; polylines={};
   stops.forEach(s=>{
     if(!s.lat||!s.lng) return;
-    if(activeStopFilterId && s.id!==activeStopFilterId) return;
-    if(activeRouteFilterId && s.routeId!==activeRouteFilterId) return;
     if(mapCleared && !visibleStopIds.has(s.id) && !(s.routeId&&visibleRouteIds.has(s.routeId))) return;
     const color=s.routeId?routeColor(s.routeId):(potColors[s.id]||'#5c6480');
     const label=s.routeId?s.seq:'?';
     const icon=L.divIcon({className:'',
       html:`<div style="width:24px;height:24px;border-radius:50%;background:${color};border:2px solid ${s.routeId?'#fff':'rgba(255,255,255,.35)'};display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;color:#fff;font-family:DM Mono,monospace;box-shadow:0 2px 8px rgba(0,0,0,.5);">${label}</div>`,
       iconSize:[24,24],iconAnchor:[12,12]});
-    const m=L.marker([s.lat,s.lng],{icon}).addTo(map);
+    const m=L.marker([s.lat,s.lng],{icon,draggable:true}).addTo(map);
     const r=routes.find(x=>x.id===s.routeId)||{};
     m.bindPopup(`<div style="font-family:Sora,sans-serif;min-width:240px;font-size:12px;">
       <b>${s.customerName||'Stop'}</b><br/>
@@ -1056,13 +1068,13 @@ function renderMap(){
       openStopContextMenu(s.id, original.clientX || 0, original.clientY || 0);
     });
     m.on('click',()=>toggleStopFilter(s.id));
+    m.on('dragstart',()=>{dragState={sid:s.id,mapMarker:true,fromRoute:s.routeId||null};});
+    m.on('dragend',(ev)=>handleMarkerDropOnRouteLine(s.id, ev.target.getLatLng()));
     m.on('mouseover',()=>highlightStop(s.id));
     m.on('mouseout',()=>clearMapHighlight());
     markers[s.id]=m;
   });
   routes.forEach((r,ri)=>{
-    if(activeRouteFilterId && r.id!==activeRouteFilterId) return;
-    if(activeStopFilterId && !stops.some(s=>s.id===activeStopFilterId&&s.routeId===r.id)) return;
     if(mapCleared && !visibleRouteIds.has(r.id)) return;
     const color=COLORS[ri%COLORS.length];
     const init=routeInitialDepot(r);
@@ -1086,9 +1098,10 @@ function renderMap(){
     rs.forEach(s=>points.push([s.lat,s.lng]));
     if(fin&&fin.lat&&fin.lng)points.push([fin.lat,fin.lng]);
     if(points.length<2) return;
-    polylines[r.id]=L.polyline(points,{color,weight:2.5,opacity:.72,dashArray:'5,4'}).addTo(map);
-    polylines[r.id].on('mouseover',()=>highlightRoute(r.id));
-    polylines[r.id].on('mouseout',()=>clearMapHighlight());
+    polylines[r.id]=L.polyline(points,{color,weight:4,opacity:.72,dashArray:'5,4'}).addTo(map);
+    polylines[r.id].on('click',()=>toggleRouteFilter(r.id));
+    polylines[r.id].on('mouseover',()=>{highlightRoute(r.id); if(polylines[r.id]) polylines[r.id].setStyle({weight:8,opacity:.95});});
+    polylines[r.id].on('mouseout',()=>{clearMapHighlight(); if(polylines[r.id]) polylines[r.id].setStyle({weight:4,opacity:.72});});
     polylines[r.id].on('contextmenu',ev=>{
       L.DomEvent.preventDefault(ev);
       const original=ev.originalEvent||{};
@@ -1209,6 +1222,97 @@ function dropOnMap(e){
     visibleStopIds.add(dragState.sid);
     renderMap();showToast('Stop displayed on map');
   }
+}
+
+
+// ============================================================
+// STOP DETAIL + MAP MARKER DROP ON ROUTE LINE
+// ============================================================
+function openStopDetail(stopId){
+  const s=stops.find(x=>x.id===stopId);
+  if(!s)return;
+  const route=routes.find(r=>r.id===s.routeId);
+  const fields=[
+    ['Customer Name',s.customerName],['Order Number',s.orderNumber],['Ship To ID',s.shipToId],['Customer Number',s.customerNumber],
+    ['Route',route?route.name:'Unassigned'],['Sequence',s.seq||'—'],['Address',s.address],['City/State/Zip',[s.city,s.state,s.zip].filter(Boolean).join(', ')],
+    ['Latitude / Longitude',s.lat&&s.lng?`${s.lat}, ${s.lng}`:'—'],['Earliest Time Window',s.earliestTimeWindow],['Latest Time Window',s.latestTimeWindow],
+    ['Total Cases',tCases(s)],['Total Weight',tWeight(s).toFixed(2)],['Total Cube',tCube(s).toFixed(2)],
+    ['Preferred Resource Key',s.preferredResourceKey],['Preferred Route Sequence',s.preferredRouteSequence],
+    ['Order Type',s.orderType],['Order Status',s.orderStatus],['District',s.district],['Will Call',s.willCallIndicator],
+    ['Comment',s.comment]
+  ];
+  document.getElementById('stop-detail-title').textContent=`Stop Details: ${s.customerName||s.orderNumber||'Stop'}`;
+  document.getElementById('stop-detail-body').innerHTML=`<div class="stop-detail-grid">${fields.map(([label,value])=>`
+    <div class="stop-detail-field"><div class="lbl">${escapeHtml(label)}</div><div class="val">${escapeHtml(value!==undefined&&value!==null&&value!==''?value:'—')}</div></div>
+  `).join('')}</div>`;
+  document.getElementById('stop-detail-modal').style.display='flex';
+}
+function pointSegmentDistancePx(p,a,b){
+  const dx=b.x-a.x, dy=b.y-a.y;
+  if(dx===0&&dy===0)return p.distanceTo(a);
+  const t=Math.max(0,Math.min(1,((p.x-a.x)*dx+(p.y-a.y)*dy)/(dx*dx+dy*dy)));
+  return p.distanceTo(L.point(a.x+t*dx,a.y+t*dy));
+}
+function distanceToRouteLinePx(latlng,routeId){
+  const route=routes.find(r=>r.id===routeId);
+  if(!route)return Infinity;
+  const pts=[];
+  const init=routeInitialDepot(route), fin=routeFinalDepot(route);
+  if(init&&init.lat&&init.lng)pts.push(L.latLng(init.lat,init.lng));
+  stops.filter(s=>s.routeId===routeId&&s.lat&&s.lng).sort((a,b)=>a.seq-b.seq).forEach(s=>pts.push(L.latLng(s.lat,s.lng)));
+  if(fin&&fin.lat&&fin.lng)pts.push(L.latLng(fin.lat,fin.lng));
+  if(pts.length<2)return Infinity;
+  const p=map.latLngToLayerPoint(latlng);
+  let best=Infinity;
+  for(let i=0;i<pts.length-1;i++){
+    const a=map.latLngToLayerPoint(pts[i]);
+    const b=map.latLngToLayerPoint(pts[i+1]);
+    best=Math.min(best,pointSegmentDistancePx(p,a,b));
+  }
+  return best;
+}
+function findRouteLineUnderLatLng(latlng,excludeRouteId){
+  let bestRouteId=null,bestPx=Infinity;
+  routes.forEach(r=>{
+    if(r.id===excludeRouteId)return;
+    if(mapCleared&&!visibleRouteIds.has(r.id))return;
+    const d=distanceToRouteLinePx(latlng,r.id);
+    if(d<bestPx){bestPx=d;bestRouteId=r.id;}
+  });
+  return bestPx<=45?bestRouteId:null;
+}
+function insertStopAfterClosestStop(stop,routeId,latlng){
+  const routeStops=stops.filter(s=>s.routeId===routeId&&s.id!==stop.id&&s.lat&&s.lng).sort((a,b)=>a.seq-b.seq);
+  if(!routeStops.length){stop.seq=1;return;}
+  let closest=routeStops[0],best=Infinity;
+  routeStops.forEach(s=>{
+    const d=haversine(latlng.lat,latlng.lng,s.lat,s.lng);
+    if(d<best){best=d;closest=s;}
+  });
+  const insertSeq=(closest.seq||routeStops.indexOf(closest)+1)+1;
+  stops.filter(s=>s.routeId===routeId&&s.id!==stop.id&&s.seq>=insertSeq).forEach(s=>s.seq=(s.seq||0)+1);
+  stop.seq=insertSeq;
+}
+function handleMarkerDropOnRouteLine(stopId,latlng){
+  const stop=stops.find(s=>s.id===stopId);
+  if(!stop)return;
+  const targetRouteId=findRouteLineUnderLatLng(latlng,stop.routeId);
+  if(!targetRouteId){
+    renderMap();
+    showToast('Drop the stop on or near a route line to move it.');
+    return;
+  }
+  const oldRouteId=stop.routeId;
+  stop.routeId=targetRouteId;
+  insertStopAfterClosestStop(stop,targetRouteId,latlng);
+  if(oldRouteId)reseq();
+  reseq();
+  visibleRouteIds.add(targetRouteId);
+  visibleStopIds.add(stop.id);
+  expanded.add(targetRouteId);
+  render();
+  const route=routes.find(r=>r.id===targetRouteId);
+  showToast(`Moved stop to ${route?route.name:'route'} after closest stop`);
 }
 
 
@@ -2173,7 +2277,7 @@ function confirmImport(){
     // Let the modal close first, then render the data.
     setTimeout(()=>{
       render();
-      if(routes.length) expanded.add(routes[0].id);
+      expanded.clear();
       renderRoutes();
       const skipText=skipped?`, ${skipped} skipped/not detected`:'';
       showToast(`Imported: ${rc} route rows, ${dc} driver rows, ${sc} stop rows, ${lc} depot rows${skipText}`);
