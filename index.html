@@ -3639,3 +3639,38 @@ document.addEventListener('click',e=>{if(e.target.classList.contains('modal-over
 </script>
 </body>
 </html>
+<script>
+
+function cancelPotentialRoutes(){
+  let cleared=0;
+
+  stops.forEach(s=>{
+    // remove potential markers/tags
+    if(s.potentialRoute){
+      delete s.potentialRoute;
+      cleared++;
+    }
+    if(s.isPotential){
+      delete s.isPotential;
+    }
+    if(s.potentialScore){
+      delete s.potentialScore;
+    }
+  });
+
+  // clear UI tags if app uses them
+  document.querySelectorAll('.potential-tag,.pref-tag-temp').forEach(el=>el.remove());
+
+  // hide cancel button again
+  const cancelBtn=document.getElementById('cancel-potential-btn');
+  if(cancelBtn)cancelBtn.style.display='none';
+
+  // rerender UI
+  render();
+  renderUA();
+  renderRoutes();
+
+  showToast(`Potential routing reset for ${cleared} stop(s).`);
+}
+
+</script>
