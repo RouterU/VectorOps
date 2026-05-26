@@ -235,6 +235,20 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
 .imp-tab{flex:1;padding:5px;text-align:center;font-size:10px;cursor:pointer;color:var(--text2);background:var(--bg2);border-right:1px solid var(--border);}
 .imp-tab:last-child{border-right:none;}
 .imp-tab.active{background:var(--accent);color:#fff;font-weight:600;}
+
+/* Lasso stop selection */
+.lasso-box{position:absolute;border:2px dashed var(--accent);background:rgba(79,140,255,.16);z-index:950;pointer-events:none;display:none;}
+.lasso-panel{position:absolute;left:50%;bottom:18px;transform:translateX(-50%);z-index:1200;background:rgba(23,27,37,.97);border:1px solid var(--border2);border-radius:12px;box-shadow:0 16px 38px rgba(0,0,0,.55);padding:10px;display:none;min-width:720px;max-width:92vw;}
+.lasso-panel-title{font-size:11px;font-weight:700;color:var(--text1);margin-bottom:7px;display:flex;justify-content:space-between;gap:10px;align-items:center;}
+.lasso-panel-stats{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:6px;margin-bottom:8px;}
+.lasso-stat{background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:6px;text-align:center;}
+.lasso-stat .val{font-family:'DM Mono',monospace;font-size:12px;color:var(--text1);font-weight:700;}
+.lasso-stat .lbl{font-size:8px;color:var(--text3);text-transform:uppercase;letter-spacing:.35px;margin-top:2px;}
+.lasso-actions{display:flex;gap:6px;align-items:center;flex-wrap:wrap;}
+.lasso-route-select{background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text1);font-size:11px;font-family:'Sora',sans-serif;padding:5px 7px;min-width:180px;}
+.btn.lasso-active{background:var(--accent)!important;border-color:var(--accent)!important;color:#fff!important;}
+.leaflet-marker-icon.lasso-selected-marker{filter:drop-shadow(0 0 12px #4f8cff) brightness(1.45);transform:scale(1.35);transform-origin:center center;z-index:9998!important;}
+
 </style>
 </head>
 <body>
@@ -376,9 +390,12 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
       <button class="btn" onclick="displayAllRoutesOnMap()" title="Display every assigned route on the map">Display All Routes</button>
       <button class="btn" onclick="displayAllUnassignedStopsOnMap()" title="Display every unassigned stop on the map">Display All Unassigned Stops</button>
       <button class="btn" onclick="enableStreetViewPicker()" title="Click anywhere on the map to open Google Street View nearby">🚶 Street View</button>
+      <button class="btn" id="lasso-stops-btn" onclick="toggleLassoMode()" title="Draw a box on the map to select multiple stops">☐ Lasso Stops</button>
       <span class="map-drop-hint">Drag routes/stops here to display</span>
     </div>
     <div id="map"></div>
+    <div id="lasso-box" class="lasso-box"></div>
+    <div id="lasso-panel" class="lasso-panel"></div>
     <div id="measure-badge" class="measure-badge"></div>
     <div class="map-legend" id="map-legend">
       <div class="map-legend-title">Routes</div>
@@ -629,6 +646,8 @@ let activeStopFilterId=null;
 let measureFromStopId=null, measureLine=null;
 let streetViewPickMode=false;
 let manualSequenceRouteId=null, manualSequenceOrder=[], manualSequenceDragStopId=null;
+let lassoMode=false, lassoDragging=false, lassoStartPoint=null;
+let lassoSelectedStopIds=new Set();
 
 // ============================================================
 // INIT
@@ -657,6 +676,7 @@ window.addEventListener('DOMContentLoaded',()=>{
   mapEl.addEventListener('dragover',e=>e.preventDefault());
   mapEl.addEventListener('drop',dropOnMap);
   initSplitter();
+  initLassoTool();
   render();
 });
 
@@ -1163,7 +1183,7 @@ function renderMap(){
     if(fin&&fin.lat&&fin.lng)points.push([fin.lat,fin.lng]);
     if(points.length<2) return;
     polylines[r.id]=L.polyline(points,{color,weight:4,opacity:.72,dashArray:'5,4'}).addTo(map);
-    polylines[r.id].on('click',()=>toggleRouteFilter(r.id));
+    polylines[r.id].on('click',()=>{toggleRouteFilter(r.id);fitRouteToMap(r.id);});
     polylines[r.id].on('mouseover',()=>{highlightRoute(r.id); if(polylines[r.id]) polylines[r.id].setStyle({weight:8,opacity:.95});});
     polylines[r.id].on('mouseout',()=>{clearMapHighlight(); if(polylines[r.id]) polylines[r.id].setStyle({weight:4,opacity:.72});});
     polylines[r.id].on('contextmenu',ev=>{
@@ -1172,6 +1192,7 @@ function renderMap(){
       openRouteContextMenu(r.id, original.clientX||0, original.clientY||0);
     });
   });
+  applyLassoMarkerHighlights();
 }
 
 function renderLegend(){
@@ -1596,6 +1617,302 @@ function handleMarkerDropOnRouteLine(stopId,latlng){
   render();
   const route=routes.find(r=>r.id===targetRouteId);
   showToast(`Moved stop to ${route?route.name:'route'} after closest stop`);
+}
+
+
+
+// ============================================================
+// MAP LASSO SELECT TOOL
+// ============================================================
+function initLassoTool(){
+  const mapContainer=document.getElementById('map');
+  const box=document.getElementById('lasso-box');
+  if(!mapContainer||!box||!map)return;
+
+  mapContainer.addEventListener('mousedown',function(e){
+    if(!lassoMode)return;
+    if(e.button!==0)return;
+    e.preventDefault();
+    e.stopPropagation();
+
+    lassoDragging=true;
+    lassoStartPoint={x:e.clientX,y:e.clientY};
+
+    const rect=mapContainer.getBoundingClientRect();
+    box.style.left=(e.clientX-rect.left)+'px';
+    box.style.top=(e.clientY-rect.top)+'px';
+    box.style.width='0px';
+    box.style.height='0px';
+    box.style.display='block';
+
+    if(map.dragging)map.dragging.disable();
+    if(map.boxZoom)map.boxZoom.disable();
+  },true);
+
+  window.addEventListener('mousemove',function(e){
+    if(!lassoMode||!lassoDragging||!lassoStartPoint)return;
+    e.preventDefault();
+
+    const rect=mapContainer.getBoundingClientRect();
+    const left=Math.max(0,Math.min(lassoStartPoint.x,e.clientX)-rect.left);
+    const top=Math.max(0,Math.min(lassoStartPoint.y,e.clientY)-rect.top);
+    const right=Math.min(rect.width,Math.max(lassoStartPoint.x,e.clientX)-rect.left);
+    const bottom=Math.min(rect.height,Math.max(lassoStartPoint.y,e.clientY)-rect.top);
+
+    box.style.left=left+'px';
+    box.style.top=top+'px';
+    box.style.width=Math.max(0,right-left)+'px';
+    box.style.height=Math.max(0,bottom-top)+'px';
+  },true);
+
+  window.addEventListener('mouseup',function(e){
+    if(!lassoMode||!lassoDragging||!lassoStartPoint)return;
+    e.preventDefault();
+    e.stopPropagation();
+
+    const rect=mapContainer.getBoundingClientRect();
+    const minX=Math.max(0,Math.min(lassoStartPoint.x,e.clientX)-rect.left);
+    const minY=Math.max(0,Math.min(lassoStartPoint.y,e.clientY)-rect.top);
+    const maxX=Math.min(rect.width,Math.max(lassoStartPoint.x,e.clientX)-rect.left);
+    const maxY=Math.min(rect.height,Math.max(lassoStartPoint.y,e.clientY)-rect.top);
+
+    box.style.display='none';
+    lassoDragging=false;
+    lassoStartPoint=null;
+
+    if(map.dragging)map.dragging.disable(); // keep disabled while lasso mode remains on
+    finishLassoSelection(minX,minY,maxX,maxY);
+  },true);
+}
+
+function toggleLassoMode(){
+  lassoMode=!lassoMode;
+  const btn=document.getElementById('lasso-stops-btn');
+  if(btn){
+    btn.classList.toggle('lasso-active',lassoMode);
+    btn.textContent=lassoMode?'☑ Lasso On':'☐ Lasso Stops';
+  }
+
+  if(lassoMode){
+    if(map.dragging)map.dragging.disable();
+    if(map.boxZoom)map.boxZoom.disable();
+    map.getContainer().style.cursor='crosshair';
+    clearLassoSelection(false);
+    showToast('Lasso mode on: drag a box around stops on the map.');
+  }else{
+    if(map.dragging)map.dragging.enable();
+    if(map.boxZoom)map.boxZoom.enable();
+    map.getContainer().style.cursor='';
+    showToast('Lasso mode off');
+  }
+}
+
+function finishLassoSelection(minX,minY,maxX,maxY){
+  lassoSelectedStopIds.clear();
+  const width=Math.abs(maxX-minX), height=Math.abs(maxY-minY);
+
+  if(width<8||height<8){
+    renderLassoPanel();
+    showToast('Draw a larger box around the stops.');
+    return;
+  }
+
+  stops.forEach(s=>{
+    if(!s.lat||!s.lng)return;
+    if(mapCleared && !visibleStopIds.has(s.id) && !(s.routeId&&visibleRouteIds.has(s.routeId)))return;
+
+    const p=map.latLngToContainerPoint([s.lat,s.lng]);
+    if(p.x>=minX&&p.x<=maxX&&p.y>=minY&&p.y<=maxY){
+      lassoSelectedStopIds.add(s.id);
+      s.uiChecked=true;
+    }
+  });
+
+  applyLassoMarkerHighlights();
+  renderUA();
+  renderLassoPanel();
+  showToast(`${lassoSelectedStopIds.size} stop(s) selected by lasso.`);
+}
+
+function applyLassoMarkerHighlights(){
+  Object.values(markers).forEach(m=>m.getElement&&m.getElement()?.classList.remove('lasso-selected-marker'));
+  lassoSelectedStopIds.forEach(id=>{
+    const marker=markers[id];
+    if(marker){
+      marker.setZIndexOffset(1200);
+      marker.getElement&&marker.getElement()?.classList.add('lasso-selected-marker');
+    }
+  });
+}
+
+function getLassoStops(){
+  return Array.from(lassoSelectedStopIds).map(id=>stops.find(s=>s.id===id)).filter(Boolean);
+}
+
+function lassoClusterStats(){
+  const selected=getLassoStops();
+  const cases=selected.reduce((a,s)=>a+tCases(s),0);
+  const serviceMins=selected.reduce((a,s)=>a+stopServiceMinutes(s),0);
+
+  let miles=0;
+  const geoStops=selected.filter(s=>s.lat&&s.lng).slice();
+
+  // If all selected stops are on the same route, use their current sequence.
+  // Otherwise use nearest-neighbor cluster miles so mixed-route/unassigned groups still get a practical estimate.
+  const routeIds=[...new Set(geoStops.map(s=>s.routeId||'_unassigned'))];
+  if(routeIds.length===1){
+    geoStops.sort((a,b)=>(a.seq||0)-(b.seq||0));
+    for(let i=1;i<geoStops.length;i++)miles+=haversine(geoStops[i-1].lat,geoStops[i-1].lng,geoStops[i].lat,geoStops[i].lng);
+  }else if(geoStops.length>1){
+    const remaining=geoStops.slice();
+    let current=remaining.shift();
+    while(remaining.length){
+      let bestIndex=0,bestDistance=Infinity;
+      remaining.forEach((s,index)=>{
+        const d=haversine(current.lat,current.lng,s.lat,s.lng);
+        if(d<bestDistance){bestDistance=d;bestIndex=index;}
+      });
+      const next=remaining.splice(bestIndex,1)[0];
+      miles+=bestDistance;
+      current=next;
+    }
+  }
+
+  const travelMins=driveMinutesForMiles(miles);
+  const cpm=miles>0?cases/miles:0;
+  return {count:selected.length,cases,serviceMins,miles,travelMins,cpm};
+}
+
+function renderLassoPanel(){
+  const panel=document.getElementById('lasso-panel');
+  if(!panel)return;
+  const selected=getLassoStops();
+
+  if(!selected.length){
+    panel.style.display='none';
+    return;
+  }
+
+  const st=lassoClusterStats();
+  panel.innerHTML=`
+    <div class="lasso-panel-title">
+      <span>${st.count} Selected Stop(s)</span>
+      <button class="icon-btn" onclick="clearLassoSelection(true)" title="Clear lasso selection">✕</button>
+    </div>
+    <div class="lasso-panel-stats">
+      <div class="lasso-stat"><div class="val">${st.cases.toLocaleString()}</div><div class="lbl">Cases</div></div>
+      <div class="lasso-stat"><div class="val">${st.miles.toFixed(1)}</div><div class="lbl">Cluster Miles</div></div>
+      <div class="lasso-stat"><div class="val">${fmtMinutes(st.travelMins)}</div><div class="lbl">Travel Time</div></div>
+      <div class="lasso-stat"><div class="val">${fmtMinutes(st.serviceMins)}</div><div class="lbl">Service Time</div></div>
+      <div class="lasso-stat"><div class="val">${st.miles>0?st.cpm.toFixed(1):'—'}</div><div class="lbl">CPM</div></div>
+    </div>
+    <div class="lasso-actions">
+      <select id="lasso-route-select" class="lasso-route-select">
+        <option value="">Assign to route...</option>
+        ${routes.map(r=>`<option value="${r.id}">${escapeHtml(r.name||r.routeTemplateKey||'Route')}</option>`).join('')}
+      </select>
+      <button class="btn primary" onclick="assignLassoStopsToSelectedRoute()">Assign to Route</button>
+      <button class="btn warn" onclick="unassignLassoStops()">Unassign Stops</button>
+      <button class="btn" onclick="removeLassoStopsFromMap()">Remove from Map</button>
+      <button class="btn" onclick="showLassoServiceDetails()">Show Service Details</button>
+      <button class="btn purple" onclick="startDragLassoToRoute()">Drag onto another route</button>
+    </div>`;
+
+  panel.style.display='block';
+}
+
+function assignLassoStopsToSelectedRoute(){
+  const routeId=document.getElementById('lasso-route-select')?.value||'';
+  if(!routeId){showToast('Choose a route first.');return;}
+  assignLassoStopsToRoute(routeId);
+}
+
+function assignLassoStopsToRoute(routeId){
+  const route=routes.find(r=>r.id===routeId);
+  if(!route){showToast('Route not found.');return;}
+
+  const selected=getLassoStops();
+  selected.forEach(s=>{
+    s.routeId=routeId;
+    s.seq=Math.max(0,...stops.filter(x=>x.routeId===routeId&&x.id!==s.id).map(x=>x.seq||0))+1;
+    s.uiChecked=false;
+    visibleStopIds.add(s.id);
+  });
+
+  visibleRouteIds.add(routeId);
+  expanded.add(routeId);
+  reseq();
+  render();
+  clearLassoSelection(false);
+  fitRouteToMap(routeId);
+  showToast(`${selected.length} stop(s) assigned to ${route.name||'route'}.`);
+}
+
+function unassignLassoStops(){
+  const selected=getLassoStops();
+  selected.forEach(s=>{
+    s.routeId=null;
+    s.seq=0;
+    s.uiChecked=false;
+  });
+  reseq();
+  render();
+  clearLassoSelection(false);
+  showToast(`${selected.length} stop(s) unassigned.`);
+}
+
+function removeLassoStopsFromMap(){
+  ensureCustomMapView();
+  const selected=getLassoStops();
+  selected.forEach(s=>visibleStopIds.delete(s.id));
+  renderMap();
+  clearLassoSelection(false);
+  showToast(`${selected.length} selected stop(s) removed from map.`);
+}
+
+function showLassoServiceDetails(){
+  const selected=getLassoStops();
+  if(!selected.length){showToast('No lasso stops selected.');return;}
+
+  const st=lassoClusterStats();
+  const rows=selected.map(s=>`
+    <div style="display:grid;grid-template-columns:2fr 80px 90px 120px;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);font-size:11px;">
+      <div><strong>${escapeHtml(s.customerName||'Stop')}</strong><br/><span style="color:var(--text3);font-size:9px;">${escapeHtml(s.orderNumber||'')} · ${escapeHtml(s.city||'')} ${escapeHtml(s.state||'')}</span></div>
+      <div>${tCases(s)}</div>
+      <div>${fmtMinutes(stopServiceMinutes(s))}</div>
+      <div>${s.routeId?(routes.find(r=>r.id===s.routeId)?.name||'Route'):'Unassigned'}</div>
+    </div>`).join('');
+
+  showJob('☐ Lasso Service Details',`
+    <strong>Selected Stops:</strong> ${st.count}<br/>
+    <strong>Total Cases:</strong> ${st.cases.toLocaleString()}<br/>
+    <strong>Cluster Miles:</strong> ${st.miles.toFixed(1)} miles<br/>
+    <strong>Estimated Travel Time:</strong> ${fmtMinutes(st.travelMins)}<br/>
+    <strong>Estimated Service Time:</strong> ${fmtMinutes(st.serviceMins)}<br/>
+    <strong>CPM:</strong> ${st.miles>0?st.cpm.toFixed(2):'N/A'} cases per mile<br/><br/>
+    <div style="margin-top:8px;border-top:1px solid var(--border);padding-top:6px;">
+      <div style="display:grid;grid-template-columns:2fr 80px 90px 120px;gap:8px;color:var(--text3);font-size:9px;text-transform:uppercase;font-weight:700;">
+        <div>Stop</div><div>Cases</div><div>Service</div><div>Route</div>
+      </div>
+      ${rows}
+    </div>
+  `);
+}
+
+function startDragLassoToRoute(){
+  if(!lassoSelectedStopIds.size){showToast('No lasso stops selected.');return;}
+  showToast('Right-click a route line and choose “Assign Lasso Selection Here”, or use the route dropdown.');
+}
+
+function clearLassoSelection(hidePanel=true){
+  lassoSelectedStopIds.clear();
+  Object.values(markers).forEach(m=>m.getElement&&m.getElement()?.classList.remove('lasso-selected-marker'));
+  if(hidePanel){
+    const panel=document.getElementById('lasso-panel');
+    if(panel)panel.style.display='none';
+  }else{
+    renderLassoPanel();
+  }
 }
 
 
@@ -3113,6 +3430,9 @@ function clearSession(){
   polylines = {};
   roadPolylines = {};
   clearMeasurement();
+  clearLassoSelection(true);
+  lassoMode=false;
+  lassoDragging=false;
   streetViewPickMode=false;
   if(map&&map.getContainer())map.getContainer().style.cursor='';
 
