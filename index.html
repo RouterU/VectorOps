@@ -172,19 +172,6 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
 .measure-badge strong{color:var(--accent);}
 
 
-/* Lasso stop selection */
-.lasso-select-btn.active{background:var(--accent);border-color:var(--accent);color:#fff;}
-.lasso-box{position:absolute;border:2px dashed var(--accent);background:rgba(79,140,255,.14);z-index:1200;pointer-events:none;border-radius:6px;}
-.lasso-panel{position:absolute;left:76px;bottom:16px;z-index:750;background:rgba(23,27,37,.96);border:1px solid var(--border2);border-radius:12px;box-shadow:0 16px 40px rgba(0,0,0,.5);padding:10px;display:none;min-width:430px;max-width:calc(100vw - 470px);}
-.lasso-panel-title{font-size:11px;font-weight:700;color:var(--text1);margin-bottom:7px;display:flex;align-items:center;justify-content:space-between;gap:10px;}
-.lasso-panel-actions{display:flex;gap:6px;align-items:center;flex-wrap:wrap;}
-.lasso-panel select{background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text1);font-size:11px;font-family:'Sora',sans-serif;padding:5px 7px;min-width:150px;}
-.lasso-summary{font-family:'DM Mono',monospace;font-size:10px;color:var(--text2);margin-top:7px;line-height:1.5;}
-.lasso-drag-mode{position:absolute;left:50%;top:62px;transform:translateX(-50%);z-index:760;background:rgba(245,158,11,.95);color:#0f1117;border-radius:999px;padding:7px 14px;font-size:11px;font-weight:800;box-shadow:0 10px 28px rgba(0,0,0,.35);display:none;}
-.leaflet-marker-icon.lasso-selected-marker{filter:drop-shadow(0 0 10px var(--warn)) brightness(1.25);}
-.leaflet-marker-icon.lasso-selected-marker::after{content:'';}
-
-
 /* Route Manifest Modal */
 .manifest-modal{width:1320px;max-width:98vw;max-height:94vh;}
 .manifest-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-bottom:12px;}
@@ -388,13 +375,10 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
       <button class="btn" onclick="clearMapView()" title="Remove all routes and stops from the map">Clear Map</button>
       <button class="btn" onclick="displayAllRoutesOnMap()" title="Display every assigned route on the map">Display All Routes</button>
       <button class="btn" onclick="displayAllUnassignedStopsOnMap()" title="Display every unassigned stop on the map">Display All Unassigned Stops</button>
-      <button class="btn" id="lasso-stops-btn" onclick="toggleLassoMode()" title="Draw a box on the map to select multiple stops">☐ Lasso Stops</button>
       <button class="btn" onclick="enableStreetViewPicker()" title="Click anywhere on the map to open Google Street View nearby">🚶 Street View</button>
       <span class="map-drop-hint">Drag routes/stops here to display</span>
     </div>
     <div id="map"></div>
-    <div id="lasso-box" class="lasso-box"></div>
-    <div id="lasso-panel" class="lasso-panel"></div>
     <div id="measure-badge" class="measure-badge"></div>
     <div class="map-legend" id="map-legend">
       <div class="map-legend-title">Routes</div>
@@ -642,9 +626,6 @@ let potRouteSuggestions={}; // stopId -> suggested routeId from Potential Routes
 let routeSort=""; // optional route sort; blank keeps import/original order
 let activeRouteFilterId=null;
 let activeStopFilterId=null;
-let lassoMode=false, lassoStartPoint=null, lassoBoxEl=null;
-const lassoSelectedStopIds=new Set();
-let lassoDragToRouteMode=false;
 let measureFromStopId=null, measureLine=null;
 let streetViewPickMode=false;
 let manualSequenceRouteId=null, manualSequenceOrder=[], manualSequenceDragStopId=null;
@@ -676,201 +657,8 @@ window.addEventListener('DOMContentLoaded',()=>{
   mapEl.addEventListener('dragover',e=>e.preventDefault());
   mapEl.addEventListener('drop',dropOnMap);
   initSplitter();
-  initLassoTool();
   render();
 });
-
-
-// ============================================================
-// LASSO STOP SELECTION
-// ============================================================
-function initLassoTool(){
-  if(!map)return;
-  map.on('mousedown',onLassoMouseDown);
-  map.on('mousemove',onLassoMouseMove);
-  map.on('mouseup',onLassoMouseUp);
-}
-function toggleLassoMode(){
-  lassoMode=!lassoMode;
-  const btn=document.getElementById('lasso-select-btn');
-  if(btn)btn.classList.toggle('active',lassoMode);
-  if(map){
-    if(lassoMode){map.dragging.disable();showToast('Lasso mode on: click and drag a box around stops.');}
-    else {map.dragging.enable();removeLassoBox();showToast('Lasso mode off');}
-  }
-}
-function onLassoMouseDown(e){
-  if(!lassoMode)return;
-  L.DomEvent.preventDefault(e.originalEvent);
-  lassoStartPoint=map.latLngToContainerPoint(e.latlng);
-  removeLassoBox();
-  lassoBoxEl=document.createElement('div');
-  lassoBoxEl.className='lasso-box';
-  document.querySelector('.map-area').appendChild(lassoBoxEl);
-  updateLassoBox(lassoStartPoint,lassoStartPoint);
-}
-function onLassoMouseMove(e){
-  if(!lassoMode||!lassoStartPoint||!lassoBoxEl)return;
-  const current=map.latLngToContainerPoint(e.latlng);
-  updateLassoBox(lassoStartPoint,current);
-}
-function onLassoMouseUp(e){
-  if(!lassoMode||!lassoStartPoint)return;
-  const endPoint=map.latLngToContainerPoint(e.latlng);
-  const p1=map.containerPointToLatLng(lassoStartPoint);
-  const p2=map.containerPointToLatLng(endPoint);
-  const bounds=L.latLngBounds(p1,p2);
-  lassoSelectedStopIds.clear();
-  stops.forEach(s=>{
-    if(!s.lat||!s.lng)return;
-    if(mapCleared && !visibleStopIds.has(s.id) && !(s.routeId&&visibleRouteIds.has(s.routeId)))return;
-    if(bounds.contains([s.lat,s.lng]))lassoSelectedStopIds.add(s.id);
-  });
-  lassoStartPoint=null;
-  removeLassoBox();
-  toggleLassoMode();
-  renderMap();
-  updateLassoPanel();
-  showToast(lassoSelectedStopIds.size?`${lassoSelectedStopIds.size} stop(s) selected`:'No stops found inside lasso');
-}
-function updateLassoBox(a,b){
-  if(!lassoBoxEl)return;
-  const left=Math.min(a.x,b.x), top=Math.min(a.y,b.y);
-  const width=Math.abs(a.x-b.x), height=Math.abs(a.y-b.y);
-  const mapRect=document.getElementById('map').getBoundingClientRect();
-  const areaRect=document.querySelector('.map-area').getBoundingClientRect();
-  lassoBoxEl.style.left=(mapRect.left-areaRect.left+left)+'px';
-  lassoBoxEl.style.top=(mapRect.top-areaRect.top+top)+'px';
-  lassoBoxEl.style.width=width+'px';
-  lassoBoxEl.style.height=height+'px';
-}
-function removeLassoBox(){
-  if(lassoBoxEl){lassoBoxEl.remove();lassoBoxEl=null;}
-}
-function selectedLassoStops(){
-  return [...lassoSelectedStopIds].map(id=>stops.find(s=>s.id===id)).filter(Boolean);
-}
-function clearLassoSelection(){
-  lassoSelectedStopIds.clear();
-  lassoDragToRouteMode=false;
-  updateLassoPanel();
-  renderMap();
-  showToast('Lasso selection cleared');
-}
-function updateLassoPanel(){
-  const panel=document.getElementById('lasso-panel');
-  const title=document.getElementById('lasso-panel-title');
-  const select=document.getElementById('lasso-route-select');
-  const summary=document.getElementById('lasso-summary');
-  const dragMsg=document.getElementById('lasso-drag-mode');
-  if(!panel)return;
-  const selected=selectedLassoStops();
-  panel.style.display=selected.length?'block':'none';
-  if(dragMsg)dragMsg.style.display=selected.length&&lassoDragToRouteMode?'block':'none';
-  if(!selected.length)return;
-  if(title)title.textContent=`${selected.length} stop(s) selected`;
-  if(select){
-    const current=select.value;
-    select.innerHTML='<option value="">Assign to route...</option>'+routes.map(r=>`<option value="${r.id}">${escapeHtml(r.name||r.routeTemplateKey||'Route')}</option>`).join('');
-    if(current)select.value=current;
-  }
-  const totals=clusterServiceTotals(selected);
-  if(summary){
-    summary.innerHTML=`Cases: ${totals.cases.toLocaleString()} · Miles: ${totals.miles.toFixed(1)} · Travel: ${fmtMinutes(totals.travelMins)} · Service: ${fmtMinutes(totals.serviceMins)} · CPM: ${totals.cpm?totals.cpm.toFixed(2):'—'}`;
-  }
-}
-function clusterServiceTotals(selected){
-  const ordered=selected.slice().sort((a,b)=>(a.seq||999999)-(b.seq||999999));
-  let miles=0;
-  for(let i=1;i<ordered.length;i++){
-    if(ordered[i-1].lat&&ordered[i-1].lng&&ordered[i].lat&&ordered[i].lng){
-      miles+=haversine(ordered[i-1].lat,ordered[i-1].lng,ordered[i].lat,ordered[i].lng);
-    }
-  }
-  const travelMins=driveMinutesForMiles(miles);
-  const serviceMins=ordered.reduce((a,s)=>a+stopServiceMinutes(s),0);
-  const cases=ordered.reduce((a,s)=>a+tCases(s),0);
-  const cpm=miles>0?cases/miles:0;
-  return {miles,travelMins,serviceMins,cases,cpm};
-}
-function assignLassoStopsToRoute(){
-  const routeId=document.getElementById('lasso-route-select')?.value;
-  if(!routeId){showToast('Choose a route first');return;}
-  assignSelectedStopsToRoute(routeId);
-}
-function assignSelectedStopsToRoute(routeId){
-  const selected=selectedLassoStops();
-  if(!selected.length){showToast('No lasso stops selected');return;}
-  selected.forEach(s=>{
-    s.routeId=routeId;
-    s.seq=Math.max(0,...stops.filter(x=>x.routeId===routeId&&x.id!==s.id).map(x=>x.seq||0))+1;
-    s.uiChecked=false;
-    visibleStopIds.add(s.id);
-  });
-  expanded.add(routeId);
-  visibleRouteIds.add(routeId);
-  reseq();
-  render();
-  const route=routes.find(r=>r.id===routeId);
-  showToast(`${selected.length} stop(s) assigned to ${route?.name||'route'}`);
-}
-function unassignLassoStops(){
-  const selected=selectedLassoStops();
-  if(!selected.length)return;
-  selected.forEach(s=>{s.routeId=null;s.seq=0;s.uiChecked=false;});
-  lassoDragToRouteMode=false;
-  reseq();render();showToast(`${selected.length} stop(s) unassigned`);
-}
-function removeLassoStopsFromMap(){
-  const selected=selectedLassoStops();
-  if(!selected.length)return;
-  ensureCustomMapView();
-  selected.forEach(s=>visibleStopIds.delete(s.id));
-  lassoSelectedStopIds.clear();
-  lassoDragToRouteMode=false;
-  renderMap();updateLassoPanel();showToast(`${selected.length} stop(s) removed from map`);
-}
-function showLassoServiceDetails(){
-  const selected=selectedLassoStops();
-  if(!selected.length){showToast('No lasso stops selected');return;}
-  const totals=clusterServiceTotals(selected);
-  const routeCounts={};
-  selected.forEach(s=>{
-    const r=routes.find(x=>x.id===s.routeId);
-    const key=r?(r.name||'Route'):'Unassigned';
-    routeCounts[key]=(routeCounts[key]||0)+1;
-  });
-  const routeText=Object.entries(routeCounts).map(([name,count])=>`&bull; ${escapeHtml(name)}: ${count}`).join('<br/>');
-  showJob('&#128203; Lasso Service Details',`
-    <strong>Selected Stops:</strong> ${selected.length}<br/>
-    <strong>Total Cases:</strong> ${totals.cases.toLocaleString()}<br/>
-    <strong>Cluster Miles:</strong> ${totals.miles.toFixed(2)} mi <span style="color:var(--text3);">straight-line stop-to-stop estimate</span><br/>
-    <strong>Estimated Travel Time:</strong> ${fmtMinutes(totals.travelMins)}<br/>
-    <strong>Estimated Service Time:</strong> ${fmtMinutes(totals.serviceMins)}<br/>
-    <strong>Estimated Total Time:</strong> ${fmtMinutes(totals.travelMins+totals.serviceMins)}<br/>
-    <strong>CPM / Cases Per Mile:</strong> ${totals.cpm?totals.cpm.toFixed(2):'—'}<br/><br/>
-    <strong>Route Mix:</strong><br/>${routeText}
-  `);
-}
-function enableLassoDragToRoute(){
-  const selected=selectedLassoStops();
-  if(!selected.length){showToast('No lasso stops selected');return;}
-  lassoDragToRouteMode=!lassoDragToRouteMode;
-  const btn=document.getElementById('lasso-drag-btn');
-  if(btn)btn.textContent=lassoDragToRouteMode?'Drag Mode On':'Drag onto another route';
-  updateLassoPanel();
-  showToast(lassoDragToRouteMode?'Drag any selected marker onto a route line to move the selected group.':'Lasso drag mode off');
-}
-function handleLassoMarkerDrop(stopId,latlng){
-  if(!lassoDragToRouteMode||!lassoSelectedStopIds.has(stopId))return false;
-  const stop=stops.find(s=>s.id===stopId);
-  const targetRouteId=findRouteLineUnderLatLng(latlng,stop?.routeId||null);
-  if(!targetRouteId){renderMap();showToast('Drop a selected stop on or near a route line.');return true;}
-  assignSelectedStopsToRoute(targetRouteId);
-  lassoDragToRouteMode=false;
-  updateLassoPanel();
-  return true;
-}
 
 // ============================================================
 // MAP LAYERS
@@ -1170,7 +958,7 @@ function depotLatLng(depot){return depot&&depot.lat&&depot.lng?[depot.lat,depot.
 // RENDER
 // ============================================================
 function render(){
-  renderStats(); renderRoutes(); renderUA(); renderMap(); renderLegend(); updateApplyBar(); updateAssignPotentialButton(); updateLassoPanel();
+  renderStats(); renderRoutes(); renderUA(); renderMap(); renderLegend(); updateApplyBar(); updateAssignPotentialButton();
 }
 
 function renderStats(){
@@ -1345,13 +1133,10 @@ function renderMap(){
     });
     m.on('click',()=>toggleStopFilter(s.id));
     m.on('dragstart',()=>{dragState={sid:s.id,mapMarker:true,fromRoute:s.routeId||null};});
-    m.on('dragend',(ev)=>{if(handleLassoMarkerDrop(s.id, ev.target.getLatLng()))return;handleMarkerDropOnRouteLine(s.id, ev.target.getLatLng());});
+    m.on('dragend',(ev)=>handleMarkerDropOnRouteLine(s.id, ev.target.getLatLng()));
     m.on('mouseover',()=>highlightStop(s.id));
     m.on('mouseout',()=>clearMapHighlight());
     markers[s.id]=m;
-    if(lassoSelectedStopIds.has(s.id)){
-      setTimeout(()=>{m.getElement&&m.getElement()?.classList.add('lasso-selected-marker');},0);
-    }
   });
   routes.forEach((r,ri)=>{
     if(mapCleared && !visibleRouteIds.has(r.id)) return;
@@ -1387,7 +1172,6 @@ function renderMap(){
       openRouteContextMenu(r.id, original.clientX||0, original.clientY||0);
     });
   });
-  applyLassoMarkerHighlights();
 }
 
 function renderLegend(){
@@ -1881,7 +1665,6 @@ function openRouteContextMenu(routeId,x,y){
     <button class="stop-context-item" onclick="contextResequenceRoute('${routeId}')"><span>Auto Resequence by Distance</span><span>⌁</span></button>
     <button class="stop-context-item" onclick="contextShowAlongRoad('${routeId}')"><span>Show Along The Road</span><span>🛣</span></button>
     <button class="stop-context-item ${roadPolylines[routeId]?'':'disabled'}" onclick="${roadPolylines[routeId]?`contextHideAlongRoad('${routeId}')`:'return false'}"><span>Hide Along The Road</span><span>⛔</span></button>
-    ${lassoSelectedStopIds&&lassoSelectedStopIds.size?`<button class="stop-context-item" onclick="assignLassoStopsToRoute('${routeId}');closeStopContextMenu();"><span>Assign Lasso Selection Here</span><span>☐</span></button>`:''}
     <button class="stop-context-item" onclick="contextRemoveRouteFromMap('${routeId}')"><span>Remove Route from Map</span><span>□</span></button>`;
   menu.style.display='block';
   const rect=menu.getBoundingClientRect();
@@ -3315,12 +3098,6 @@ function clearSession(){
   routeSort = "";
   activeRouteFilterId = null;
   activeStopFilterId = null;
-
-  lassoMode = false;
-  lassoStartPoint = null;
-  lassoSelectedStopIds.clear();
-  lassoDragToRouteMode = false;
-  removeLassoBox();
 
   Object.values(markers).forEach(m=>{
     try{ map.removeLayer(m); }catch(e){}
