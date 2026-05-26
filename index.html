@@ -157,6 +157,21 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
 .stop-context-route-dot{width:7px;height:7px;border-radius:50%;display:inline-block;margin-right:6px;vertical-align:middle;}
 
 
+/* Manual sequence + measuring tools */
+.manual-sequence-modal{width:560px;max-width:96vw;}
+.manual-sequence-list{border:1px solid var(--border);border-radius:10px;background:var(--bg2);max-height:58vh;overflow:auto;padding:6px;}
+.manual-sequence-row{display:flex;align-items:center;gap:8px;padding:8px;border:1px solid transparent;border-radius:8px;margin-bottom:5px;background:var(--bg1);cursor:grab;user-select:none;}
+.manual-sequence-row:hover{border-color:var(--accent);background:var(--bg3);}
+.manual-sequence-row.dragging{opacity:.35;}
+.manual-sequence-row.drag-over{border-color:var(--accent);box-shadow:inset 0 0 0 1px var(--accent);}
+.manual-sequence-handle{font-family:'DM Mono',monospace;color:var(--text3);font-size:12px;width:22px;text-align:center;}
+.manual-sequence-main{flex:1;min-width:0;}
+.manual-sequence-name{font-size:12px;color:var(--text1);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.manual-sequence-detail{font-size:10px;color:var(--text2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.measure-badge{position:absolute;bottom:16px;right:16px;z-index:650;background:rgba(23,27,37,.96);border:1px solid var(--border2);border-radius:10px;padding:10px 12px;box-shadow:0 12px 28px rgba(0,0,0,.4);font-size:11px;color:var(--text1);display:none;max-width:310px;}
+.measure-badge strong{color:var(--accent);}
+
+
 /* Route Manifest Modal */
 .manifest-modal{width:1320px;max-width:98vw;max-height:94vh;}
 .manifest-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin-bottom:12px;}
@@ -368,9 +383,11 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
       <button class="btn" onclick="clearMapView()" title="Remove all routes and stops from the map">Clear Map</button>
       <button class="btn" onclick="displayAllRoutesOnMap()" title="Display every assigned route on the map">Display All Routes</button>
       <button class="btn" onclick="displayAllUnassignedStopsOnMap()" title="Display every unassigned stop on the map">Display All Unassigned Stops</button>
+      <button class="btn" onclick="enableStreetViewPicker()" title="Click anywhere on the map to open Google Street View nearby">🚶 Street View</button>
       <span class="map-drop-hint">Drag routes/stops here to display</span>
     </div>
     <div id="map"></div>
+    <div id="measure-badge" class="measure-badge"></div>
     <div class="map-legend" id="map-legend">
       <div class="map-legend-title">Routes</div>
       <div id="legend-items"></div>
@@ -524,6 +541,19 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
   </div>
 </div>
 
+<!-- Manual Re-sequence Modal -->
+<div id="manual-sequence-modal" style="display:none" class="modal-overlay">
+  <div class="modal manual-sequence-modal">
+    <h2 id="manual-sequence-title">Manual Re-sequence</h2>
+    <div class="job-result" style="margin-bottom:10px;">Drag stops up or down to manually set the route order. Click Save when done.</div>
+    <div id="manual-sequence-list" class="manual-sequence-list"></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal('manual-sequence-modal')">Cancel</button>
+      <button class="btn primary" onclick="saveManualSequence()">Save Sequence</button>
+    </div>
+  </div>
+</div>
+
 <!-- Stop Detail Modal -->
 <div id="stop-detail-modal" style="display:none" class="modal-overlay">
   <div class="modal stop-detail-modal">
@@ -604,6 +634,9 @@ let potRouteSuggestions={}; // stopId -> suggested routeId from Potential Routes
 let routeSort=""; // optional route sort; blank keeps import/original order
 let activeRouteFilterId=null;
 let activeStopFilterId=null;
+let measureFromStopId=null, measureLine=null;
+let streetViewPickMode=false;
+let manualSequenceRouteId=null, manualSequenceOrder=[], manualSequenceDragStopId=null;
 
 // ============================================================
 // INIT
@@ -620,6 +653,14 @@ window.addEventListener('DOMContentLoaded',()=>{
     attribution:'Tiles &copy; Esri, Maxar, Earthstar Geographics, and the GIS User Community'
   });
   darkTileLayer.addTo(map);
+  map.on('click',ev=>{
+    if(streetViewPickMode){
+      openStreetViewAt(ev.latlng.lat,ev.latlng.lng);
+      streetViewPickMode=false;
+      map.getContainer().style.cursor='';
+      showToast('Opening Street View for selected map point');
+    }
+  });
   const mapEl=document.getElementById('map');
   mapEl.addEventListener('dragover',e=>e.preventDefault());
   mapEl.addEventListener('drop',dropOnMap);
@@ -1585,14 +1626,23 @@ function openStopContextMenu(stopId,x,y){
 
   menu.innerHTML=`
     <div class="stop-context-title">${stop.customerName||'Stop'} ${currentRoute?`&middot; ${currentRoute.name}`:'&middot; Unassigned'}</div>
+    <button class="stop-context-item" onclick="contextStreetViewStop('${stopId}')">
+      <span>Street View</span><span>🚶</span>
+    </button>
+    <button class="stop-context-item" onclick="contextMeasureFromStop('${stopId}')">
+      <span>${measureFromStopId&&measureFromStopId!==stopId?'Measure miles to selected stop':'Measure miles from this stop'}</span><span>📏</span>
+    </button>
     <button class="stop-context-item ${stop.routeId?'':'disabled'}" onclick="${stop.routeId?`contextUnassignStop('${stopId}')`:'return false'}">
       <span>Unassign</span><span>↩</span>
     </button>
-    <button class="stop-context-item ${stop.routeId?'':'disabled'}" onclick="${stop.routeId?`contextResequenceRoute('${stop.routeId}')`:'return false'}">
-      <span>Resequence current route</span><span>⌁</span>
+    <button class="stop-context-item ${stop.routeId?'':'disabled'}" onclick="${stop.routeId?`contextManualResequenceRoute('${stop.routeId}')`:'return false'}">
+      <span>Manual Re-sequence</span><span>☰</span>
     </button>
     <button class="stop-context-item ${stop.routeId?'':'disabled'}" onclick="${stop.routeId?`contextShowAlongRoad('${stop.routeId}')`:'return false'}">
       <span>Show Along The Road</span><span>🛣</span>
+    </button>
+    <button class="stop-context-item ${stop.routeId&&roadPolylines[stop.routeId]?'':'disabled'}" onclick="${stop.routeId&&roadPolylines[stop.routeId]?`contextHideAlongRoad('${stop.routeId}')`:'return false'}">
+      <span>Hide Along The Road</span><span>⛔</span>
     </button>
     <button class="stop-context-item" onclick="contextRemoveStopFromMap('${stopId}')">
       <span>Remove Stop from Map</span><span>✕</span>
@@ -1619,8 +1669,10 @@ function openRouteContextMenu(routeId,x,y){
   if(!menu||!route)return;
   menu.innerHTML=`
     <div class="stop-context-title">${route.name||'Route'}</div>
-    <button class="stop-context-item" onclick="contextResequenceRoute('${routeId}')"><span>Resequence Route</span><span>⌁</span></button>
+    <button class="stop-context-item" onclick="contextManualResequenceRoute('${routeId}')"><span>Manual Re-sequence</span><span>☰</span></button>
+    <button class="stop-context-item" onclick="contextResequenceRoute('${routeId}')"><span>Auto Resequence by Distance</span><span>⌁</span></button>
     <button class="stop-context-item" onclick="contextShowAlongRoad('${routeId}')"><span>Show Along The Road</span><span>🛣</span></button>
+    <button class="stop-context-item ${roadPolylines[routeId]?'':'disabled'}" onclick="${roadPolylines[routeId]?`contextHideAlongRoad('${routeId}')`:'return false'}"><span>Hide Along The Road</span><span>⛔</span></button>
     <button class="stop-context-item" onclick="contextRemoveRouteFromMap('${routeId}')"><span>Remove Route from Map</span><span>□</span></button>`;
   menu.style.display='block';
   const rect=menu.getBoundingClientRect();
@@ -1730,6 +1782,148 @@ function contextAssignStop(stopId,routeId){
   expanded.add(routeId);
   closeStopContextMenu();
   showToast('Stop assigned from map menu');
+}
+
+
+function contextStreetViewStop(stopId){
+  const stop=stops.find(s=>s.id===stopId);
+  closeStopContextMenu();
+  if(!stop||!stop.lat||!stop.lng){showToast('This stop does not have a valid latitude/longitude');return;}
+  openStreetViewAt(stop.lat,stop.lng);
+}
+function openStreetViewAt(lat,lng){
+  const url=`https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${encodeURIComponent(lat)},${encodeURIComponent(lng)}`;
+  window.open(url,'_blank','noopener,noreferrer');
+}
+function enableStreetViewPicker(){
+  streetViewPickMode=true;
+  if(map&&map.getContainer())map.getContainer().style.cursor='crosshair';
+  showToast('Street View picker enabled. Click any map location to open Street View.');
+}
+function contextMeasureFromStop(stopId){
+  const stop=stops.find(s=>s.id===stopId);
+  if(!stop||!stop.lat||!stop.lng){showToast('This stop does not have a valid latitude/longitude');return;}
+
+  if(measureFromStopId&&measureFromStopId!==stopId){
+    const from=stops.find(s=>s.id===measureFromStopId);
+    if(!from||!from.lat||!from.lng){measureFromStopId=stopId;closeStopContextMenu();showToast('Measurement start reset to this stop');return;}
+    const airMiles=haversine(from.lat,from.lng,stop.lat,stop.lng);
+    const estimatedRoadMiles=roadAdjustedMiles(airMiles);
+    if(measureLine){try{map.removeLayer(measureLine);}catch(e){} measureLine=null;}
+    measureLine=L.polyline([[from.lat,from.lng],[stop.lat,stop.lng]],{color:'#ffffff',weight:3,opacity:.9,dashArray:'6,6'}).addTo(map);
+    const badge=document.getElementById('measure-badge');
+    if(badge){
+      badge.innerHTML=`<strong>${airMiles.toFixed(2)} straight-line miles</strong><br/>Estimated road miles: ${estimatedRoadMiles.toFixed(2)}<br/><span style="color:var(--text2);">${escapeHtml(from.customerName||'Stop 1')} → ${escapeHtml(stop.customerName||'Stop 2')}</span><br/><button class="btn" style="margin-top:7px;padding:3px 7px;font-size:10px;" onclick="clearMeasurement()">Clear Measure</button>`;
+      badge.style.display='block';
+    }
+    const bounds=L.latLngBounds([[from.lat,from.lng],[stop.lat,stop.lng]]);
+    map.fitBounds(bounds,{padding:[80,80],maxZoom:13});
+    measureFromStopId=null;
+    closeStopContextMenu();
+    showToast(`Miles between stops: ${airMiles.toFixed(2)} straight-line / ${estimatedRoadMiles.toFixed(2)} estimated road`);
+    return;
+  }
+
+  measureFromStopId=stopId;
+  closeStopContextMenu();
+  showToast('Measurement started. Right-click a second stop and choose “Measure miles to selected stop”.');
+}
+function clearMeasurement(){
+  measureFromStopId=null;
+  if(measureLine){try{map.removeLayer(measureLine);}catch(e){} measureLine=null;}
+  const badge=document.getElementById('measure-badge');
+  if(badge){badge.style.display='none';badge.innerHTML='';}
+  showToast('Measurement cleared');
+}
+function contextHideAlongRoad(routeId){
+  hideAlongRoad(routeId);
+  closeStopContextMenu();
+}
+function hideAlongRoad(routeId){
+  const route=routes.find(r=>r.id===routeId);
+  if(roadPolylines[routeId]){
+    try{map.removeLayer(roadPolylines[routeId]);}catch(e){}
+    delete roadPolylines[routeId];
+  }
+  if(polylines[routeId])polylines[routeId].setStyle({opacity:.72,dashArray:'5,4',weight:4});
+  showToast(`Along The Road line hidden for ${route?route.name:'route'}`);
+}
+function contextManualResequenceRoute(routeId){
+  closeStopContextMenu();
+  openManualSequence(routeId);
+}
+function openManualSequence(routeId){
+  const route=routes.find(r=>r.id===routeId);
+  if(!route){showToast('Route not found');return;}
+  const routeStops=stops.filter(s=>s.routeId===routeId).sort((a,b)=>a.seq-b.seq);
+  if(routeStops.length<2){showToast('Manual Re-sequence needs at least 2 stops on the route');return;}
+  manualSequenceRouteId=routeId;
+  manualSequenceOrder=routeStops.map(s=>s.id);
+  document.getElementById('manual-sequence-title').textContent=`Manual Re-sequence: ${route.name||'Route'}`;
+  renderManualSequenceList();
+  document.getElementById('manual-sequence-modal').style.display='flex';
+}
+function renderManualSequenceList(){
+  const el=document.getElementById('manual-sequence-list');
+  if(!el)return;
+  el.innerHTML=manualSequenceOrder.map((stopId,index)=>{
+    const s=stops.find(x=>x.id===stopId);
+    if(!s)return '';
+    return `<div class="manual-sequence-row" id="manual-seq-${s.id}" draggable="true"
+      ondragstart="manualSequenceDragStart(event,'${s.id}')"
+      ondragover="manualSequenceDragOver(event,'${s.id}')"
+      ondragleave="manualSequenceDragLeave(event)"
+      ondrop="manualSequenceDrop(event,'${s.id}')"
+      ondragend="manualSequenceDragEnd()">
+      <div class="manual-sequence-handle">${index+1}</div>
+      <div class="manual-sequence-main">
+        <div class="manual-sequence-name">${escapeHtml(s.customerName||'Stop')}</div>
+        <div class="manual-sequence-detail">${escapeHtml(s.orderNumber||'')} · ${escapeHtml(s.city||'')} ${escapeHtml(s.state||'')} · ${tCases(s)} cases</div>
+      </div>
+      <span style="color:var(--text3);font-size:14px;">☰</span>
+    </div>`;
+  }).join('')||'<div class="empty-state">No stops on this route.</div>';
+}
+function manualSequenceDragStart(e,stopId){
+  manualSequenceDragStopId=stopId;
+  document.getElementById('manual-seq-'+stopId)?.classList.add('dragging');
+  if(e.dataTransfer)e.dataTransfer.setData('text/plain',stopId);
+}
+function manualSequenceDragOver(e,targetStopId){
+  e.preventDefault();
+  if(manualSequenceDragStopId&&manualSequenceDragStopId!==targetStopId)document.getElementById('manual-seq-'+targetStopId)?.classList.add('drag-over');
+}
+function manualSequenceDragLeave(e){e.currentTarget.classList.remove('drag-over');}
+function manualSequenceDrop(e,targetStopId){
+  e.preventDefault();
+  if(!manualSequenceDragStopId||manualSequenceDragStopId===targetStopId)return;
+  const from=manualSequenceOrder.indexOf(manualSequenceDragStopId);
+  const to=manualSequenceOrder.indexOf(targetStopId);
+  if(from<0||to<0)return;
+  const [moved]=manualSequenceOrder.splice(from,1);
+  manualSequenceOrder.splice(to,0,moved);
+  manualSequenceDragEnd();
+  renderManualSequenceList();
+}
+function manualSequenceDragEnd(){
+  manualSequenceDragStopId=null;
+  document.querySelectorAll('.manual-sequence-row').forEach(el=>el.classList.remove('dragging','drag-over'));
+}
+function saveManualSequence(){
+  if(!manualSequenceRouteId){closeModal('manual-sequence-modal');return;}
+  manualSequenceOrder.forEach((stopId,index)=>{
+    const s=stops.find(x=>x.id===stopId&&x.routeId===manualSequenceRouteId);
+    if(s)s.seq=index+1;
+  });
+  expanded.add(manualSequenceRouteId);
+  const savedRouteId=manualSequenceRouteId;
+  manualSequenceRouteId=null;
+  manualSequenceOrder=[];
+  closeModal('manual-sequence-modal');
+  render();
+  if(activeManifestRouteId===savedRouteId)renderRouteManifest();
+  fitRouteToMap(savedRouteId);
+  showToast('Manual route sequence saved');
 }
 
 
@@ -2926,6 +3120,9 @@ function clearSession(){
   markers = {};
   polylines = {};
   roadPolylines = {};
+  clearMeasurement();
+  streetViewPickMode=false;
+  if(map&&map.getContainer())map.getContainer().style.cursor='';
 
   document.querySelectorAll('.modal-overlay').forEach(m=>{
     m.style.display='none';
@@ -3102,28 +3299,11 @@ function exportExcel(){
   }));
   XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(ua.length?ua:[{Note:'No unassigned stops'}]),'Unassigned Stops');
 
-  const depotExport=depotLocations.map(d=>({
-    'LocationKey':d.locationKey||'',
-    'Location Type':d.locationType||'',
-    'Name':d.name||'',
-    'ShipStreet':d.shipStreet||'',
-    'ShipStreet2':d.shipStreet2||'',
-    'ShipStreet3':d.shipStreet3||'',
-    'ShipCrossStreet':d.shipCrossStreet||'',
-    'ShipCity':d.shipCity||'',
-    'ShipState':d.shipState||'',
-    'ShipZipCode':d.shipZipCode||'',
-    'Longitude':d.lng||'',
-    'Latitude':d.lat||'',
-    'UDFNumber1':d.udfNumber1||'',
-    'ServiceDuration':d.serviceDuration||'',
-    'Requirements':d.requirements||'',
-  }));
-  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(depotExport.length?depotExport:[{Note:'No depots imported'}]),'Depot Locations');
+  // Depot Locations tab intentionally removed from export. Depots still appear inside Route Summary and Route Manifest where needed.
 
   const date=document.getElementById('route-date').value||new Date().toISOString().slice(0,10);
   XLSX.writeFile(wb,`RouteDesk_${date}.xlsx`);
-  showToast('Exported: Totals Summary, Route Summary, Route Manifest, Unassigned Stops, Depot Locations');
+  showToast('Exported: Totals Summary, Route Summary, Route Manifest, Unassigned Stops');
 }
 
 // ============================================================
