@@ -249,6 +249,15 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
 .btn.lasso-active{background:var(--accent)!important;border-color:var(--accent)!important;color:#fff!important;}
 .leaflet-marker-icon.lasso-selected-marker{filter:drop-shadow(0 0 12px #4f8cff) brightness(1.45);transform:scale(1.35);transform-origin:center center;z-index:9998!important;}
 
+
+/* Prevent Unassigned Stops header controls from running off-screen */
+#q-ua .q-header{align-items:flex-start;flex-wrap:wrap;}
+#q-ua .q-title{flex:0 0 100%;margin-bottom:4px;}
+#q-ua .q-header > div{display:flex!important;gap:5px;align-items:center;flex-wrap:wrap;width:100%;}
+#q-ua .q-header .btn{padding:2px 7px!important;font-size:9px!important;}
+#assign-potential-btn{max-width:100%;white-space:normal!important;line-height:1.15;}
+#ua-badge{margin-left:auto;}
+
 </style>
 </head>
 <body>
@@ -1212,7 +1221,7 @@ function updateAssignPotentialButton(){
   if(!btn)return;
   const count=stops.filter(s=>!s.routeId&&potRouteSuggestions[s.id]).length;
   btn.style.display=count>0?'inline-flex':'none';
-  btn.textContent=count>0?`Assign to Potential Routes (${count})`:'Assign to Potential Routes';
+  btn.textContent=count>0?`Assign Potential (${count})`:'Assign Potential';
 }
 
 // ============================================================
