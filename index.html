@@ -388,10 +388,13 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
       <button class="btn" onclick="clearMapView()" title="Remove all routes and stops from the map">Clear Map</button>
       <button class="btn" onclick="displayAllRoutesOnMap()" title="Display every assigned route on the map">Display All Routes</button>
       <button class="btn" onclick="displayAllUnassignedStopsOnMap()" title="Display every unassigned stop on the map">Display All Unassigned Stops</button>
+      <button class="btn" id="lasso-stops-btn" onclick="toggleLassoMode()" title="Draw a box on the map to select multiple stops">☐ Lasso Stops</button>
       <button class="btn" onclick="enableStreetViewPicker()" title="Click anywhere on the map to open Google Street View nearby">🚶 Street View</button>
       <span class="map-drop-hint">Drag routes/stops here to display</span>
     </div>
     <div id="map"></div>
+    <div id="lasso-box" class="lasso-box"></div>
+    <div id="lasso-panel" class="lasso-panel"></div>
     <div id="measure-badge" class="measure-badge"></div>
     <div class="map-legend" id="map-legend">
       <div class="map-legend-title">Routes</div>
@@ -1384,6 +1387,7 @@ function renderMap(){
       openRouteContextMenu(r.id, original.clientX||0, original.clientY||0);
     });
   });
+  applyLassoMarkerHighlights();
 }
 
 function renderLegend(){
@@ -1877,6 +1881,7 @@ function openRouteContextMenu(routeId,x,y){
     <button class="stop-context-item" onclick="contextResequenceRoute('${routeId}')"><span>Auto Resequence by Distance</span><span>⌁</span></button>
     <button class="stop-context-item" onclick="contextShowAlongRoad('${routeId}')"><span>Show Along The Road</span><span>🛣</span></button>
     <button class="stop-context-item ${roadPolylines[routeId]?'':'disabled'}" onclick="${roadPolylines[routeId]?`contextHideAlongRoad('${routeId}')`:'return false'}"><span>Hide Along The Road</span><span>⛔</span></button>
+    ${lassoSelectedStopIds&&lassoSelectedStopIds.size?`<button class="stop-context-item" onclick="assignLassoStopsToRoute('${routeId}');closeStopContextMenu();"><span>Assign Lasso Selection Here</span><span>☐</span></button>`:''}
     <button class="stop-context-item" onclick="contextRemoveRouteFromMap('${routeId}')"><span>Remove Route from Map</span><span>□</span></button>`;
   menu.style.display='block';
   const rect=menu.getBoundingClientRect();
