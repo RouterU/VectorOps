@@ -313,10 +313,14 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
       <input type="number" class="radius-input" id="routing-radius" value="15" min="0.1" step="0.1"/>
       <span class="topbar-label">mi</span>
     </div>
+    <div style="display:flex;flex-direction:column;gap:3px;align-items:stretch;">
+
     <button class="btn warn" onclick="runPotentialJob()">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
       Potential Routes
     </button>
+      <button class="btn" id="top-cancel-potential-btn" onclick="cancelPotentialJob()" style="display:none;background:#7f1d1d;border-color:#b91c1c;color:#fff;font-size:10px;padding:3px 6px;justify-content:center;">Cancel Potential</button>
+    </div>
     <button class="btn success" onclick="exportExcel()">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
       Export
@@ -2613,6 +2617,27 @@ function resequenceRoutesRespectingPreferredLocks(routeIds){
   });
 }
 
+
+function cancelPotentialJob(){
+  const cleared=Object.keys(potColors||{}).length || Object.keys(potRouteSuggestions||{}).length;
+
+  potColors={};
+  potRouteSuggestions={};
+
+  stops.forEach(s=>{
+    s.uiChecked=false;
+  });
+
+  const topBtn=document.getElementById('top-cancel-potential-btn');
+  if(topBtn)topBtn.style.display='none';
+
+  const assignBtn=document.getElementById('assign-potential-btn');
+  if(assignBtn)assignBtn.style.display='none';
+
+  render();
+  showToast(`Potential Routes job canceled. Cleared ${cleared} suggested stop(s).`);
+}
+
 function runPotentialJob(){
   const radiusInput=document.getElementById('routing-radius');
   const radiusMiles=parseFloat(radiusInput?.value)||15;
@@ -2636,6 +2661,7 @@ function runPotentialJob(){
     if(bestDist<=radiusMiles&&bestRoute){potColors[s.id]=routeColor(bestRoute);potRouteSuggestions[s.id]=bestRoute;matched++;}
   });
   render();
+  const topCancelBtn=document.getElementById('top-cancel-potential-btn'); if(topCancelBtn)topCancelBtn.style.display='inline-flex';
   showJob('&#128269; Potential Routes Job',`
     <strong>Routing Radius:</strong> ${radiusMiles} miles<br/>
     <strong>${matched}</strong> of ${targets.length} stops are within ${radiusMiles} miles of a routed stop<br/>
@@ -2677,6 +2703,7 @@ function assignToPotentialRoutes(){
 
   reseq();
   render();
+  const topCancelBtn=document.getElementById('top-cancel-potential-btn'); if(topCancelBtn)topCancelBtn.style.display='none';
   showJob('&#128204; Assign to Potential Routes',`
     <strong>${assigned}</strong> suggested stop(s) assigned to their potential route<br/>
     <strong>${resequencedRoutes}</strong> route(s) resequenced using nearest-distance order<br/><br/>
@@ -3420,6 +3447,8 @@ function clearSession(){
 
   potColors = {};
   potRouteSuggestions = {};
+  // Clear Session reset potential cancel button
+  const topCancelBtn=document.getElementById('top-cancel-potential-btn'); if(topCancelBtn)topCancelBtn.style.display='none';
 
   routeSort = "";
   activeRouteFilterId = null;
@@ -3639,38 +3668,3 @@ document.addEventListener('click',e=>{if(e.target.classList.contains('modal-over
 </script>
 </body>
 </html>
-<script>
-
-function cancelPotentialRoutes(){
-  let cleared=0;
-
-  stops.forEach(s=>{
-    // remove potential markers/tags
-    if(s.potentialRoute){
-      delete s.potentialRoute;
-      cleared++;
-    }
-    if(s.isPotential){
-      delete s.isPotential;
-    }
-    if(s.potentialScore){
-      delete s.potentialScore;
-    }
-  });
-
-  // clear UI tags if app uses them
-  document.querySelectorAll('.potential-tag,.pref-tag-temp').forEach(el=>el.remove());
-
-  // hide cancel button again
-  const cancelBtn=document.getElementById('cancel-potential-btn');
-  if(cancelBtn)cancelBtn.style.display='none';
-
-  // rerender UI
-  render();
-  renderUA();
-  renderRoutes();
-
-  showToast(`Potential routing reset for ${cleared} stop(s).`);
-}
-
-</script>
