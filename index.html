@@ -154,6 +154,25 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
 .stop-context-item.disabled{opacity:.4;cursor:not-allowed;}
 .stop-context-item.disabled:hover{background:transparent;}
 .stop-context-routes{max-height:190px;overflow-y:auto;margin-top:4px;border-top:1px solid var(--border);padding-top:4px;}
+
+.lasso-panel{position:absolute;right:10px;bottom:14px;z-index:700;background:rgba(23,27,37,.96);border:1px solid var(--border2);border-radius:12px;box-shadow:0 16px 38px rgba(0,0,0,.48);padding:10px;width:320px;display:none;}
+.lasso-panel-title{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:11px;font-weight:700;color:var(--text1);margin-bottom:8px;}
+.lasso-panel-sub{font-size:10px;color:var(--text3);font-weight:500;margin-top:2px;}
+.lasso-actions{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:8px;}
+.lasso-actions .btn{justify-content:center;padding:6px 7px;font-size:10px;}
+.lasso-route-select{width:100%;background:var(--bg3);border:1px solid var(--border);border-radius:6px;color:var(--text1);font-size:11px;font-family:'Sora',sans-serif;padding:6px 7px;margin-top:7px;}
+.lasso-summary{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:5px;margin-top:8px;}
+.lasso-stat{background:var(--bg3);border:1px solid var(--border);border-radius:7px;padding:5px;text-align:center;min-width:0;}
+.lasso-stat .val{font-family:'DM Mono',monospace;font-size:11px;color:var(--text1);font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.lasso-stat .lbl{font-size:8px;color:var(--text3);text-transform:uppercase;letter-spacing:.3px;margin-top:1px;}
+.cluster-drag-chip{margin-top:8px;border:1px dashed var(--accent);background:rgba(79,140,255,.12);color:var(--accent);border-radius:8px;padding:7px;text-align:center;font-size:10px;font-weight:700;cursor:grab;user-select:none;}
+.cluster-drag-chip:active{cursor:grabbing;}
+.map-marker-lasso-selected{filter:drop-shadow(0 0 10px #4f8cff) brightness(1.4);transform:scale(1.25);transform-origin:center center;z-index:9998!important;}
+.lasso-mode-active{background:var(--accent)!important;border-color:var(--accent)!important;color:#fff!important;}
+.cluster-detail-row{display:grid;grid-template-columns:52px 1fr 70px 70px 70px;gap:8px;align-items:center;padding:7px 8px;border-bottom:1px solid var(--border);font-size:11px;}
+.cluster-detail-row.header{background:var(--bg3);color:var(--text3);font-size:9px;text-transform:uppercase;letter-spacing:.4px;font-weight:700;position:sticky;top:0;}
+.cluster-detail-list{border:1px solid var(--border);border-radius:9px;max-height:380px;overflow:auto;background:var(--bg2);margin-top:10px;}
+
 .stop-context-route-dot{width:7px;height:7px;border-radius:50%;display:inline-block;margin-right:6px;vertical-align:middle;}
 
 
@@ -391,6 +410,17 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
 <!-- Map Stop Right-Click Menu -->
 <div id="stop-context-menu" class="stop-context-menu"></div>
 
+<!-- Lasso Cluster Detail Modal -->
+<div id="cluster-detail-modal" style="display:none" class="modal-overlay">
+  <div class="modal stop-detail-modal">
+    <h2 id="cluster-detail-title">Lasso Service Details</h2>
+    <div id="cluster-detail-body"></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal('cluster-detail-modal')">Close</button>
+    </div>
+  </div>
+</div>
+
 <!-- ===== MODALS ===== -->
 
 <!-- Import Modal -->
@@ -621,6 +651,8 @@ let appTab='routing', importMode='all', pendingWB=null;
 let dragState=null, map, markers={}, polylines={}, roadPolylines={}, expanded=new Set();
 let darkTileLayer=null, satelliteTileLayer=null, currentMapLayer='dark';
 let contextStopId=null;
+let lassoMode=false, lassoStartLatLng=null, lassoRectangle=null;
+const lassoSelectedStopIds=new Set();
 let potColors={}; // stopId -> color
 let potRouteSuggestions={}; // stopId -> suggested routeId from Potential Routes job
 let routeSort=""; // optional route sort; blank keeps import/original order
@@ -656,6 +688,7 @@ window.addEventListener('DOMContentLoaded',()=>{
   const mapEl=document.getElementById('map');
   mapEl.addEventListener('dragover',e=>e.preventDefault());
   mapEl.addEventListener('drop',dropOnMap);
+  initLassoSelection();
   initSplitter();
   render();
 });
@@ -958,7 +991,7 @@ function depotLatLng(depot){return depot&&depot.lat&&depot.lng?[depot.lat,depot.
 // RENDER
 // ============================================================
 function render(){
-  renderStats(); renderRoutes(); renderUA(); renderMap(); renderLegend(); updateApplyBar(); updateAssignPotentialButton();
+  renderStats(); renderRoutes(); renderUA(); renderMap(); renderLegend(); updateApplyBar(); updateAssignPotentialButton(); renderLassoPanel();
 }
 
 function renderStats(){
@@ -1110,8 +1143,10 @@ function renderMap(){
     if(mapCleared && !visibleStopIds.has(s.id) && !(s.routeId&&visibleRouteIds.has(s.routeId))) return;
     const color=s.routeId?routeColor(s.routeId):(potColors[s.id]||'#5c6480');
     const label=s.routeId?s.seq:'?';
+    const selectedBorder=lassoSelectedStopIds.has(s.id)?'#4f8cff':(s.routeId?'#fff':'rgba(255,255,255,.35)');
+    const selectedRing=lassoSelectedStopIds.has(s.id)?'0 0 0 4px rgba(79,140,255,.35),0 2px 8px rgba(0,0,0,.5)':'0 2px 8px rgba(0,0,0,.5)';
     const icon=L.divIcon({className:'',
-      html:`<div style="width:24px;height:24px;border-radius:50%;background:${color};border:2px solid ${s.routeId?'#fff':'rgba(255,255,255,.35)'};display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;color:#fff;font-family:DM Mono,monospace;box-shadow:0 2px 8px rgba(0,0,0,.5);">${label}</div>`,
+      html:`<div style="width:24px;height:24px;border-radius:50%;background:${color};border:2px solid ${selectedBorder};display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;color:#fff;font-family:DM Mono,monospace;box-shadow:${selectedRing};">${label}</div>`,
       iconSize:[24,24],iconAnchor:[12,12]});
     const m=L.marker([s.lat,s.lng],{icon,draggable:true}).addTo(map);
     const r=routes.find(x=>x.id===s.routeId)||{};
@@ -1267,6 +1302,11 @@ function onDropStop(e,tid,tRoute){
 function dropOnRoute(e,rid){
   e.preventDefault();
   if(!dragState||dragState.routeId)return;
+  if(dragState.clusterStopIds&&dragState.clusterStopIds.length){
+    assignClusterStopsToRoute(rid, dragState.clusterStopIds);
+    showToast(`${dragState.clusterStopIds.length} lasso stop(s) added to route`);
+    return;
+  }
   const s=stops.find(x=>x.id===dragState.sid);if(!s)return;
   s.routeId=rid;
   s.seq=Math.max(0,...stops.filter(x=>x.routeId===rid&&x.id!==s.id).map(x=>x.seq))+1;
@@ -1598,6 +1638,203 @@ function handleMarkerDropOnRouteLine(stopId,latlng){
   showToast(`Moved stop to ${route?route.name:'route'} after closest stop`);
 }
 
+
+
+// ============================================================
+// LASSO STOP SELECTION
+// ============================================================
+function initLassoSelection(){
+  if(!map)return;
+  map.on('mousedown',e=>{
+    if(!lassoMode)return;
+    if(e.originalEvent&&e.originalEvent.button!==0)return;
+    L.DomEvent.preventDefault(e.originalEvent);
+    L.DomEvent.stopPropagation(e.originalEvent);
+    lassoStartLatLng=e.latlng;
+    if(lassoRectangle){map.removeLayer(lassoRectangle);lassoRectangle=null;}
+    lassoRectangle=L.rectangle([lassoStartLatLng,lassoStartLatLng],{
+      color:'#4f8cff',weight:2,opacity:.95,fillColor:'#4f8cff',fillOpacity:.12,dashArray:'6,4'
+    }).addTo(map);
+    map.dragging.disable();
+  });
+  map.on('mousemove',e=>{
+    if(!lassoMode||!lassoStartLatLng||!lassoRectangle)return;
+    lassoRectangle.setBounds(L.latLngBounds(lassoStartLatLng,e.latlng));
+  });
+  map.on('mouseup',e=>{
+    if(!lassoMode||!lassoStartLatLng||!lassoRectangle)return;
+    const bounds=lassoRectangle.getBounds();
+    lassoSelectedStopIds.clear();
+    stops.forEach(s=>{
+      if(!s.lat||!s.lng)return;
+      const isVisible=!mapCleared || visibleStopIds.has(s.id) || (s.routeId&&visibleRouteIds.has(s.routeId));
+      if(isVisible&&bounds.contains(L.latLng(s.lat,s.lng)))lassoSelectedStopIds.add(s.id);
+    });
+    lassoStartLatLng=null;
+    map.dragging.enable();
+    setLassoMode(false,true);
+    renderMap();
+    renderLassoPanel();
+    if(lassoSelectedStopIds.size)showToast(`${lassoSelectedStopIds.size} stop(s) selected`);
+    else showToast('No visible stops found inside lasso area');
+  });
+}
+function toggleLassoMode(){setLassoMode(!lassoMode,false);}
+function setLassoMode(enabled,keepRectangle){
+  lassoMode=enabled;
+  const btn=document.getElementById('lasso-toggle-btn');
+  if(btn)btn.classList.toggle('lasso-mode-active',lassoMode);
+  if(!lassoMode){
+    lassoStartLatLng=null;
+    if(map&&map.dragging)map.dragging.enable();
+    if(!keepRectangle&&lassoRectangle){try{map.removeLayer(lassoRectangle);}catch(e){} lassoRectangle=null;}
+  }else{
+    closeStopContextMenu();
+    showToast('Lasso mode on: drag a box around visible stops.');
+  }
+}
+function clearLassoSelection(){
+  lassoSelectedStopIds.clear();
+  if(lassoRectangle){try{map.removeLayer(lassoRectangle);}catch(e){} lassoRectangle=null;}
+  renderMap();
+  renderLassoPanel();
+}
+function selectedLassoStops(){return [...lassoSelectedStopIds].map(id=>stops.find(s=>s.id===id)).filter(Boolean);}
+function orderedClusterStops(stopList){
+  return (stopList||[]).slice().sort((a,b)=>{
+    const ar=a.routeId||'zzzz', br=b.routeId||'zzzz';
+    if(ar!==br)return ar.localeCompare(br);
+    return (a.seq||999999)-(b.seq||999999);
+  });
+}
+function clusterServiceSummary(stopList){
+  const list=orderedClusterStops(stopList||[]).filter(s=>s.lat&&s.lng);
+  const cases=(stopList||[]).reduce((a,s)=>a+tCases(s),0);
+  const serviceMins=(stopList||[]).reduce((a,s)=>a+stopServiceMinutes(s),0);
+  let miles=0;
+  for(let i=1;i<list.length;i++)miles+=haversine(list[i-1].lat,list[i-1].lng,list[i].lat,list[i].lng);
+  const roadMiles=roadAdjustedMiles(miles);
+  const travelMins=driveMinutesForMiles(miles);
+  const cpm=roadMiles>0?cases/roadMiles:0;
+  return {count:(stopList||[]).length,cases,serviceMins,miles:roadMiles,straightMiles:miles,travelMins,cpm};
+}
+function renderLassoPanel(){
+  const panel=document.getElementById('lasso-panel');
+  if(!panel)return;
+  const selected=selectedLassoStops();
+  if(!selected.length){panel.style.display='none';return;}
+  const s=clusterServiceSummary(selected);
+  panel.style.display='block';
+  panel.innerHTML=`
+    <div class="lasso-panel-title">
+      <div>Lasso Selection<div class="lasso-panel-sub">${s.count} stop(s) selected</div></div>
+      <button class="icon-btn" onclick="clearLassoSelection()" title="Clear lasso selection">✕</button>
+    </div>
+    <div class="lasso-summary">
+      <div class="lasso-stat"><div class="val">${s.cases.toLocaleString()}</div><div class="lbl">Cases</div></div>
+      <div class="lasso-stat"><div class="val">${s.miles.toFixed(1)}</div><div class="lbl">Miles</div></div>
+      <div class="lasso-stat"><div class="val">${fmtMinutes(s.serviceMins)}</div><div class="lbl">Service</div></div>
+      <div class="lasso-stat"><div class="val">${s.cpm?s.cpm.toFixed(1):'—'}</div><div class="lbl">CPM</div></div>
+    </div>
+    <select class="lasso-route-select" onchange="if(this.value){assignClusterStopsToRoute(this.value);this.value='';}">
+      <option value="">Assign selected stops to route...</option>
+      ${routes.map(r=>`<option value="${r.id}">${escapeHtml(r.name||r.routeTemplateKey||'Route')}</option>`).join('')}
+    </select>
+    <div class="lasso-actions">
+      <button class="btn" onclick="unassignLassoStops()">Unassign Stops</button>
+      <button class="btn" onclick="removeLassoStopsFromMap()">Remove from Map</button>
+      <button class="btn" onclick="showLassoServiceDetails()">Show Service Details</button>
+      <button class="btn" onclick="fitLassoStopsToMap()">Zoom to Cluster</button>
+    </div>
+    <div class="cluster-drag-chip" draggable="true" ondragstart="startClusterDrag(event)">↕ Drag selected stops onto another route</div>
+  `;
+}
+function assignClusterStopsToRoute(routeId, ids){
+  const targetIds=ids||[...lassoSelectedStopIds];
+  const route=routes.find(r=>r.id===routeId);
+  if(!route||!targetIds.length)return;
+  let nextSeq=Math.max(0,...stops.filter(s=>s.routeId===routeId&&!targetIds.includes(s.id)).map(s=>s.seq||0))+1;
+  orderedClusterStops(targetIds.map(id=>stops.find(s=>s.id===id)).filter(Boolean)).forEach(stop=>{
+    stop.routeId=routeId;
+    stop.seq=nextSeq++;
+    visibleStopIds.add(stop.id);
+  });
+  visibleRouteIds.add(routeId);
+  expanded.add(routeId);
+  reseq();
+  render();
+  renderLassoPanel();
+  fitRouteToMap(routeId);
+  showToast(`${targetIds.length} selected stop(s) assigned to ${route.name||'route'}`);
+}
+function unassignLassoStops(){
+  const selected=selectedLassoStops();
+  if(!selected.length)return;
+  selected.forEach(s=>{s.routeId=null;s.seq=0;});
+  reseq();
+  render();
+  renderLassoPanel();
+  showToast(`${selected.length} stop(s) unassigned`);
+}
+function removeLassoStopsFromMap(){
+  const selected=selectedLassoStops();
+  if(!selected.length)return;
+  ensureCustomMapView();
+  selected.forEach(s=>visibleStopIds.delete(s.id));
+  renderMap();
+  renderLassoPanel();
+  showToast(`${selected.length} selected stop(s) removed from map`);
+}
+function fitLassoStopsToMap(){
+  const pts=selectedLassoStops().filter(s=>s.lat&&s.lng).map(s=>[s.lat,s.lng]);
+  if(pts.length===1)map.flyTo(pts[0],14);
+  else if(pts.length>1)map.fitBounds(L.latLngBounds(pts),{padding:[70,70],maxZoom:13});
+}
+function startClusterDrag(e){
+  const ids=[...lassoSelectedStopIds];
+  if(!ids.length)return;
+  dragState={clusterStopIds:ids};
+  if(e.dataTransfer){
+    e.dataTransfer.setData('text/plain','cluster:'+ids.join(','));
+    e.dataTransfer.effectAllowed='move';
+  }
+}
+function showLassoServiceDetails(){
+  const selected=selectedLassoStops();
+  if(!selected.length){showToast('No lasso stops selected');return;}
+  const summary=clusterServiceSummary(selected);
+  const rows=orderedClusterStops(selected).map((s,i)=>{
+    const prior=i>0?orderedClusterStops(selected)[i-1]:null;
+    const leg=prior&&prior.lat&&prior.lng&&s.lat&&s.lng?roadAdjustedMiles(haversine(prior.lat,prior.lng,s.lat,s.lng)):0;
+    const travel=leg?driveMinutesForMiles(leg/1.25):0;
+    const route=routes.find(r=>r.id===s.routeId);
+    return `<div class="cluster-detail-row">
+      <div>${i+1}</div>
+      <div><strong>${escapeHtml(s.customerName||'Stop')}</strong><br/><span style="color:var(--text3);font-size:9px;">${escapeHtml(route?route.name:'Unassigned')} · ${escapeHtml(s.city||'')} ${escapeHtml(s.state||'')}</span></div>
+      <div>${tCases(s)}</div>
+      <div>${fmtMinutes(stopServiceMinutes(s))}</div>
+      <div>${leg?leg.toFixed(1):'—'}</div>
+    </div>`;
+  }).join('');
+  document.getElementById('cluster-detail-title').textContent=`Lasso Service Details: ${summary.count} Stops`;
+  document.getElementById('cluster-detail-body').innerHTML=`
+    <div class="manifest-stats">
+      <div class="manifest-stat"><div class="val">${summary.count}</div><div class="lbl">Stops</div></div>
+      <div class="manifest-stat"><div class="val">${summary.cases.toLocaleString()}</div><div class="lbl">Cases</div></div>
+      <div class="manifest-stat"><div class="val">${summary.miles.toFixed(1)}</div><div class="lbl">Estimated Miles</div></div>
+      <div class="manifest-stat"><div class="val">${fmtMinutes(summary.travelMins)}</div><div class="lbl">Travel Time</div></div>
+      <div class="manifest-stat"><div class="val">${fmtMinutes(summary.serviceMins)}</div><div class="lbl">Service Time</div></div>
+      <div class="manifest-stat"><div class="val">${fmtMinutes(summary.travelMins+summary.serviceMins)}</div><div class="lbl">Travel + Service</div></div>
+      <div class="manifest-stat"><div class="val">${summary.cpm?summary.cpm.toFixed(2):'—'}</div><div class="lbl">CPM</div></div>
+      <div class="manifest-stat"><div class="val">${summary.straightMiles.toFixed(1)}</div><div class="lbl">Straight Miles</div></div>
+    </div>
+    <div style="font-size:10px;color:var(--text3);line-height:1.5;">CPM = total cases ÷ estimated road miles. Cluster miles use the selected stops in current route/sequence order and apply the same road-mile adjustment used elsewhere in the app.</div>
+    <div class="cluster-detail-list">
+      <div class="cluster-detail-row header"><div>Seq</div><div>Stop</div><div>Cases</div><div>Service</div><div>Leg Mi</div></div>
+      ${rows}
+    </div>`;
+  document.getElementById('cluster-detail-modal').style.display='flex';
+}
 
 // ============================================================
 // MAP RIGHT-CLICK STOP MENU
@@ -3094,6 +3331,9 @@ function clearSession(){
 
   potColors = {};
   potRouteSuggestions = {};
+  lassoSelectedStopIds.clear();
+  lassoMode=false;
+  if(lassoRectangle){try{map.removeLayer(lassoRectangle);}catch(e){} lassoRectangle=null;}
 
   routeSort = "";
   activeRouteFilterId = null;
