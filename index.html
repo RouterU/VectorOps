@@ -887,7 +887,13 @@ function routeEndEstimate(routeId){
 
 function roadAdjustedMiles(miles){return (parseFloat(miles)||0)*1.25;}
 function driveMinutesForMiles(miles){return (roadAdjustedMiles(miles)/35)*60;}
-function stopServiceMinutes(stop){return 5+((tCases(stop)*0.03)/60);}
+function serviceDurationSecondsForStop(stop){
+  // Production Orders fields are stored in seconds.
+  // Routing service time now matches Output File column M (ServiceDuration): Fixed Service Time.
+  const seconds=nval(stop?.fixedServiceTime);
+  return seconds>0?seconds:0;
+}
+function stopServiceMinutes(stop){return serviceDurationSecondsForStop(stop)/60;}
 function routePointSequence(routeId){
   const route=routes.find(r=>r.id===routeId);
   if(!route)return [];
@@ -3699,6 +3705,9 @@ function outputDateFromMinutes(route,minutes){
   const d=route?.date||document.getElementById('route-date')?.value||new Date().toISOString().slice(0,10);
   return `${d} ${minutesToHHMM(minutes)}`;
 }
+function outputDateOnlyFromMinutes(route,minutes){
+  return route?.date||document.getElementById('route-date')?.value||new Date().toISOString().slice(0,10);
+}
 function rawField(order,keys){
   if(!order||!order.raw)return '';
   return gc(order.raw,keys);
@@ -3706,6 +3715,14 @@ function rawField(order,keys){
 function totalCasesForOrder(o){return nval(o?.dryCases)+nval(o?.coolerCases)+nval(o?.frozenCases)+nval(o?.pkgCases);}
 function totalCubeForOrder(o){return nval(o?.dryCube)+nval(o?.coolerCube)+nval(o?.frozenCube)+nval(o?.pkgCube);}
 function totalWeightForOrder(o){return nval(o?.dryWeight)+nval(o?.coolerWeight)+nval(o?.frozenWeight)+nval(o?.pkgWeight);}
+
+function valueSecondsFromOrderOrStop(order,stop,field){
+  if(order && Object.prototype.hasOwnProperty.call(order,field))return nval(order[field]);
+  return nval(stop?.[field]);
+}
+function variableServiceSecondsForOutput(order,stop){return valueSecondsFromOrderOrStop(order,stop,'variableServiceTime');}
+function fixedServiceSecondsForOutput(order,stop){return valueSecondsFromOrderOrStop(order,stop,'fixedServiceTime');}
+
 function buildOutputFileRows(){
   const rows=[];
   const sessionDate=document.getElementById('route-date')?.value||new Date().toISOString().slice(0,10);
@@ -3725,8 +3742,8 @@ function buildOutputFileRows(){
           'Parent Account':'',
           'EarliestDate':outputDateFromMinutes(route,pt.arrive),
           'LatestDate':outputDateFromMinutes(route,pt.depart),
-          'projectedArrivalDate':outputDateFromMinutes(route,pt.arrive),
-          'projectedBegunDate':outputDateFromMinutes(route,pt.depart),
+          'projectedArrivalDate':outputDateOnlyFromMinutes(route,pt.arrive),
+          'projectedBegunDate':outputDateOnlyFromMinutes(route,pt.depart),
           'serviceDurationPerCaseInSeconds':0,
           'ServiceDuration':nval(d.serviceDuration),
           'FixedserviceDuration':nval(d.serviceDuration),
@@ -3734,7 +3751,7 @@ function buildOutputFileRows(){
           'truckKey':route.truckKey||'',
           'driverKey':route.driverKey||'',
           'routename':route.name||'',
-          'routeprojectedDepartedDate':outputDateFromMinutes(route,pt.depart),
+          'routeprojectedDepartedDate':outputDateOnlyFromMinutes(route,pt.depart),
           'locationType':'DEPOT',
           'stoptype':0,
           'Measure1':'',
@@ -3751,8 +3768,8 @@ function buildOutputFileRows(){
         const cases=totalCasesForOrder(order)||tCases(stop);
         const cube=totalCubeForOrder(order)||tCube(stop);
         const weight=totalWeightForOrder(order)||tWeight(stop);
-        const variable=nval(order.variableServiceTime||stop.variableServiceTime);
-        const fixed=nval(order.fixedServiceTime||stop.fixedServiceTime);
+        const variable=variableServiceSecondsForOutput(order,stop);
+        const fixed=fixedServiceSecondsForOutput(order,stop);
         const region=sval(rawField(order,['Region_Code','Region Code','REGION_CODE','Region']))||route.regionCode||route.region||'';
         const parent=sval(rawField(order,['Parent Account','ParentAccount','PARENT_ACCOUNT']))||order.alternativeCustomerNumber||'';
         rows.push({
@@ -3765,8 +3782,8 @@ function buildOutputFileRows(){
           'Parent Account':parent,
           'EarliestDate':outputDateTime(order.earliestTimeWindow||stop.earliestTimeWindow,sessionDate,'00:00'),
           'LatestDate':outputDateTime(order.latestTimeWindow||stop.latestTimeWindow,sessionDate,'23:59'),
-          'projectedArrivalDate':outputDateFromMinutes(route,pt.arrive),
-          'projectedBegunDate':outputDateFromMinutes(route,pt.depart),
+          'projectedArrivalDate':outputDateOnlyFromMinutes(route,pt.arrive),
+          'projectedBegunDate':outputDateOnlyFromMinutes(route,pt.depart),
           'serviceDurationPerCaseInSeconds':cases?parseFloat((variable/cases).toFixed(6)):0,
           'ServiceDuration':fixed,
           'FixedserviceDuration':variable+fixed,
@@ -3774,7 +3791,7 @@ function buildOutputFileRows(){
           'truckKey':route.truckKey||'',
           'driverKey':route.driverKey||'',
           'routename':route.name||'',
-          'routeprojectedDepartedDate':outputDateFromMinutes(route,pt.depart),
+          'routeprojectedDepartedDate':outputDateOnlyFromMinutes(route,pt.depart),
           'locationType':'CUSTOMER',
           'stoptype':orderCount(stop),
           'Measure1':cases,
@@ -3793,8 +3810,8 @@ function buildOutputFileRows(){
       const cases=totalCasesForOrder(order)||tCases(stop);
       const cube=totalCubeForOrder(order)||tCube(stop);
       const weight=totalWeightForOrder(order)||tWeight(stop);
-      const variable=nval(order.variableServiceTime||stop.variableServiceTime);
-      const fixed=nval(order.fixedServiceTime||stop.fixedServiceTime);
+      const variable=variableServiceSecondsForOutput(order,stop);
+      const fixed=fixedServiceSecondsForOutput(order,stop);
       rows.push({
         'District':order.district||stop.district||'',
         'Region_Code':sval(rawField(order,['Region_Code','Region Code','REGION_CODE','Region'])),
