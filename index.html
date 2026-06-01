@@ -209,6 +209,15 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
 .filter-pill{display:inline-flex;align-items:center;gap:4px;background:rgba(79,140,255,.14);border:1px solid rgba(79,140,255,.45);color:var(--accent);border-radius:999px;padding:2px 7px;font-size:9px;font-weight:700;}
 
 
+/* Consolidated order detail */
+.order-expand{margin-top:10px;border:1px solid var(--border);border-radius:10px;overflow:hidden;background:var(--bg2);grid-column:1/-1;}
+.order-expand summary{cursor:pointer;padding:9px 10px;font-size:11px;font-weight:700;color:var(--text1);background:var(--bg3);list-style:none;}
+.order-expand summary::-webkit-details-marker{display:none;}
+.order-table{max-height:260px;overflow:auto;}
+.order-table-row{display:grid;grid-template-columns:110px 80px 80px 80px 90px 90px 1fr;gap:8px;padding:7px 10px;border-top:1px solid var(--border);font-size:10px;align-items:center;min-width:760px;}
+.order-table-row.header{position:sticky;top:0;background:var(--bg2);color:var(--text3);font-size:9px;text-transform:uppercase;letter-spacing:.4px;font-weight:800;z-index:1;}
+.order-badge{display:inline-block;margin-left:4px;padding:1px 5px;border-radius:999px;background:rgba(79,140,255,.16);color:var(--accent);font-size:8px;font-weight:800;vertical-align:middle;}
+
 /* Modals */
 .modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.78);z-index:2000;display:flex;align-items:center;justify-content:center;}
 .modal{background:var(--bg1);border:1px solid var(--border2);border-radius:12px;padding:20px;width:520px;max-width:96vw;max-height:90vh;overflow-y:auto;}
@@ -431,7 +440,7 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
       <div class="imp-tab active" id="itab-all" onclick="setImportMode('all')">All Templates</div>
       <div class="imp-tab" id="itab-routes" onclick="setImportMode('routes')">Routes Only</div>
       <div class="imp-tab" id="itab-trucks" onclick="setImportMode('trucks')">Trucks Only</div>
-      <div class="imp-tab" id="itab-stops" onclick="setImportMode('stops')">Stops Only</div>
+      <div class="imp-tab" id="itab-stops" onclick="setImportMode('stops')">Orders Only</div>
       <div class="imp-tab" id="itab-depots" onclick="setImportMode('depots')">Depots Only</div>
     </div>
     <div id="imp-drop" class="file-drop"
@@ -441,7 +450,7 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
       ondrop="handleDrop(event)">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
       <p>Click or drag &amp; drop Excel / CSV file here</p>
-      <span id="imp-hint">Upload one file with sheets named "Routes", "Trucks", "Stops", and "Depot Locations" — or load individually</span>
+      <span id="imp-hint">Upload one file with sheets named "Routes", "Trucks", "Orders", and "Depot Locations" — or load individually</span>
     </div>
     <div id="route-day-filter" style="margin:10px 0 8px;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg2);">
       <div style="font-size:10px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:7px;">Route Day Filter <span style="font-weight:400;color:var(--text3);text-transform:none;letter-spacing:0;">(uses Route Templates UDFString2)</span></div>
@@ -772,6 +781,11 @@ function excelTimeToHHMM(value){
   }
   const str=value.toString().trim();
   if(!str)return '';
+
+  // Production Orders often bring windows as ISO date-times, e.g. 2026-05-08T07:00:00.
+  const isoTime=str.match(/(?:T|\s)(\d{1,2}):(\d{2})(?::\d{2})?/);
+  if(isoTime)return String(parseInt(isoTime[1],10)).padStart(2,'0')+':'+isoTime[2];
+
   if(/^0?\.\d+$/.test(str)){
     const num=parseFloat(str);
     const mins=Math.round(num*24*60);
@@ -1073,7 +1087,7 @@ function renderRoutes(){
           <span class="s-dot" style="background:${color}"></span>
           <div class="s-info">
             <div class="s-name">${s.customerName||'Stop'}</div>
-            <div class="s-detail">${s.orderNumber||''} &middot; ${tCases(s)}cs &middot; ${s.city||''} ${s.state||''}</div>
+            <div class="s-detail">${orderLabel(s)} &middot; ${tCases(s)}cs &middot; ${s.city||''} ${s.state||''}</div>
           </div>
           <div class="s-acts">
             <button class="icon-btn" title="Zoom to" onclick="event.stopPropagation();flyTo('${s.id}')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg></button>
@@ -1108,7 +1122,7 @@ function renderUA(){
       <span class="ua-dot" style="background:${pc||'var(--text3)'}"></span>
       <div class="ua-info">
         <div class="ua-name">${s.customerName||'Stop'}${hasPref?'<span class="tag tag-pref">&#11088; Pref</span>':''}${isWC?'<span class="tag tag-wc">Will Call</span>':''}</div>
-        <div class="ua-detail">${s.orderNumber||''} &middot; ${tCases(s)}cs &middot; ${s.city||''} ${s.state||''}${pc?`<span class="tag-pot" style="background:${pc};margin-left:4px;">&#128204; Suggested</span>`:''}</div>
+        <div class="ua-detail">${orderLabel(s)} &middot; ${tCases(s)}cs &middot; ${s.city||''} ${s.state||''}${pc?`<span class="tag-pot" style="background:${pc};margin-left:4px;">&#128204; Suggested</span>`:''}</div>
       </div>
       <select class="ua-assign" onclick="event.stopPropagation()" onchange="assignStop('${s.id}',this.value);this.value=''">
         <option value="">Assign&hellip;</option>
@@ -1152,7 +1166,7 @@ function renderMap(){
       <b>${s.customerName||'Stop'}</b><br/>
       <span style="color:#666;font-size:11px;">${s.address||''} ${s.city||''} ${s.state||''}</span>
       <hr style="margin:5px 0;border-color:#eee;"/>
-      <b>Order:</b> ${s.orderNumber||'—'} &nbsp;|&nbsp; <b>Cases:</b> ${tCases(s)}<br/>
+      <b>Orders:</b> ${orderLabel(s)} &nbsp;|&nbsp; <b>Cases:</b> ${tCases(s)}<br/>
       <b>Weight:</b> ${tWeight(s).toFixed(0)} &nbsp;|&nbsp; <b>Cube:</b> ${tCube(s).toFixed(1)}<br/>
       <b>Window:</b> ${s.earliestTimeWindow||'—'} – ${s.latestTimeWindow||'—'}<br/>
       ${r.name?`<b>Route:</b> ${r.name}`:'<b style="color:#f59e0b;">Unassigned</b>'}
@@ -1378,6 +1392,7 @@ function openStopDetail(stopId){
     ${detailInput('ed-s-district','District',s.district)}
     ${detailInput('ed-s-willCallIndicator','Will Call',s.willCallIndicator)}
     ${detailTextArea('ed-s-comment','Comment',s.comment)}
+    ${renderStopOrdersHtml(s)}
   </div>`;
   document.getElementById('stop-detail-modal').style.display='flex';
 }
@@ -2441,7 +2456,7 @@ function renderRouteManifest(){
     const name=escapeHtml(pt.name||'Stop');
     const seqDisplay=liveSeq;
     const displayName=isDepot?name:`#${escapeHtml(seqDisplay)} · ${name}`;
-    const detail=isDepot?`LocationKey: ${escapeHtml(pt.depot?.locationKey||'')}`:`${escapeHtml(s.orderNumber||'')} · ${escapeHtml(s.address||'')} ${escapeHtml(s.city||'')} ${escapeHtml(s.state||'')}`;
+    const detail=isDepot?`LocationKey: ${escapeHtml(pt.depot?.locationKey||'')}`:`${escapeHtml(orderLabel(s))} · ${escapeHtml(s.address||'')} ${escapeHtml(s.city||'')} ${escapeHtml(s.state||'')}`;
     const violationClass=pt.twStatus==='LATE'?' tw-violation':'';
     const twClass=pt.twStatus==='LATE'?'tw-late':(pt.twStatus==='WAIT'?'tw-wait':'tw-ok');
     const dragAttrs=isDepot?'':`id="manifest-stop-${s.id}" draggable="true"
@@ -2996,10 +3011,10 @@ function setImportMode(m){
   importMode=m;
   ['all','routes','trucks','stops','depots'].forEach(x=>document.getElementById('itab-'+x).className='imp-tab'+(m===x?' active':''));
   const hints={
-    all:'Upload one file with sheets named "Routes", "Trucks", "Stops", and "Depot Locations" — or load individually',
+    all:'Upload one file with sheets named "Routes", "Trucks", "Orders", and "Depot Locations" — or load individually',
     routes:'Upload your Route Template file. Include UDFNumber1, UDFString2, InitialLocationKey, and FinalLocationKey.',
     trucks:'Upload your Truck Template file',
-    stops:'Upload your Stops/Orders Template file',
+    stops:'Upload your Orders file',
     depots:'Upload your Depot Locations file with LocationKey, Name, Ship address fields, Latitude, and Longitude.'
   };
   document.getElementById('imp-hint').textContent=hints[m];
@@ -3182,6 +3197,202 @@ function gc(row,keys){
   return '';
 }
 
+
+function nval(value){
+  const n=parseFloat(value);
+  return isFinite(n)?n:0;
+}
+function sval(value){
+  return (value??'').toString().trim();
+}
+function firstNonEmpty(values){
+  for(const v of values){
+    const s=sval(v);
+    if(s)return s;
+  }
+  return '';
+}
+function uniqueJoined(values, sep=', '){
+  const seen=new Set();
+  const out=[];
+  (values||[]).forEach(v=>{
+    const s=sval(v);
+    if(s&&!seen.has(s.toLowerCase())){seen.add(s.toLowerCase());out.push(s);}
+  });
+  return out.join(sep);
+}
+function normalizeCustomerStopKey(order){
+  const customer=sval(order.customerNumber);
+  if(customer)return 'CUSTOMER:'+customer;
+  const ship=sval(order.shipToId);
+  if(ship)return 'SHIPTO:'+ship;
+  return ['GEO',sval(order.customerName).toLowerCase(),sval(order.address).toLowerCase(),sval(order.city).toLowerCase(),sval(order.state).toLowerCase(),String(order.lat||''),String(order.lng||'')].join('|');
+}
+function orderCount(stop){
+  return Array.isArray(stop?.orders)&&stop.orders.length?stop.orders.length:1;
+}
+function orderLabel(stop){
+  const count=orderCount(stop);
+  return count>1?`${count} orders`:(stop?.orderNumber||'1 order');
+}
+function makeOrderFromRow(row){
+  const lat=parseFloat(gc(row,['Latitude','latitude','Lat','lat']));
+  const lng=parseFloat(gc(row,['Longitude','longitude','Long','long','Lng','lng']));
+  if(isNaN(lat)||isNaN(lng))return null;
+  return {
+    orderNumber:sval(gc(row,['ORDER_NUMBER','Order Number','OrderNumber'])),
+    shipToId:sval(gc(row,['SHIP_TO_ID','Ship To ID','ShipToId'])),
+    customerNumber:sval(gc(row,['CUSTOMER_NUMBER','Customer Number','CustomerNumber'])),
+    orderType:sval(gc(row,['ORDER_TYPE','Order Type'])),
+    orderStatus:sval(gc(row,['ORDER_STATUS','Order Status','Order Status '])),
+    district:sval(gc(row,['DISTRICT','District'])),
+    orderDate:sval(gc(row,['ORDER_DATE','Order Date'])),
+    actualShipDate:sval(gc(row,['ACTUAL_SHIP_DATE','Actual Ship Date'])),
+    reqDeliveryDate:sval(gc(row,['REQ_DELIVERY_DATE','Req Delivery Date'])),
+    willCallIndicator:sval(gc(row,['WILL_CALL_INDICATOR','Will Call Indicator'])),
+    orderRequirements:sval(gc(row,['Order Requirements','Requirements'])),
+    variableServiceTime:nval(gc(row,['Variable Service Time','VariableServiceTime'])),
+    cutId:sval(gc(row,['CUTID','Cut ID'])),
+    alternativeCustomerNumber:sval(gc(row,['Alternative customer number','Alternative Customer Number'])),
+    orderCodes:sval(gc(row,['Order Codes','OrderCodes'])),
+    activeTier:sval(gc(row,['Active Tier','ActiveTier'])),
+    pickMethod:sval(gc(row,['Pick Method','PickMethod'])),
+    daysToDeliver:nval(gc(row,['Days to Deliver','DaysToDeliver'])),
+    totalDollars:nval(gc(row,['Total Dollars','TotalDollars'])),
+    preferredResourceKey:sval(gc(row,['Preferred Resource Key','PreferredResourceKey'])),
+    preferredResourceIndicator:sval(gc(row,['Preferred resource indicator','Preferred Resource Indicator'])),
+    restrictPreferredResource:sval(gc(row,['Restrict preferred resource','Restrict Preferred Resource'])),
+    preferredRouteSequence:sval(gc(row,['Route Sequence','RouteSequence'])),
+    restrictRoutePosition:sval(gc(row,['Restrict route position','Restrict Route Position'])),
+    orderShipDate:sval(gc(row,['Order Ship Date','OrderShipDate'])),
+    address:sval(gc(row,['Address','address'])),
+    crossStreet:sval(gc(row,['Cross Street','CrossStreet'])),
+    city:sval(gc(row,['City','city'])),
+    state:sval(gc(row,['State','state'])),
+    zip:sval(gc(row,['Zip','ZIP','zip'])),
+    country:sval(gc(row,['Country','country'])),
+    lat,lng,
+    comment:sval(gc(row,['Comment'])),
+    fixedServiceTime:nval(gc(row,['Fixed Service Time','FixedServiceTime'])),
+    customerName:sval(gc(row,['Customer Name','CustomerName'])),
+    earliestTimeWindow:excelTimeToHHMM(gc(row,['Earliest Time Window','EarliestTimeWindow'])),
+    latestTimeWindow:excelTimeToHHMM(gc(row,['Latest Time Window','LatestTimeWindow'])),
+    dryZone:sval(gc(row,['DRY Zone','Dry Zone'])),
+    dryCases:nval(gc(row,['DRY Total Cases','DRY Cases'])),
+    dryCube:nval(gc(row,['DRY Cube'])),
+    dryWeight:nval(gc(row,['DRY Weight'])),
+    dryHazmatWeight:nval(gc(row,['DRY Hazmat Weight'])),
+    coolerZone:sval(gc(row,['Cooler Zone'])),
+    coolerCases:nval(gc(row,['Cooler Cases'])),
+    coolerCube:nval(gc(row,['Cooler Cube'])),
+    coolerWeight:nval(gc(row,['Cooler Weight'])),
+    coolerHazmat:nval(gc(row,['Cooler Hazmat','Cooler Hazmat Weight'])),
+    frozenZone:sval(gc(row,['Frozen Zone'])),
+    frozenCases:nval(gc(row,['Frozen Cases'])),
+    frozenCube:nval(gc(row,['Frozen Cube'])),
+    frozenWeight:nval(gc(row,['Frozen Weight'])),
+    frozenHazmat:nval(gc(row,['Frozen Hazmat','Frozen Hazmat Weight'])),
+    pkgZone:sval(gc(row,['Package Zone'])),
+    pkgCases:nval(gc(row,['Package cases','Package Cases'])),
+    pkgCube:nval(gc(row,['Package cube','Package Cube'])),
+    pkgWeight:nval(gc(row,['Package Weight'])),
+    pkgHazmat:nval(gc(row,['Package Zone Hazmat','Package Hazmat'])),
+    raw:{...row}
+  };
+}
+function buildConsolidatedStopFromOrders(orders, existing){
+  const first=orders[0]||{};
+  const prefKey=firstNonEmpty(orders.map(o=>o.preferredResourceKey));
+  const seqCandidates=orders.map(o=>parseInt(o.preferredRouteSequence,10)).filter(n=>Number.isFinite(n)&&n>0);
+  const prefSeq=seqCandidates.length?String(Math.min(...seqCandidates)):'';
+  const stdRoute=firstNonEmpty(orders.map(o=>o.standardRoute));
+  const stdSeq=firstNonEmpty(orders.map(o=>o.standardSequence));
+  return {
+    id:existing?existing.id:uid(),
+    routeId:existing?existing.routeId:null,
+    seq:existing?existing.seq:0,
+    isConsolidated:true,
+    orders:orders,
+    orderNumber:orders.map(o=>o.orderNumber).filter(Boolean).join(', '),
+    orderNumbers:orders.map(o=>o.orderNumber).filter(Boolean),
+    shipToId:firstNonEmpty(orders.map(o=>o.shipToId)),
+    customerNumber:firstNonEmpty(orders.map(o=>o.customerNumber)),
+    orderType:uniqueJoined(orders.map(o=>o.orderType)),
+    orderStatus:uniqueJoined(orders.map(o=>o.orderStatus)),
+    district:uniqueJoined(orders.map(o=>o.district)),
+    orderDate:uniqueJoined(orders.map(o=>o.orderDate)),
+    actualShipDate:uniqueJoined(orders.map(o=>o.actualShipDate)),
+    reqDeliveryDate:uniqueJoined(orders.map(o=>o.reqDeliveryDate)),
+    willCallIndicator:orders.some(o=>isYesFlag(o.willCallIndicator))?'Y':firstNonEmpty(orders.map(o=>o.willCallIndicator)),
+    orderRequirements:uniqueJoined(orders.map(o=>o.orderRequirements)),
+    customerName:firstNonEmpty(orders.map(o=>o.customerName)),
+    address:firstNonEmpty(orders.map(o=>o.address)),
+    crossStreet:firstNonEmpty(orders.map(o=>o.crossStreet)),
+    city:firstNonEmpty(orders.map(o=>o.city)),
+    state:firstNonEmpty(orders.map(o=>o.state)),
+    zip:firstNonEmpty(orders.map(o=>o.zip)),
+    country:firstNonEmpty(orders.map(o=>o.country)),
+    lat:first.lat,
+    lng:first.lng,
+    earliestTimeWindow:firstNonEmpty(orders.map(o=>o.earliestTimeWindow).filter(Boolean).sort()),
+    latestTimeWindow:firstNonEmpty(orders.map(o=>o.latestTimeWindow).filter(Boolean).sort().reverse()),
+    fixedServiceTime:orders.reduce((a,o)=>a+nval(o.fixedServiceTime),0),
+    variableServiceTime:orders.reduce((a,o)=>a+nval(o.variableServiceTime),0),
+    preferredResourceKey:prefKey,
+    preferredResourceIndicator:uniqueJoined(orders.map(o=>o.preferredResourceIndicator)),
+    restrictPreferredResource:orders.some(o=>isYesFlag(o.restrictPreferredResource))?'Y':firstNonEmpty(orders.map(o=>o.restrictPreferredResource)),
+    preferredRouteSequence:prefSeq,
+    restrictRoutePosition:orders.some(o=>isYesFlag(o.restrictRoutePosition))?'Y':firstNonEmpty(orders.map(o=>o.restrictRoutePosition)),
+    standardRoute:stdRoute,
+    standardSequence:stdSeq,
+    comment:uniqueJoined(orders.map(o=>o.comment),' | '),
+    totalDollars:orders.reduce((a,o)=>a+nval(o.totalDollars),0),
+    dryCases:orders.reduce((a,o)=>a+nval(o.dryCases),0),
+    dryCube:orders.reduce((a,o)=>a+nval(o.dryCube),0),
+    dryWeight:orders.reduce((a,o)=>a+nval(o.dryWeight),0),
+    dryHazmatWeight:orders.reduce((a,o)=>a+nval(o.dryHazmatWeight),0),
+    coolerCases:orders.reduce((a,o)=>a+nval(o.coolerCases),0),
+    coolerCube:orders.reduce((a,o)=>a+nval(o.coolerCube),0),
+    coolerWeight:orders.reduce((a,o)=>a+nval(o.coolerWeight),0),
+    coolerHazmat:orders.reduce((a,o)=>a+nval(o.coolerHazmat),0),
+    frozenCases:orders.reduce((a,o)=>a+nval(o.frozenCases),0),
+    frozenCube:orders.reduce((a,o)=>a+nval(o.frozenCube),0),
+    frozenWeight:orders.reduce((a,o)=>a+nval(o.frozenWeight),0),
+    frozenHazmat:orders.reduce((a,o)=>a+nval(o.frozenHazmat),0),
+    pkgCases:orders.reduce((a,o)=>a+nval(o.pkgCases),0),
+    pkgCube:orders.reduce((a,o)=>a+nval(o.pkgCube),0),
+    pkgWeight:orders.reduce((a,o)=>a+nval(o.pkgWeight),0),
+    pkgHazmat:orders.reduce((a,o)=>a+nval(o.pkgHazmat),0),
+    uiChecked:existing?existing.uiChecked:false,
+  };
+}
+function renderStopOrdersHtml(stop){
+  const orders=Array.isArray(stop.orders)&&stop.orders.length?stop.orders:[{
+    orderNumber:stop.orderNumber, orderType:stop.orderType, orderStatus:stop.orderStatus,
+    dryCases:stop.dryCases, coolerCases:stop.coolerCases, frozenCases:stop.frozenCases, pkgCases:stop.pkgCases,
+    dryWeight:stop.dryWeight, coolerWeight:stop.coolerWeight, frozenWeight:stop.frozenWeight, pkgWeight:stop.pkgWeight,
+    dryCube:stop.dryCube, coolerCube:stop.coolerCube, frozenCube:stop.frozenCube, pkgCube:stop.pkgCube,
+    earliestTimeWindow:stop.earliestTimeWindow, latestTimeWindow:stop.latestTimeWindow, comment:stop.comment
+  }];
+  const rows=orders.map(o=>`
+    <div class="order-table-row">
+      <div>${escapeHtml(o.orderNumber||'')}</div>
+      <div>${escapeHtml(o.orderType||'')}</div>
+      <div>${escapeHtml(o.orderStatus||'')}</div>
+      <div>${(nval(o.dryCases)+nval(o.coolerCases)+nval(o.frozenCases)+nval(o.pkgCases)).toLocaleString()}</div>
+      <div>${(nval(o.dryWeight)+nval(o.coolerWeight)+nval(o.frozenWeight)+nval(o.pkgWeight)).toFixed(0)}</div>
+      <div>${(nval(o.dryCube)+nval(o.coolerCube)+nval(o.frozenCube)+nval(o.pkgCube)).toFixed(2)}</div>
+      <div>${escapeHtml(o.earliestTimeWindow||'—')} - ${escapeHtml(o.latestTimeWindow||'—')}${o.comment?`<br/><span style="color:var(--text3);">${escapeHtml(o.comment)}</span>`:''}</div>
+    </div>`).join('');
+  return `<details class="order-expand" open>
+    <summary>Orders inside this stop <span class="order-badge">${orders.length}</span></summary>
+    <div class="order-table">
+      <div class="order-table-row header"><div>Order #</div><div>Type</div><div>Status</div><div>Cases</div><div>Weight</div><div>Cube</div><div>Window / Comment</div></div>
+      ${rows}
+    </div>
+  </details>`;
+}
+
 function importDepots(data){
   data.forEach(row=>{
     const locationKey=(gc(row,['LocationKey','Location Key','LocationK'])||'').toString().trim();
@@ -3277,76 +3488,39 @@ function importTrucks(data){
 }
 
 function importStops(data){
+  const orderGroups=new Map();
+  let skippedNoGeo=0;
+
   data.forEach(row=>{
-    const latRaw=gc(row,['Latitude','latitude','Lat','lat']);
-    const lngRaw=gc(row,['Longitude','longitude','Long','long','Lng','lng']);
-    const lat=parseFloat(latRaw);
-    const lng=parseFloat(lngRaw);
-    if(isNaN(lat)||isNaN(lng))return;
-    const ordNum=(gc(row,['ORDER_NUMBER','Order Number','OrderNumber'])||'').toString().trim();
-    const existing=ordNum?stops.find(s=>s.orderNumber===ordNum):null;
+    const order=makeOrderFromRow(row);
+    if(!order){skippedNoGeo++;return;}
+    const key=normalizeCustomerStopKey(order);
+    if(!orderGroups.has(key))orderGroups.set(key,[]);
+    orderGroups.get(key).push(order);
+  });
 
-    const stdRoute=(gc(row,['Standard Route','StandardRoute'])||'').toString().trim();
-    const stdSeq=gc(row,['Standard Sequence','StandardSequence']);
-    const prefKey=(gc(row,['Preferred Resource Key','PreferredResourceKey'])||'').toString().trim();
-    const prefSeq=(gc(row,['Route Sequence','RouteSequence'])||'').toString().trim();
+  orderGroups.forEach((orders,key)=>{
+    const orderNums=orders.map(o=>o.orderNumber).filter(Boolean);
+    const existing=stops.find(s=>{
+      if(s.consolidationKey&&s.consolidationKey===key)return true;
+      const existingOrders=Array.isArray(s.orderNumbers)?s.orderNumbers:[s.orderNumber].filter(Boolean);
+      return orderNums.length&&existingOrders.some(o=>orderNums.includes(o));
+    });
 
-    const obj={
-      id:existing?existing.id:uid(),
-      routeId:existing?existing.routeId:null,
-      seq:existing?existing.seq:0,
-      orderNumber:ordNum,
-      shipToId:(gc(row,['SHIP_TO_ID','Ship To ID'])||'').toString(),
-      customerNumber:(gc(row,['CUSTOMER_NUMBER','Customer Number'])||'').toString(),
-      orderType:(gc(row,['ORDER_TYPE','Order Type'])||'').toString(),
-      orderStatus:(gc(row,['ORDER_STATUS','Order Status'])||'').toString(),
-      district:(gc(row,['DISTRICT','District'])||'').toString(),
-      reqDeliveryDate:(gc(row,['REQ_DELIVERY_DATE','Req Delivery Date'])||'').toString(),
-      willCallIndicator:(gc(row,['WILL_CALL_INDICATOR','Will Call Indicator'])||'').toString(),
-      profit:(gc(row,['Profit'])||'').toString(),
-      customerName:(gc(row,['Customer Name','CustomerName'])||'').toString(),
-      address:(gc(row,['Address','address'])||'').toString(),
-      crossStreet:(gc(row,['Cross Street','CrossStreet'])||'').toString(),
-      city:(gc(row,['City','city'])||'').toString(),
-      state:(gc(row,['State','state'])||'').toString(),
-      zip:(gc(row,['Zip','ZIP','zip'])||'').toString(),
-      country:(gc(row,['Country','country'])||'').toString(),
-      lat,lng,
-      earliestTimeWindow:(gc(row,['Earliest Time Window','EarliestTimeWindow'])||'').toString(),
-      latestTimeWindow:(gc(row,['Latest Time Window','LatestTimeWindow'])||'').toString(),
-      fixedServiceTime:parseFloat(gc(row,['Fixed Service Time','FixedServiceTime']))||0,
-      variableServiceTime:parseFloat(gc(row,['Variable Service Time','VariableServiceTime']))||0,
-      preferredResourceKey:prefKey,
-      preferredResourceIndicator:(gc(row,['Preferred resource indicator'])||'').toString(),
-      restrictPreferredResource:(gc(row,['Restrict preferred resource'])||'').toString(),
-      preferredRouteSequence:prefSeq,
-      restrictRoutePosition:(gc(row,['Restrict route position'])||'').toString(),
-      standardRoute:stdRoute,
-      standardSequence:stdSeq,
-      comment:(gc(row,['Comment'])||'').toString(),
-      dryCases:parseFloat(gc(row,['DRY Total Cases','DRY Cases']))||0,
-      dryCube:parseFloat(gc(row,['DRY Cube']))||0,
-      dryWeight:parseFloat(gc(row,['DRY Weight']))||0,
-      coolerCases:parseFloat(gc(row,['Cooler Cases']))||0,
-      coolerCube:parseFloat(gc(row,['Cooler Cube']))||0,
-      coolerWeight:parseFloat(gc(row,['Cooler Weight']))||0,
-      frozenCases:parseFloat(gc(row,['Frozen Cases']))||0,
-      frozenCube:parseFloat(gc(row,['Frozen Cube']))||0,
-      frozenWeight:parseFloat(gc(row,['Frozen Weight']))||0,
-      pkgCases:parseFloat(gc(row,['Package cases','Package Cases']))||0,
-      pkgCube:parseFloat(gc(row,['Package cube','Package Cube']))||0,
-      pkgWeight:parseFloat(gc(row,['Package Weight']))||0,
-      uiChecked:false,
-    };
+    const obj=buildConsolidatedStopFromOrders(orders, existing);
+    obj.consolidationKey=key;
 
-    // Auto-assign via Standard Route
-    if(!obj.routeId&&stdRoute){
-      const mr=routes.find(r=>r.name===stdRoute||r.routeTemplateKey===stdRoute);
-      if(mr){obj.routeId=mr.id;obj.seq=parseFloat(stdSeq)||999;}
+    // Auto-assign via Standard Route if present in data and the route template is loaded.
+    if(!obj.routeId&&obj.standardRoute){
+      const mr=routes.find(r=>r.name===obj.standardRoute||r.routeTemplateKey===obj.standardRoute);
+      if(mr){obj.routeId=mr.id;obj.seq=parseFloat(obj.standardSequence)||999;}
     }
+
     if(existing)Object.assign(existing,obj); else stops.push(obj);
   });
+
   reseq();
+  if(skippedNoGeo)console.warn(`Skipped ${skippedNoGeo} order row(s) without valid Latitude/Longitude`);
 }
 
 // ============================================================
@@ -3576,6 +3750,7 @@ function exportExcel(){
         'Stop Type':isStop?'Order':(pt.type==='depot-start'?'Initial Depot':'Final Depot'),
         'Customer Name':pt.name||'',
         'ORDER_NUMBER':isStop?(s.orderNumber||''):'',
+        'Order Count':isStop?orderCount(s):0,
         'SHIP_TO_ID':isStop?(s.shipToId||''):(d.locationKey||''),
         'CUSTOMER_NUMBER':isStop?(s.customerNumber||''):'',
         'Address':isStop?(s.address||''):(d.shipStreet||''),
@@ -3630,6 +3805,7 @@ function exportExcel(){
   const ua=stops.filter(s=>!s.routeId).map(s=>({
     'Customer Name':s.customerName||'',
     'ORDER_NUMBER':s.orderNumber||'',
+    'Order Count':orderCount(s),
     'SHIP_TO_ID':s.shipToId||'',
     'Address':s.address||'',
     'City':s.city||'',
@@ -3649,11 +3825,82 @@ function exportExcel(){
   }));
   XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(ua.length?ua:[{Note:'No unassigned stops'}]),'Unassigned Stops');
 
+  // Tab 5: Orders Detail (explodes consolidated customer stops back to order-level rows)
+  const orderDetail=[];
+  stops.forEach(s=>{
+    const route=routes.find(r=>r.id===s.routeId)||{};
+    const orderRows=Array.isArray(s.orders)&&s.orders.length?s.orders:[{}];
+    orderRows.forEach(o=>{
+      orderDetail.push({
+        'Route Number':route.routeTemplateKey||'',
+        'Route Name':route.name||'',
+        'Stop Sequence':s.routeId?(s.seq||''):'',
+        'Consolidated Stop Customer Name':s.customerName||'',
+        'Consolidated Customer Number':s.customerNumber||'',
+        'ORDER_NUMBER':o.orderNumber||s.orderNumber||'',
+        'SHIP_TO_ID':o.shipToId||s.shipToId||'',
+        'CUSTOMER_NUMBER':o.customerNumber||s.customerNumber||'',
+        'ORDER_TYPE':o.orderType||'',
+        'ORDER_STATUS':o.orderStatus||'',
+        'DISTRICT':o.district||'',
+        'ORDER_DATE':o.orderDate||'',
+        'ACTUAL_SHIP_DATE':o.actualShipDate||'',
+        'REQ_DELIVERY_DATE':o.reqDeliveryDate||'',
+        'WILL_CALL_INDICATOR':o.willCallIndicator||'',
+        'Order Requirements':o.orderRequirements||'',
+        'Variable Service Time':o.variableServiceTime||0,
+        'CUTID':o.cutId||'',
+        'Alternative customer number':o.alternativeCustomerNumber||'',
+        'Order Codes':o.orderCodes||'',
+        'Active Tier':o.activeTier||'',
+        'Pick Method':o.pickMethod||'',
+        'Days to Deliver':o.daysToDeliver||0,
+        'Total Dollars':o.totalDollars||0,
+        'Preferred Resource Key':o.preferredResourceKey||'',
+        'Preferred resource indicator':o.preferredResourceIndicator||'',
+        'Restrict preferred resource':o.restrictPreferredResource||'',
+        'Route Sequence':o.preferredRouteSequence||'',
+        'Restrict route position':o.restrictRoutePosition||'',
+        'Order Ship Date':o.orderShipDate||'',
+        'Address':o.address||s.address||'',
+        'Cross Street':o.crossStreet||s.crossStreet||'',
+        'City':o.city||s.city||'',
+        'State':o.state||s.state||'',
+        'Zip':o.zip||s.zip||'',
+        'Country':o.country||s.country||'',
+        'Latitude':o.lat||s.lat||'',
+        'Longitude':o.lng||s.lng||'',
+        'Comment':o.comment||'',
+        'Fixed Service Time':o.fixedServiceTime||0,
+        'Customer Name':o.customerName||s.customerName||'',
+        'Earliest Time Window':o.earliestTimeWindow||'',
+        'Latest Time Window':o.latestTimeWindow||'',
+        'DRY Total Cases':o.dryCases||0,
+        'DRY Cube':o.dryCube||0,
+        'DRY Weight':o.dryWeight||0,
+        'DRY Hazmat Weight':o.dryHazmatWeight||0,
+        'Cooler Cases':o.coolerCases||0,
+        'Cooler Cube':o.coolerCube||0,
+        'Cooler Weight':o.coolerWeight||0,
+        'Cooler Hazmat':o.coolerHazmat||0,
+        'Frozen Cases':o.frozenCases||0,
+        'Frozen Cube':o.frozenCube||0,
+        'Frozen Weight':o.frozenWeight||0,
+        'Frozen Hazmat':o.frozenHazmat||0,
+        'Package cases':o.pkgCases||0,
+        'Package cube':o.pkgCube||0,
+        'Package Weight':o.pkgWeight||0,
+        'Package Zone Hazmat':o.pkgHazmat||0,
+      });
+    });
+  });
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(orderDetail.length?orderDetail:[{Note:'No orders'}]),'Orders Detail');
+
   // Depot Locations tab intentionally removed from export. Depots still appear inside Route Summary and Route Manifest where needed.
 
   const date=document.getElementById('route-date').value||new Date().toISOString().slice(0,10);
   XLSX.writeFile(wb,`RouteDesk_${date}.xlsx`);
-  showToast('Exported: Totals Summary, Route Summary, Route Manifest, Unassigned Stops');
+  showToast('Exported: Totals Summary, Route Summary, Route Manifest, Unassigned Stops, Orders Detail');
 }
 
 // ============================================================
