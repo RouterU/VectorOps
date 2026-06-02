@@ -1404,7 +1404,7 @@ function openStopDetail(stopId){
     ${detailInput('ed-s-shipToId','Ship To ID',s.shipToId)}
     ${detailInput('ed-s-customerNumber','Customer Number',s.customerNumber)}
     ${detailSelect('ed-s-routeId','Assigned Route',s.routeId||'',routeOptions)}
-    ${detailInput('ed-s-seq','Sequence',s.seq||0,'number')}
+    ${detailInput('ed-s-seq','Routed Sequence',s.seq||0,'number')}
     ${detailInput('ed-s-address','Address',s.address)}
     ${detailInput('ed-s-city','City',s.city)}
     ${detailInput('ed-s-state','State',s.state)}
@@ -1425,7 +1425,7 @@ function openStopDetail(stopId){
     ${detailInput('ed-s-frozenWeight','Frozen Weight',s.frozenWeight||0,'number')}
     ${detailInput('ed-s-frozenCube','Frozen Cube',s.frozenCube||0,'number')}
     ${detailInput('ed-s-preferredResourceKey','Preferred Resource Key',s.preferredResourceKey)}
-    ${detailInput('ed-s-preferredRouteSequence','Preferred Route Sequence',s.preferredRouteSequence)}
+    ${detailInput('ed-s-preferredRouteSequence','Preferred Route Sequence (Imported)',s.preferredRouteSequence)}
     ${detailInput('ed-s-restrictRoutePosition','Restrict route position',s.restrictRoutePosition)}
     ${detailInput('ed-s-orderType','Order Type',s.orderType)}
     ${detailInput('ed-s-orderStatus','Order Status',s.orderStatus)}
@@ -2669,43 +2669,67 @@ function resequenceRoutesDistanceThenPreferredPositions(routeIds){
     const stopCount=baseOrder.length;
     if(!stopCount)return;
 
-    // Start with shortest-distance order for every stop.
-    const locked=baseOrder
+    // Step 1: Build the route by shortest-distance order first.
+    const preferredStops=baseOrder
       .filter(s=>isYesFlag(s.restrictRoutePosition)&&preferredPositionNumber(s)>0)
-      .sort((a,b)=>preferredPositionNumber(a)-preferredPositionNumber(b));
-    const lockedIds=new Set(locked.map(s=>s.id));
-    const flexible=baseOrder.filter(s=>!lockedIds.has(s.id));
-    const finalOrder=[];
+      .sort((a,b)=>{
+        const pa=preferredPositionNumber(a), pb=preferredPositionNumber(b);
+        if(pa!==pb)return pa-pb;
+        return baseOrder.indexOf(a)-baseOrder.indexOf(b);
+      });
+    const preferredIds=new Set(preferredStops.map(s=>s.id));
+    const flexibleStops=baseOrder.filter(s=>!preferredIds.has(s.id));
+    const finalSlots=new Array(stopCount).fill(null);
 
-    // Preferred positions are compacted so they never create missing sequence gaps.
-    // Examples:
-    // - 7 stops and preferred position 15 => actual routed sequence 7.
-    // - First locked preferred position is 2 and there is no locked #1 => actual routed sequence 1.
-    locked.forEach((stop,index)=>{
+    function putPreferredStop(stop,preferredIndex){
       const requested=preferredPositionNumber(stop);
       let target;
+
+      // If the requested stop position is beyond the route length, use the last real stop.
+      // Example: 7 routed stops + preferred position 15 => actual sequence 7.
       if(requested>stopCount){
         target=stopCount;
       }else{
-        const priorExistingPositions=locked.slice(0,index).filter(x=>preferredPositionNumber(x)<requested&&preferredPositionNumber(x)<=stopCount).length;
-        target=Math.min(requested, priorExistingPositions+1);
+        // Compact missing preferred positions so gaps do not force bad routing.
+        // Example: first preferred stop is position 2 and no preferred #1 exists => actual sequence 1.
+        target=Math.min(requested, preferredIndex+1);
       }
+
       target=Math.max(1,Math.min(stopCount,target));
-      if(target!==requested)adjusted++;
-      finalOrder.splice(target-1,0,stop);
-      applied++;
-    });
+      let slot=target-1;
 
-    flexible.forEach(stop=>{
-      let insertAt=0;
-      while(insertAt<finalOrder.length)insertAt++;
-      finalOrder.splice(insertAt,0,stop);
-    });
+      // If that compacted slot is already taken, move backward first so preferred positions
+      // stay as close as possible without creating gaps; then move forward if needed.
+      if(finalSlots[slot]){
+        let backward=slot;
+        while(backward>=0&&finalSlots[backward])backward--;
+        if(backward>=0)slot=backward;
+        else{
+          let forward=slot;
+          while(forward<stopCount&&finalSlots[forward])forward++;
+          if(forward<stopCount)slot=forward;
+        }
+      }
 
-    // If any end-position locked stops pushed the array past the route stop count, keep
-    // all stops compacted and numbered 1..N.
-    finalOrder.slice(0,stopCount).forEach((stop,index)=>{stop.seq=index+1;});
-    finalOrder.slice(stopCount).forEach((stop,index)=>{stop.seq=stopCount+index+1;});
+      if(slot>=0&&slot<stopCount&&!finalSlots[slot]){
+        finalSlots[slot]=stop;
+        applied++;
+        if(slot+1!==requested)adjusted++;
+      }
+    }
+
+    preferredStops.forEach((stop,index)=>putPreferredStop(stop,index));
+
+    // Step 2: Fill every open slot with the remaining stops in shortest-distance order.
+    let flexIndex=0;
+    for(let i=0;i<stopCount;i++){
+      if(!finalSlots[i]){
+        finalSlots[i]=flexibleStops[flexIndex++]||null;
+      }
+    }
+
+    // Step 3: Guarantee a clean routed sequence with no gaps and no preferred sequence values.
+    finalSlots.filter(Boolean).forEach((stop,index)=>{stop.seq=index+1;});
   });
 
   return {applied,adjusted};
