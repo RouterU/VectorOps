@@ -214,7 +214,7 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
 .order-expand summary{cursor:pointer;padding:9px 10px;font-size:11px;font-weight:700;color:var(--text1);background:var(--bg3);list-style:none;}
 .order-expand summary::-webkit-details-marker{display:none;}
 .order-table{max-height:260px;overflow:auto;}
-.order-table-row{display:grid;grid-template-columns:110px 80px 80px 80px 90px 90px 1fr;gap:8px;padding:7px 10px;border-top:1px solid var(--border);font-size:10px;align-items:center;min-width:760px;}
+.order-table-row{display:grid;grid-template-columns:110px 90px 80px 80px 80px 90px 90px 150px 1fr;gap:8px;padding:7px 10px;border-top:1px solid var(--border);font-size:10px;align-items:center;min-width:1120px;}
 .order-table-row.header{position:sticky;top:0;background:var(--bg2);color:var(--text3);font-size:9px;text-transform:uppercase;letter-spacing:.4px;font-weight:800;z-index:1;}
 .order-badge{display:inline-block;margin-left:4px;padding:1px 5px;border-radius:999px;background:rgba(79,140,255,.16);color:var(--accent);font-size:8px;font-weight:800;vertical-align:middle;}
 
@@ -452,6 +452,13 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
       <p>Click or drag &amp; drop Excel / CSV file here</p>
       <span id="imp-hint">Upload one file with sheets named "Routes", "Trucks", "Orders", and "Depot Locations" — or load individually</span>
     </div>
+    <div style="margin:10px 0 8px;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg2);">
+      <div style="font-size:10px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:7px;">Route Date <span style="font-weight:400;color:var(--text3);text-transform:none;letter-spacing:0;">(optional — re-dates routes only)</span></div>
+      <div class="input-row" style="margin-bottom:0;">
+        <div class="field"><label>Apply this Route Date to imported routes</label><input type="date" id="import-route-date"/></div>
+      </div>
+      <div style="font-size:9px;color:var(--text3);margin-top:6px;">Orders keep their imported Earliest/Latest Time Window dates. This only changes route dates.</div>
+    </div>
     <div id="route-day-filter" style="margin:10px 0 8px;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg2);">
       <div style="font-size:10px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:7px;">Route Day Filter <span style="font-weight:400;color:var(--text3);text-transform:none;letter-spacing:0;">(uses Route Templates UDFString2)</span></div>
       <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;font-size:10px;color:var(--text2);">
@@ -676,6 +683,8 @@ let lassoSelectedStopIds=new Set();
 // ============================================================
 window.addEventListener('DOMContentLoaded',()=>{
   document.getElementById('route-date').value=new Date().toISOString().slice(0,10);
+  const importRouteDateEl=document.getElementById('import-route-date');
+  if(importRouteDateEl) importRouteDateEl.value=document.getElementById('route-date').value;
   map=L.map('map',{zoomControl:true}).setView([39.5,-98.35],4);
   darkTileLayer=L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{
     maxZoom:19, subdomains:'abcd',
@@ -799,6 +808,28 @@ function excelTimeToHHMM(value){
   }
   return str;
 }
+
+function rawImportedDateTime(value){
+  if(value===null||value===undefined||value==='')return '';
+  if(value instanceof Date && !isNaN(value)){
+    return value.getFullYear()+'-'+String(value.getMonth()+1).padStart(2,'0')+'-'+String(value.getDate()).padStart(2,'0')+' '+String(value.getHours()).padStart(2,'0')+':'+String(value.getMinutes()).padStart(2,'0');
+  }
+  return value.toString().trim();
+}
+function importedDateFromWindow(value){
+  const raw=rawImportedDateTime(value);
+  const m=raw.match(/(\d{4}-\d{2}-\d{2})/);
+  return m?m[1]:'';
+}
+function fullWindowDisplay(rawValue,timeValue){
+  const raw=rawImportedDateTime(rawValue);
+  if(raw)return raw;
+  return cleanTimeValue(timeValue)||'';
+}
+function importedRouteDateValue(){
+  return document.getElementById('import-route-date')?.value||'';
+}
+
 function timeToMinutes(value){
   const t=excelTimeToHHMM(value);
   const m=t.match(/^(\d{1,2}):(\d{2})/);
@@ -1369,6 +1400,7 @@ function openStopDetail(stopId){
   document.getElementById('stop-detail-body').innerHTML=`<div class="stop-detail-grid">
     ${detailInput('ed-s-customerName','Customer Name',s.customerName)}
     ${detailInput('ed-s-orderNumber','Order Number',s.orderNumber)}
+    ${detailInput('ed-s-cutId','CUTID',s.cutId)}
     ${detailInput('ed-s-shipToId','Ship To ID',s.shipToId)}
     ${detailInput('ed-s-customerNumber','Customer Number',s.customerNumber)}
     ${detailSelect('ed-s-routeId','Assigned Route',s.routeId||'',routeOptions)}
@@ -1379,8 +1411,10 @@ function openStopDetail(stopId){
     ${detailInput('ed-s-zip','Zip',s.zip)}
     ${detailInput('ed-s-lat','Latitude',s.lat,'number')}
     ${detailInput('ed-s-lng','Longitude',s.lng,'number')}
-    ${detailInput('ed-s-earliestTimeWindow','Earliest Time Window',cleanTimeValue(s.earliestTimeWindow),'time')}
-    ${detailInput('ed-s-latestTimeWindow','Latest Time Window',cleanTimeValue(s.latestTimeWindow),'time')}
+    ${detailInput('ed-s-earliestTimeWindowRaw','Earliest Time Window (Imported)',fullWindowDisplay(s.earliestTimeWindowRaw,s.earliestTimeWindow),'text')}
+    ${detailInput('ed-s-latestTimeWindowRaw','Latest Time Window (Imported)',fullWindowDisplay(s.latestTimeWindowRaw,s.latestTimeWindow),'text')}
+    ${detailInput('ed-s-earliestTimeWindow','Earliest Time Window Time',cleanTimeValue(s.earliestTimeWindow),'time')}
+    ${detailInput('ed-s-latestTimeWindow','Latest Time Window Time',cleanTimeValue(s.latestTimeWindow),'time')}
     ${detailInput('ed-s-dryCases','DRY Cases',s.dryCases||0,'number')}
     ${detailInput('ed-s-dryWeight','DRY Weight',s.dryWeight||0,'number')}
     ${detailInput('ed-s-dryCube','DRY Cube',s.dryCube||0,'number')}
@@ -1411,6 +1445,7 @@ function saveStopDetail(){
   const oldRouteId=s.routeId||'';
   s.customerName=strVal('ed-s-customerName');
   s.orderNumber=strVal('ed-s-orderNumber');
+  s.cutId=strVal('ed-s-cutId');
   s.shipToId=strVal('ed-s-shipToId');
   s.customerNumber=strVal('ed-s-customerNumber');
   s.routeId=strVal('ed-s-routeId')||null;
@@ -1421,6 +1456,8 @@ function saveStopDetail(){
   s.zip=strVal('ed-s-zip');
   s.lat=lat;
   s.lng=lng;
+  s.earliestTimeWindowRaw=strVal('ed-s-earliestTimeWindowRaw');
+  s.latestTimeWindowRaw=strVal('ed-s-latestTimeWindowRaw');
   s.earliestTimeWindow=strVal('ed-s-earliestTimeWindow');
   s.latestTimeWindow=strVal('ed-s-latestTimeWindow');
   s.dryCases=numVal('ed-s-dryCases');
@@ -1458,6 +1495,7 @@ function openRouteDetail(routeId){
   document.getElementById('route-detail-body').innerHTML=`<div class="stop-detail-grid">
     ${detailInput('ed-r-name','Route Name',r.name)}
     ${detailInput('ed-r-routeTemplateKey','RouteTemplateKey',r.routeTemplateKey)}
+    ${detailInput('ed-r-date','Route Date',r.date||document.getElementById('route-date')?.value||'','date')}
     ${detailInput('ed-r-scheduleKey','ScheduleKey',r.scheduleKey)}
     ${detailInput('ed-r-udfNumber1','UDFNumber1',r.udfNumber1)}
     ${detailInput('ed-r-udfString2','UDFString2 / Route Day',r.udfString2)}
@@ -1488,6 +1526,7 @@ function saveRouteDetail(){
   if(!name){showToast('Route name is required');return;}
   r.name=name;
   r.routeTemplateKey=strVal('ed-r-routeTemplateKey');
+  r.date=strVal('ed-r-date');
   r.scheduleKey=strVal('ed-r-scheduleKey');
   r.udfNumber1=strVal('ed-r-udfNumber1');
   r.udfString2=strVal('ed-r-udfString2');
@@ -3011,6 +3050,8 @@ function openImport(){
   document.getElementById('imp-confirm').style.display='none';
   pendingWB=null;
   document.getElementById('file-in').value='';
+  const importRouteDateEl=document.getElementById('import-route-date');
+  if(importRouteDateEl) importRouteDateEl.value=document.getElementById('route-date')?.value||new Date().toISOString().slice(0,10);
 }
 
 function setImportMode(m){
@@ -3281,6 +3322,8 @@ function makeOrderFromRow(row){
     comment:sval(gc(row,['Comment'])),
     fixedServiceTime:nval(gc(row,['Fixed Service Time','FixedServiceTime'])),
     customerName:sval(gc(row,['Customer Name','CustomerName'])),
+    earliestTimeWindowRaw:rawImportedDateTime(gc(row,['Earliest Time Window','EarliestTimeWindow'])),
+    latestTimeWindowRaw:rawImportedDateTime(gc(row,['Latest Time Window','LatestTimeWindow'])),
     earliestTimeWindow:excelTimeToHHMM(gc(row,['Earliest Time Window','EarliestTimeWindow'])),
     latestTimeWindow:excelTimeToHHMM(gc(row,['Latest Time Window','LatestTimeWindow'])),
     dryZone:sval(gc(row,['DRY Zone','Dry Zone'])),
@@ -3321,6 +3364,9 @@ function buildConsolidatedStopFromOrders(orders, existing){
     orders:orders,
     orderNumber:orders.map(o=>o.orderNumber).filter(Boolean).join(', '),
     orderNumbers:orders.map(o=>o.orderNumber).filter(Boolean),
+    cutId:uniqueJoined(orders.map(o=>o.cutId)),
+    earliestTimeWindowRaw:firstNonEmpty(orders.map(o=>o.earliestTimeWindowRaw)),
+    latestTimeWindowRaw:firstNonEmpty(orders.map(o=>o.latestTimeWindowRaw)),
     shipToId:firstNonEmpty(orders.map(o=>o.shipToId)),
     customerNumber:firstNonEmpty(orders.map(o=>o.customerNumber)),
     orderType:uniqueJoined(orders.map(o=>o.orderType)),
@@ -3374,26 +3420,28 @@ function buildConsolidatedStopFromOrders(orders, existing){
 }
 function renderStopOrdersHtml(stop){
   const orders=Array.isArray(stop.orders)&&stop.orders.length?stop.orders:[{
-    orderNumber:stop.orderNumber, orderType:stop.orderType, orderStatus:stop.orderStatus,
+    orderNumber:stop.orderNumber, cutId:stop.cutId, orderType:stop.orderType, orderStatus:stop.orderStatus,
     dryCases:stop.dryCases, coolerCases:stop.coolerCases, frozenCases:stop.frozenCases, pkgCases:stop.pkgCases,
     dryWeight:stop.dryWeight, coolerWeight:stop.coolerWeight, frozenWeight:stop.frozenWeight, pkgWeight:stop.pkgWeight,
     dryCube:stop.dryCube, coolerCube:stop.coolerCube, frozenCube:stop.frozenCube, pkgCube:stop.pkgCube,
-    earliestTimeWindow:stop.earliestTimeWindow, latestTimeWindow:stop.latestTimeWindow, comment:stop.comment
+    earliestTimeWindow:stop.earliestTimeWindow, latestTimeWindow:stop.latestTimeWindow, earliestTimeWindowRaw:stop.earliestTimeWindowRaw, latestTimeWindowRaw:stop.latestTimeWindowRaw, comment:stop.comment
   }];
   const rows=orders.map(o=>`
     <div class="order-table-row">
       <div>${escapeHtml(o.orderNumber||'')}</div>
+      <div>${escapeHtml(o.cutId||'')}</div>
       <div>${escapeHtml(o.orderType||'')}</div>
       <div>${escapeHtml(o.orderStatus||'')}</div>
       <div>${(nval(o.dryCases)+nval(o.coolerCases)+nval(o.frozenCases)+nval(o.pkgCases)).toLocaleString()}</div>
       <div>${(nval(o.dryWeight)+nval(o.coolerWeight)+nval(o.frozenWeight)+nval(o.pkgWeight)).toFixed(0)}</div>
       <div>${(nval(o.dryCube)+nval(o.coolerCube)+nval(o.frozenCube)+nval(o.pkgCube)).toFixed(2)}</div>
-      <div>${escapeHtml(o.earliestTimeWindow||'—')} - ${escapeHtml(o.latestTimeWindow||'—')}${o.comment?`<br/><span style="color:var(--text3);">${escapeHtml(o.comment)}</span>`:''}</div>
+      <div>${escapeHtml(fullWindowDisplay(o.earliestTimeWindowRaw,o.earliestTimeWindow)||'—')}</div>
+      <div>${escapeHtml(fullWindowDisplay(o.latestTimeWindowRaw,o.latestTimeWindow)||'—')}${o.comment?`<br/><span style="color:var(--text3);">${escapeHtml(o.comment)}</span>`:''}</div>
     </div>`).join('');
   return `<details class="order-expand" open>
     <summary>Orders inside this stop <span class="order-badge">${orders.length}</span></summary>
     <div class="order-table">
-      <div class="order-table-row header"><div>Order #</div><div>Type</div><div>Status</div><div>Cases</div><div>Weight</div><div>Cube</div><div>Window / Comment</div></div>
+      <div class="order-table-row header"><div>Order #</div><div>CUTID</div><div>Type</div><div>Status</div><div>Cases</div><div>Weight</div><div>Cube</div><div>Earliest Window</div><div>Latest Window / Comment</div></div>
       ${rows}
     </div>
   </details>`;
@@ -3442,6 +3490,7 @@ function importRoutes(data){
       id:existing?existing.id:uid(),
       name,
       routeTemplateKey:key,
+      date:importedRouteDateValue()||importedDateFromWindow(gc(row,['EarliestStartTime','Earliest Start Time']))||existing?.date||document.getElementById('route-date')?.value||'',
       scheduleKey:(gc(row,['ScheduleKey','Schedule Key'])||'').toString(),
       udfNumber1:(gc(row,['UDFNumber1','UDF Number 1','UDF Number1','UDFNumber 1'])||'').toString(),
       udfString2:(gc(row,['UDFString2','UDF String 2','UDFString 2','UDF String2'])||'').toString(),
@@ -3580,6 +3629,7 @@ function saveRoute(){
   routes.push({
     id:uid(),name,
     routeTemplateKey:document.getElementById('r-key').value,
+    date:document.getElementById('route-date')?.value||new Date().toISOString().slice(0,10),
     driverKey:document.getElementById('r-dkey').value,
     truckKey:document.getElementById('r-tkey').value,
     earliestStartTime:document.getElementById('r-est').value,
@@ -3780,8 +3830,8 @@ function buildOutputFileRows(){
           'Sequence':stop.seq||'',
           'Order_number':order.orderNumber||stop.orderNumber||'',
           'Parent Account':parent,
-          'EarliestDate':outputDateTime(order.earliestTimeWindow||stop.earliestTimeWindow,sessionDate,'00:00'),
-          'LatestDate':outputDateTime(order.latestTimeWindow||stop.latestTimeWindow,sessionDate,'23:59'),
+          'EarliestDate':outputDateTime(order.earliestTimeWindowRaw||order.earliestTimeWindow||stop.earliestTimeWindowRaw||stop.earliestTimeWindow,sessionDate,'00:00'),
+          'LatestDate':outputDateTime(order.latestTimeWindowRaw||order.latestTimeWindow||stop.latestTimeWindowRaw||stop.latestTimeWindow,sessionDate,'23:59'),
           'projectedArrivalDate':outputDateOnlyFromMinutes(route,pt.arrive),
           'projectedBegunDate':outputDateOnlyFromMinutes(route,pt.depart),
           'serviceDurationPerCaseInSeconds':cases?parseFloat((variable/cases).toFixed(6)):0,
@@ -3820,8 +3870,8 @@ function buildOutputFileRows(){
         'Sequence':'',
         'Order_number':order.orderNumber||stop.orderNumber||'',
         'Parent Account':sval(rawField(order,['Parent Account','ParentAccount','PARENT_ACCOUNT']))||order.alternativeCustomerNumber||'',
-        'EarliestDate':outputDateTime(order.earliestTimeWindow||stop.earliestTimeWindow,sessionDate,'00:00'),
-        'LatestDate':outputDateTime(order.latestTimeWindow||stop.latestTimeWindow,sessionDate,'23:59'),
+        'EarliestDate':outputDateTime(order.earliestTimeWindowRaw||order.earliestTimeWindow||stop.earliestTimeWindowRaw||stop.earliestTimeWindow,sessionDate,'00:00'),
+        'LatestDate':outputDateTime(order.latestTimeWindowRaw||order.latestTimeWindow||stop.latestTimeWindowRaw||stop.latestTimeWindow,sessionDate,'23:59'),
         'projectedArrivalDate':'',
         'projectedBegunDate':'',
         'serviceDurationPerCaseInSeconds':cases?parseFloat((variable/cases).toFixed(6)):0,
@@ -3919,6 +3969,7 @@ function exportExcel(){
       manifest.push({
         'Route Number':r.routeTemplateKey||'',
         'Route Name':r.name||'',
+        'Route Date':r.date||document.getElementById('route-date')?.value||'',
         'Driver Name':dname,
         'Driver Key':r.driverKey||'',
         'Truck Key':r.truckKey||'',
@@ -3926,6 +3977,7 @@ function exportExcel(){
         'Stop Type':isStop?'Order':(pt.type==='depot-start'?'Initial Depot':'Final Depot'),
         'Customer Name':pt.name||'',
         'ORDER_NUMBER':isStop?(s.orderNumber||''):'',
+        'CUTID':isStop?(s.cutId||''):'',
         'Order Count':isStop?orderCount(s):0,
         'SHIP_TO_ID':isStop?(s.shipToId||''):(d.locationKey||''),
         'CUSTOMER_NUMBER':isStop?(s.customerNumber||''):'',
@@ -3944,8 +3996,8 @@ function exportExcel(){
         'Estimated Wait Time':isStop&&pt.waitMins?fmtMinutes(pt.waitMins):'',
         'Time Window Status':isStop?(pt.twLabel||''):'Depot',
         'Outside Time Window':isStop&&pt.twStatus==='LATE'?'YES':'',
-        'Earliest Time Window':isStop?(s.earliestTimeWindow||''):'',
-        'Latest Time Window':isStop?(s.latestTimeWindow||''):'',
+        'Earliest Time Window':isStop?(fullWindowDisplay(s.earliestTimeWindowRaw,s.earliestTimeWindow)||''):'',
+        'Latest Time Window':isStop?(fullWindowDisplay(s.latestTimeWindowRaw,s.latestTimeWindow)||''):'',
         'Fixed Service Time':isStop?(s.fixedServiceTime||0):0,
         'Variable Service Time':isStop?(s.variableServiceTime||0):0,
         'Calculated Service Time':isStop?fmtMinutes(pt.serviceMins):'',
@@ -3981,6 +4033,7 @@ function exportExcel(){
   const ua=stops.filter(s=>!s.routeId).map(s=>({
     'Customer Name':s.customerName||'',
     'ORDER_NUMBER':s.orderNumber||'',
+    'CUTID':s.cutId||'',
     'Order Count':orderCount(s),
     'SHIP_TO_ID':s.shipToId||'',
     'Address':s.address||'',
@@ -3994,8 +4047,8 @@ function exportExcel(){
     'Total Cube':parseFloat(tCube(s).toFixed(2)),
     'Preferred Resource Key':s.preferredResourceKey||'',
     'Route Sequence':s.preferredRouteSequence||'',
-    'Earliest Time Window':s.earliestTimeWindow||'',
-    'Latest Time Window':s.latestTimeWindow||'',
+    'Earliest Time Window':fullWindowDisplay(s.earliestTimeWindowRaw,s.earliestTimeWindow)||'',
+    'Latest Time Window':fullWindowDisplay(s.latestTimeWindowRaw,s.latestTimeWindow)||'',
     'WILL_CALL_INDICATOR':s.willCallIndicator||'',
     'Comment':s.comment||'',
   }));
