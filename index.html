@@ -214,7 +214,7 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
 .order-expand summary{cursor:pointer;padding:9px 10px;font-size:11px;font-weight:700;color:var(--text1);background:var(--bg3);list-style:none;}
 .order-expand summary::-webkit-details-marker{display:none;}
 .order-table{max-height:260px;overflow:auto;}
-.order-table-row{display:grid;grid-template-columns:110px 90px 80px 80px 80px 90px 90px 1fr;gap:8px;padding:7px 10px;border-top:1px solid var(--border);font-size:10px;align-items:center;min-width:960px;}
+.order-table-row{display:grid;grid-template-columns:110px 80px 80px 80px 90px 90px 1fr;gap:8px;padding:7px 10px;border-top:1px solid var(--border);font-size:10px;align-items:center;min-width:760px;}
 .order-table-row.header{position:sticky;top:0;background:var(--bg2);color:var(--text3);font-size:9px;text-transform:uppercase;letter-spacing:.4px;font-weight:800;z-index:1;}
 .order-badge{display:inline-block;margin-left:4px;padding:1px 5px;border-radius:999px;background:rgba(79,140,255,.16);color:var(--accent);font-size:8px;font-weight:800;vertical-align:middle;}
 
@@ -452,6 +452,13 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
       <p>Click or drag &amp; drop Excel / CSV file here</p>
       <span id="imp-hint">Upload one file with sheets named "Routes", "Trucks", "Orders", and "Depot Locations" — or load individually</span>
     </div>
+    <div id="import-export-info" style="margin:10px 0 8px;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg2);">
+      <div style="font-size:10px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:7px;">Export Info</div>
+      <div class="input-row" style="margin-bottom:0;">
+        <div class="field"><label>Region Code</label><input type="text" id="import-region-code" placeholder="Enter Region Code"/></div>
+      </div>
+      <div style="font-size:9px;color:var(--text3);margin-top:6px;">Region Code will export to the Output File worksheet in column B: Region Code.</div>
+    </div>
     <div id="route-day-filter" style="margin:10px 0 8px;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg2);">
       <div style="font-size:10px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:7px;">Route Day Filter <span style="font-weight:400;color:var(--text3);text-transform:none;letter-spacing:0;">(uses Route Templates UDFString2)</span></div>
       <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;font-size:10px;color:var(--text2);">
@@ -651,6 +658,7 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
 // ============================================================
 const COLORS=['#4f8cff','#3ecf8e','#f59e0b','#ef4444','#a78bfa','#fb923c','#38bdf8','#f472b6','#34d399','#fbbf24','#60a5fa','#86efac'];
 let routes=[], stops=[], trucks=[], depotLocations=[];
+let sessionRegionCode='';
 let mapCleared=false;
 const visibleStopIds=new Set();
 const visibleRouteIds=new Set();
@@ -676,6 +684,8 @@ let lassoSelectedStopIds=new Set();
 // ============================================================
 window.addEventListener('DOMContentLoaded',()=>{
   document.getElementById('route-date').value=new Date().toISOString().slice(0,10);
+  const importRegionCodeEl=document.getElementById('import-region-code');
+  if(importRegionCodeEl) importRegionCodeEl.value=sessionRegionCode;
   map=L.map('map',{zoomControl:true}).setView([39.5,-98.35],4);
   darkTileLayer=L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{
     maxZoom:19, subdomains:'abcd',
@@ -799,23 +809,6 @@ function excelTimeToHHMM(value){
   }
   return str;
 }
-
-function rawImportedDateTime(value){
-  if(value===null||value===undefined||value==='')return '';
-  if(value instanceof Date && !isNaN(value)){
-    return value.getFullYear()+'-'+String(value.getMonth()+1).padStart(2,'0')+'-'+String(value.getDate()).padStart(2,'0')+' '+String(value.getHours()).padStart(2,'0')+':'+String(value.getMinutes()).padStart(2,'0');
-  }
-  return value.toString().trim();
-}
-function fullWindowDisplay(rawValue,timeValue){
-  const raw=rawImportedDateTime(rawValue);
-  if(raw)return raw;
-  return cleanTimeValue(timeValue)||'';
-}
-function currentRouteDateValue(){
-  return document.getElementById('route-date')?.value||new Date().toISOString().slice(0,10);
-}
-
 function timeToMinutes(value){
   const t=excelTimeToHHMM(value);
   const m=t.match(/^(\d{1,2}):(\d{2})/);
@@ -1386,21 +1379,18 @@ function openStopDetail(stopId){
   document.getElementById('stop-detail-body').innerHTML=`<div class="stop-detail-grid">
     ${detailInput('ed-s-customerName','Customer Name',s.customerName)}
     ${detailInput('ed-s-orderNumber','Order Number',s.orderNumber)}
-    ${detailInput('ed-s-cutId','CUTID',s.cutId)}
     ${detailInput('ed-s-shipToId','Ship To ID',s.shipToId)}
     ${detailInput('ed-s-customerNumber','Customer Number',s.customerNumber)}
     ${detailSelect('ed-s-routeId','Assigned Route',s.routeId||'',routeOptions)}
-    ${detailInput('ed-s-seq','Routed Sequence',s.seq||0,'number')}
+    ${detailInput('ed-s-seq','Sequence',s.seq||0,'number')}
     ${detailInput('ed-s-address','Address',s.address)}
     ${detailInput('ed-s-city','City',s.city)}
     ${detailInput('ed-s-state','State',s.state)}
     ${detailInput('ed-s-zip','Zip',s.zip)}
     ${detailInput('ed-s-lat','Latitude',s.lat,'number')}
     ${detailInput('ed-s-lng','Longitude',s.lng,'number')}
-    ${detailInput('ed-s-earliestTimeWindowRaw','Earliest Time Window Date/Time (Imported)',fullWindowDisplay(s.earliestTimeWindowRaw,s.earliestTimeWindow),'text')}
-    ${detailInput('ed-s-latestTimeWindowRaw','Latest Time Window Date/Time (Imported)',fullWindowDisplay(s.latestTimeWindowRaw,s.latestTimeWindow),'text')}
-    ${detailInput('ed-s-earliestTimeWindow','Earliest Time Window Time',cleanTimeValue(s.earliestTimeWindow),'time')}
-    ${detailInput('ed-s-latestTimeWindow','Latest Time Window Time',cleanTimeValue(s.latestTimeWindow),'time')}
+    ${detailInput('ed-s-earliestTimeWindow','Earliest Time Window',cleanTimeValue(s.earliestTimeWindow),'time')}
+    ${detailInput('ed-s-latestTimeWindow','Latest Time Window',cleanTimeValue(s.latestTimeWindow),'time')}
     ${detailInput('ed-s-dryCases','DRY Cases',s.dryCases||0,'number')}
     ${detailInput('ed-s-dryWeight','DRY Weight',s.dryWeight||0,'number')}
     ${detailInput('ed-s-dryCube','DRY Cube',s.dryCube||0,'number')}
@@ -1411,7 +1401,7 @@ function openStopDetail(stopId){
     ${detailInput('ed-s-frozenWeight','Frozen Weight',s.frozenWeight||0,'number')}
     ${detailInput('ed-s-frozenCube','Frozen Cube',s.frozenCube||0,'number')}
     ${detailInput('ed-s-preferredResourceKey','Preferred Resource Key',s.preferredResourceKey)}
-    ${detailInput('ed-s-preferredRouteSequence','Preferred Route Sequence (Imported)',s.preferredRouteSequence)}
+    ${detailInput('ed-s-preferredRouteSequence','Preferred Route Sequence',s.preferredRouteSequence)}
     ${detailInput('ed-s-restrictRoutePosition','Restrict route position',s.restrictRoutePosition)}
     ${detailInput('ed-s-orderType','Order Type',s.orderType)}
     ${detailInput('ed-s-orderStatus','Order Status',s.orderStatus)}
@@ -1431,7 +1421,6 @@ function saveStopDetail(){
   const oldRouteId=s.routeId||'';
   s.customerName=strVal('ed-s-customerName');
   s.orderNumber=strVal('ed-s-orderNumber');
-  s.cutId=strVal('ed-s-cutId');
   s.shipToId=strVal('ed-s-shipToId');
   s.customerNumber=strVal('ed-s-customerNumber');
   s.routeId=strVal('ed-s-routeId')||null;
@@ -1442,8 +1431,6 @@ function saveStopDetail(){
   s.zip=strVal('ed-s-zip');
   s.lat=lat;
   s.lng=lng;
-  s.earliestTimeWindowRaw=strVal('ed-s-earliestTimeWindowRaw');
-  s.latestTimeWindowRaw=strVal('ed-s-latestTimeWindowRaw');
   s.earliestTimeWindow=strVal('ed-s-earliestTimeWindow');
   s.latestTimeWindow=strVal('ed-s-latestTimeWindow');
   s.dryCases=numVal('ed-s-dryCases');
@@ -1481,7 +1468,6 @@ function openRouteDetail(routeId){
   document.getElementById('route-detail-body').innerHTML=`<div class="stop-detail-grid">
     ${detailInput('ed-r-name','Route Name',r.name)}
     ${detailInput('ed-r-routeTemplateKey','RouteTemplateKey',r.routeTemplateKey)}
-    ${detailInput('ed-r-date','Route Date',r.date||currentRouteDateValue(),'date')}
     ${detailInput('ed-r-scheduleKey','ScheduleKey',r.scheduleKey)}
     ${detailInput('ed-r-udfNumber1','UDFNumber1',r.udfNumber1)}
     ${detailInput('ed-r-udfString2','UDFString2 / Route Day',r.udfString2)}
@@ -1512,7 +1498,6 @@ function saveRouteDetail(){
   if(!name){showToast('Route name is required');return;}
   r.name=name;
   r.routeTemplateKey=strVal('ed-r-routeTemplateKey');
-  r.date=strVal('ed-r-date')||currentRouteDateValue();
   r.scheduleKey=strVal('ed-r-scheduleKey');
   r.udfNumber1=strVal('ed-r-udfNumber1');
   r.udfString2=strVal('ed-r-udfString2');
@@ -2511,7 +2496,7 @@ function renderRouteManifest(){
       <div>${minutesToHHMM(pt.arrive)}</div>
       <div>${minutesToHHMM(pt.depart)}</div>
       <div>${isDepot?'—':(pt.waitMins?fmtMinutes(pt.waitMins):'—')}</div>
-      <div>${isDepot?'Depot':`${escapeHtml(fullWindowDisplay(s.earliestTimeWindowRaw,s.earliestTimeWindow)||'—')} - ${escapeHtml(fullWindowDisplay(s.latestTimeWindowRaw,s.latestTimeWindow)||'—')}`}</div>
+      <div>${isDepot?'Depot':`${escapeHtml(s.earliestTimeWindow||'—')} - ${escapeHtml(s.latestTimeWindow||'—')}`}</div>
       <div>${isDepot?'—':`<span class="tw-badge ${twClass}">${escapeHtml(pt.twLabel||'')}</span>`}</div>
     </div>`;
   }).join('');
@@ -2572,7 +2557,7 @@ function runPreferredJob(){
   const ua=stops.filter(s=>!s.routeId).filter(stopMatchesFilter);
   if(!ua.length){showToast('No unassigned stops');return;}
 
-  let assigned=0,noMatch=0,noPref=0,positionApplied=0,positionAdjusted=0;
+  let assigned=0,noMatch=0,noPref=0,noRouteUdf=0,positionLocked=0,positionMissing=0;
   const affectedRouteIds=new Set();
 
   ua.forEach(s=>{
@@ -2582,28 +2567,44 @@ function runPreferredJob(){
     if(!pref4){noPref++;return;}
 
     const route=routes.find(r=>first4Digits(r.udfNumber1)===pref4);
-    if(!route){noMatch++;return;}
 
-    // Match the stop to the preferred route first. Do NOT use the imported
-    // Preferred Route Sequence as the routed sequence here. Routed sequence is
-    // rebuilt below by distance, then valid preferred positions are compacted.
+    if(!route){
+      noMatch++;
+      return;
+    }
+
+    if(!first4Digits(route.udfNumber1)){
+      noRouteUdf++;
+      return;
+    }
+
     s.routeId=route.id;
-    s.seq=Math.max(0,...stops.filter(x=>x.routeId===route.id&&x.id!==s.id).map(x=>x.seq||0))+1;
+
+    const prefSeq=parseInt(s.preferredRouteSequence||s.routeSequence,10)||0;
+    const restrictPosition=isYesFlag(s.restrictRoutePosition);
+
+    // Correction: only force the imported Route Sequence when Restrict route position = Yes.
+    // If it is not restricted, the preferred stop is assigned to the route and placed at the end
+    // before the route is resequenced around any locked positions.
+    if(restrictPosition&&prefSeq>0){
+      s.seq=prefSeq;
+      positionLocked++;
+    } else {
+      s.seq=Math.max(0,...stops.filter(x=>x.routeId===route.id&&x.id!==s.id).map(x=>x.seq||0))+1;
+      if(restrictPosition&&!prefSeq)positionMissing++;
+    }
+
     affectedRouteIds.add(route.id);
     assigned++;
   });
 
-  const resequenceResult=resequenceRoutesDistanceThenPreferredPositions([...affectedRouteIds]);
-  positionApplied=resequenceResult.applied;
-  positionAdjusted=resequenceResult.adjusted;
-
+  resequenceRoutesRespectingPreferredLocks([...affectedRouteIds]);
   render();
   showJob('&#11088; Preferred Resource / Position Job',`
     <strong>Matching Logic:</strong> First 4 digits of order Preferred Resource Key matched to Route UDFNumber1<br/>
     <strong>${assigned}</strong> stop(s) assigned to their preferred route<br/>
-    <strong>${affectedRouteIds.size}</strong> route(s) resequenced by shortest-distance order after assignment<br/>
-    <strong>${positionApplied}</strong> preferred stop position(s) applied after distance sequencing<br/>
-    <strong>${positionAdjusted}</strong> preferred stop position(s) moved to the nearest possible routed sequence because the requested position was unavailable or outside the route stop count<br/>
+    <strong>${positionLocked}</strong> stop(s) locked to their Route Sequence because Restrict route position = Yes<br/>
+    <strong>${positionMissing}</strong> stop(s) had Restrict route position = Yes but no usable Route Sequence<br/>
     <strong>${noMatch}</strong> had a Preferred Resource Key but no route UDFNumber1 match was found<br/>
     <strong>${noPref}</strong> had no usable 4-digit Preferred Resource Key value (skipped)
   `);
@@ -2614,108 +2615,37 @@ function isYesFlag(value){
   return ['yes','y','true','1','x'].includes(v);
 }
 
-function preferredPositionNumber(stop){
-  const n=parseInt(stop?.preferredRouteSequence||stop?.routeSequence,10);
-  return Number.isFinite(n)&&n>0?n:0;
-}
-
-function nearestDistanceStopOrder(routeId){
-  const route=routes.find(r=>r.id===routeId);
-  const routeStops=stops.filter(s=>s.routeId===routeId);
-  if(routeStops.length<2)return routeStops.slice().sort((a,b)=>(a.seq||0)-(b.seq||0));
-
-  const geoStops=routeStops.filter(s=>s.lat&&s.lng);
-  const noGeoStops=routeStops.filter(s=>!s.lat||!s.lng).sort((a,b)=>(a.seq||999999)-(b.seq||999999));
-  const start=getRouteDepotPoint(route,geoStops)||geoStops[0];
-  if(!start)return routeStops.slice().sort((a,b)=>(a.seq||0)-(b.seq||0));
-
-  const remaining=geoStops.slice();
-  const ordered=[];
-  let current={lat:start.lat,lng:start.lng};
-
-  while(remaining.length){
-    let bestIndex=0,bestDistance=Infinity;
-    remaining.forEach((stop,index)=>{
-      const d=haversine(current.lat,current.lng,stop.lat,stop.lng);
-      if(d<bestDistance){bestDistance=d;bestIndex=index;}
-    });
-    const next=remaining.splice(bestIndex,1)[0];
-    ordered.push(next);
-    current={lat:next.lat,lng:next.lng};
-  }
-
-  return ordered.concat(noGeoStops);
-}
-
-function resequenceRoutesDistanceThenPreferredPositions(routeIds){
-  let applied=0, adjusted=0;
-
-  routeIds.forEach(routeId=>{
-    const baseOrder=nearestDistanceStopOrder(routeId);
-    const stopCount=baseOrder.length;
-    if(!stopCount)return;
-
-    // Step 1: start with shortest-distance order.
-    const preferredStops=baseOrder
-      .filter(s=>isYesFlag(s.restrictRoutePosition)&&preferredPositionNumber(s)>0)
-      .sort((a,b)=>{
-        const pa=preferredPositionNumber(a), pb=preferredPositionNumber(b);
-        if(pa!==pb)return pa-pb;
-        return baseOrder.indexOf(a)-baseOrder.indexOf(b);
-      });
-
-    const preferredIds=new Set(preferredStops.map(s=>s.id));
-    const flexibleStops=baseOrder.filter(s=>!preferredIds.has(s.id));
-    const finalSlots=new Array(stopCount).fill(null);
-
-    preferredStops.forEach((stop,index)=>{
-      const requested=preferredPositionNumber(stop);
-      let target=requested;
-
-      // If the preferred position does not exist, use nearest possible position.
-      // Example: 7 stops + preferred position 15 => routed sequence 7.
-      if(target>stopCount)target=stopCount;
-
-      // Compact missing early positions so gaps do not exist.
-      // Example: only preferred position 2 exists and no #1 exists => routed sequence 1.
-      target=Math.min(target,index+1);
-
-      target=Math.max(1,Math.min(stopCount,target));
-      let slot=target-1;
-
-      // If the nearest target is occupied, move to the closest open slot.
-      if(finalSlots[slot]){
-        let bestSlot=-1,bestDistance=Infinity;
-        for(let i=0;i<stopCount;i++){
-          if(finalSlots[i])continue;
-          const d=Math.abs(i-slot);
-          if(d<bestDistance){bestDistance=d;bestSlot=i;}
-        }
-        slot=bestSlot;
-      }
-
-      if(slot>=0&&slot<stopCount&&!finalSlots[slot]){
-        finalSlots[slot]=stop;
-        applied++;
-        if(slot+1!==requested)adjusted++;
-      }
-    });
-
-    let flexIndex=0;
-    for(let i=0;i<stopCount;i++){
-      if(!finalSlots[i])finalSlots[i]=flexibleStops[flexIndex++]||null;
-    }
-
-    // Final actual routed sequence: always clean 1..N and never the imported preferred value.
-    finalSlots.filter(Boolean).forEach((stop,index)=>{stop.seq=index+1;});
-    expanded.add(routeId);
-  });
-
-  return {applied,adjusted};
-}
-
 function resequenceRoutesRespectingPreferredLocks(routeIds){
-  return resequenceRoutesDistanceThenPreferredPositions(routeIds);
+  routeIds.forEach(routeId=>{
+    const routeStops=stops.filter(s=>s.routeId===routeId);
+    if(!routeStops.length)return;
+
+    const used=new Set();
+    const locked=routeStops
+      .filter(s=>isYesFlag(s.restrictRoutePosition)&&(parseInt(s.preferredRouteSequence||s.routeSequence,10)||0)>0)
+      .sort((a,b)=>(parseInt(a.preferredRouteSequence||a.routeSequence,10)||0)-(parseInt(b.preferredRouteSequence||b.routeSequence,10)||0));
+
+    locked.forEach(s=>{
+      let pos=parseInt(s.preferredRouteSequence||s.routeSequence,10)||0;
+      while(pos>0&&used.has(pos))pos++;
+      if(pos>0){
+        s.seq=pos;
+        used.add(pos);
+      }
+    });
+
+    const flexible=routeStops
+      .filter(s=>!locked.includes(s))
+      .sort((a,b)=>(a.seq||999999)-(b.seq||999999));
+
+    let next=1;
+    flexible.forEach(s=>{
+      while(used.has(next))next++;
+      s.seq=next;
+      used.add(next);
+      next++;
+    });
+  });
 }
 
 
@@ -3091,6 +3021,8 @@ function openImport(){
   document.getElementById('imp-confirm').style.display='none';
   pendingWB=null;
   document.getElementById('file-in').value='';
+  const importRegionCodeEl=document.getElementById('import-region-code');
+  if(importRegionCodeEl) importRegionCodeEl.value=sessionRegionCode||importRegionCodeEl.value||'';
 }
 
 function setImportMode(m){
@@ -3211,6 +3143,7 @@ function confirmImport(){
   if(btn){btn.disabled=true;btn.textContent='Importing...';}
 
   try{
+    sessionRegionCode=sval(document.getElementById('import-region-code')?.value||sessionRegionCode||'');
     let rc=0,dc=0,sc=0,lc=0, skipped=0;
     const sheets=pendingWB.SheetNames.map(name=>{
       const ws=pendingWB.Sheets[name];
@@ -3361,8 +3294,6 @@ function makeOrderFromRow(row){
     comment:sval(gc(row,['Comment'])),
     fixedServiceTime:nval(gc(row,['Fixed Service Time','FixedServiceTime'])),
     customerName:sval(gc(row,['Customer Name','CustomerName'])),
-    earliestTimeWindowRaw:rawImportedDateTime(gc(row,['Earliest Time Window','EarliestTimeWindow'])),
-    latestTimeWindowRaw:rawImportedDateTime(gc(row,['Latest Time Window','LatestTimeWindow'])),
     earliestTimeWindow:excelTimeToHHMM(gc(row,['Earliest Time Window','EarliestTimeWindow'])),
     latestTimeWindow:excelTimeToHHMM(gc(row,['Latest Time Window','LatestTimeWindow'])),
     dryZone:sval(gc(row,['DRY Zone','Dry Zone'])),
@@ -3403,7 +3334,6 @@ function buildConsolidatedStopFromOrders(orders, existing){
     orders:orders,
     orderNumber:orders.map(o=>o.orderNumber).filter(Boolean).join(', '),
     orderNumbers:orders.map(o=>o.orderNumber).filter(Boolean),
-    cutId:uniqueJoined(orders.map(o=>o.cutId)),
     shipToId:firstNonEmpty(orders.map(o=>o.shipToId)),
     customerNumber:firstNonEmpty(orders.map(o=>o.customerNumber)),
     orderType:uniqueJoined(orders.map(o=>o.orderType)),
@@ -3423,8 +3353,6 @@ function buildConsolidatedStopFromOrders(orders, existing){
     country:firstNonEmpty(orders.map(o=>o.country)),
     lat:first.lat,
     lng:first.lng,
-    earliestTimeWindowRaw:firstNonEmpty(orders.map(o=>o.earliestTimeWindowRaw)),
-    latestTimeWindowRaw:firstNonEmpty(orders.map(o=>o.latestTimeWindowRaw)),
     earliestTimeWindow:firstNonEmpty(orders.map(o=>o.earliestTimeWindow).filter(Boolean).sort()),
     latestTimeWindow:firstNonEmpty(orders.map(o=>o.latestTimeWindow).filter(Boolean).sort().reverse()),
     fixedServiceTime:orders.reduce((a,o)=>a+nval(o.fixedServiceTime),0),
@@ -3459,27 +3387,26 @@ function buildConsolidatedStopFromOrders(orders, existing){
 }
 function renderStopOrdersHtml(stop){
   const orders=Array.isArray(stop.orders)&&stop.orders.length?stop.orders:[{
-    orderNumber:stop.orderNumber, cutId:stop.cutId, orderType:stop.orderType, orderStatus:stop.orderStatus,
+    orderNumber:stop.orderNumber, orderType:stop.orderType, orderStatus:stop.orderStatus,
     dryCases:stop.dryCases, coolerCases:stop.coolerCases, frozenCases:stop.frozenCases, pkgCases:stop.pkgCases,
     dryWeight:stop.dryWeight, coolerWeight:stop.coolerWeight, frozenWeight:stop.frozenWeight, pkgWeight:stop.pkgWeight,
     dryCube:stop.dryCube, coolerCube:stop.coolerCube, frozenCube:stop.frozenCube, pkgCube:stop.pkgCube,
-    earliestTimeWindow:stop.earliestTimeWindow, latestTimeWindow:stop.latestTimeWindow, earliestTimeWindowRaw:stop.earliestTimeWindowRaw, latestTimeWindowRaw:stop.latestTimeWindowRaw, comment:stop.comment
+    earliestTimeWindow:stop.earliestTimeWindow, latestTimeWindow:stop.latestTimeWindow, comment:stop.comment
   }];
   const rows=orders.map(o=>`
     <div class="order-table-row">
       <div>${escapeHtml(o.orderNumber||'')}</div>
-      <div>${escapeHtml(o.cutId||'')}</div>
       <div>${escapeHtml(o.orderType||'')}</div>
       <div>${escapeHtml(o.orderStatus||'')}</div>
       <div>${(nval(o.dryCases)+nval(o.coolerCases)+nval(o.frozenCases)+nval(o.pkgCases)).toLocaleString()}</div>
       <div>${(nval(o.dryWeight)+nval(o.coolerWeight)+nval(o.frozenWeight)+nval(o.pkgWeight)).toFixed(0)}</div>
       <div>${(nval(o.dryCube)+nval(o.coolerCube)+nval(o.frozenCube)+nval(o.pkgCube)).toFixed(2)}</div>
-      <div>${escapeHtml(fullWindowDisplay(o.earliestTimeWindowRaw,o.earliestTimeWindow)||'—')} - ${escapeHtml(fullWindowDisplay(o.latestTimeWindowRaw,o.latestTimeWindow)||'—')}${o.comment?`<br/><span style="color:var(--text3);">${escapeHtml(o.comment)}</span>`:''}</div>
+      <div>${escapeHtml(o.earliestTimeWindow||'—')} - ${escapeHtml(o.latestTimeWindow||'—')}${o.comment?`<br/><span style="color:var(--text3);">${escapeHtml(o.comment)}</span>`:''}</div>
     </div>`).join('');
   return `<details class="order-expand" open>
     <summary>Orders inside this stop <span class="order-badge">${orders.length}</span></summary>
     <div class="order-table">
-      <div class="order-table-row header"><div>Order #</div><div>CUTID</div><div>Type</div><div>Status</div><div>Cases</div><div>Weight</div><div>Cube</div><div>Imported Window / Comment</div></div>
+      <div class="order-table-row header"><div>Order #</div><div>Type</div><div>Status</div><div>Cases</div><div>Weight</div><div>Cube</div><div>Window / Comment</div></div>
       ${rows}
     </div>
   </details>`;
@@ -3812,7 +3739,7 @@ function fixedServiceSecondsForOutput(order,stop){return valueSecondsFromOrderOr
 function buildOutputFileRows(){
   const rows=[];
   const sessionDate=document.getElementById('route-date')?.value||new Date().toISOString().slice(0,10);
-  const sessionRegion=sval(sessionRegionCode||document.getElementById('import-region-code')?.value||'');
+  const outputRegionCode=sessionRegionCode||'';
 
   routes.forEach(route=>{
     const timeline=routeTimelineRows(route.id);
@@ -3821,7 +3748,7 @@ function buildOutputFileRows(){
         const d=pt.depot||{};
         rows.push({
           'District':route.district||'',
-          'Region Code':sessionRegion||route.regionCode||route.region||'',
+          'Region Code':outputRegionCode||route.regionCode||route.region||'',
           'Route':route.routeTemplateKey||route.name||'',
           'Customer':d.locationKey||'',
           'Sequence':pt.type==='depot-start'?0:(stops.filter(s=>s.routeId===route.id).length+1),
@@ -3857,7 +3784,7 @@ function buildOutputFileRows(){
         const weight=totalWeightForOrder(order)||tWeight(stop);
         const variable=variableServiceSecondsForOutput(order,stop);
         const fixed=fixedServiceSecondsForOutput(order,stop);
-        const region=sessionRegion||route.regionCode||route.region||sval(rawField(order,['Region_Code','Region Code','REGION_CODE','Region']))||'';
+        const region=outputRegionCode||sval(rawField(order,['Region_Code','Region Code','REGION_CODE','Region']))||route.regionCode||route.region||'';
         const parent=sval(rawField(order,['Parent Account','ParentAccount','PARENT_ACCOUNT']))||order.alternativeCustomerNumber||'';
         rows.push({
           'District':order.district||stop.district||'',
@@ -3867,8 +3794,8 @@ function buildOutputFileRows(){
           'Sequence':stop.seq||'',
           'Order_number':order.orderNumber||stop.orderNumber||'',
           'Parent Account':parent,
-          'EarliestDate':outputDateTime(order.earliestTimeWindowRaw||stop.earliestTimeWindowRaw||order.earliestTimeWindow||stop.earliestTimeWindow,sessionDate,'00:00'),
-          'LatestDate':outputDateTime(order.latestTimeWindowRaw||stop.latestTimeWindowRaw||order.latestTimeWindow||stop.latestTimeWindow,sessionDate,'23:59'),
+          'EarliestDate':outputDateTime(order.earliestTimeWindow||stop.earliestTimeWindow,sessionDate,'00:00'),
+          'LatestDate':outputDateTime(order.latestTimeWindow||stop.latestTimeWindow,sessionDate,'23:59'),
           'projectedArrivalDate':outputDateOnlyFromMinutes(route,pt.arrive),
           'projectedBegunDate':outputDateOnlyFromMinutes(route,pt.depart),
           'serviceDurationPerCaseInSeconds':cases?parseFloat((variable/cases).toFixed(6)):0,
@@ -3901,14 +3828,14 @@ function buildOutputFileRows(){
       const fixed=fixedServiceSecondsForOutput(order,stop);
       rows.push({
         'District':order.district||stop.district||'',
-        'Region Code':sessionRegion||sval(rawField(order,['Region_Code','Region Code','REGION_CODE','Region'])),
+        'Region Code':outputRegionCode||sval(rawField(order,['Region_Code','Region Code','REGION_CODE','Region'])),
         'Route':'',
         'Customer':order.customerNumber||stop.customerNumber||order.shipToId||stop.shipToId||'',
         'Sequence':'',
         'Order_number':order.orderNumber||stop.orderNumber||'',
         'Parent Account':sval(rawField(order,['Parent Account','ParentAccount','PARENT_ACCOUNT']))||order.alternativeCustomerNumber||'',
-        'EarliestDate':outputDateTime(order.earliestTimeWindowRaw||stop.earliestTimeWindowRaw||order.earliestTimeWindow||stop.earliestTimeWindow,sessionDate,'00:00'),
-        'LatestDate':outputDateTime(order.latestTimeWindowRaw||stop.latestTimeWindowRaw||order.latestTimeWindow||stop.latestTimeWindow,sessionDate,'23:59'),
+        'EarliestDate':outputDateTime(order.earliestTimeWindow||stop.earliestTimeWindow,sessionDate,'00:00'),
+        'LatestDate':outputDateTime(order.latestTimeWindow||stop.latestTimeWindow,sessionDate,'23:59'),
         'projectedArrivalDate':'',
         'projectedBegunDate':'',
         'serviceDurationPerCaseInSeconds':cases?parseFloat((variable/cases).toFixed(6)):0,
@@ -4031,8 +3958,8 @@ function exportExcel(){
         'Estimated Wait Time':isStop&&pt.waitMins?fmtMinutes(pt.waitMins):'',
         'Time Window Status':isStop?(pt.twLabel||''):'Depot',
         'Outside Time Window':isStop&&pt.twStatus==='LATE'?'YES':'',
-        'Earliest Time Window':isStop?fullWindowDisplay(s.earliestTimeWindowRaw,s.earliestTimeWindow):'',
-        'Latest Time Window':isStop?fullWindowDisplay(s.latestTimeWindowRaw,s.latestTimeWindow):'',
+        'Earliest Time Window':isStop?(s.earliestTimeWindow||''):'',
+        'Latest Time Window':isStop?(s.latestTimeWindow||''):'',
         'Fixed Service Time':isStop?(s.fixedServiceTime||0):0,
         'Variable Service Time':isStop?(s.variableServiceTime||0):0,
         'Calculated Service Time':isStop?fmtMinutes(pt.serviceMins):'',
@@ -4057,8 +3984,7 @@ function exportExcel(){
         'REQ_DELIVERY_DATE':isStop?(s.reqDeliveryDate||''):'',
         'WILL_CALL_INDICATOR':isStop?(s.willCallIndicator||''):'',
         'Preferred Resource Key':isStop?(s.preferredResourceKey||''):'',
-        'Route Sequence':isStop?(s.seq||''):'',
-        'Preferred Route Sequence':isStop?(s.preferredRouteSequence||''):'',
+        'Route Sequence':isStop?(s.preferredRouteSequence||''):'',
         'Comment':isStop?(s.comment||''):'',
       });
     });
@@ -4081,10 +4007,9 @@ function exportExcel(){
     'Total Weight':parseFloat(tWeight(s).toFixed(2)),
     'Total Cube':parseFloat(tCube(s).toFixed(2)),
     'Preferred Resource Key':s.preferredResourceKey||'',
-    'Route Sequence':'',
-    'Preferred Route Sequence':s.preferredRouteSequence||'',
-    'Earliest Time Window':fullWindowDisplay(s.earliestTimeWindowRaw,s.earliestTimeWindow),
-    'Latest Time Window':fullWindowDisplay(s.latestTimeWindowRaw,s.latestTimeWindow),
+    'Route Sequence':s.preferredRouteSequence||'',
+    'Earliest Time Window':s.earliestTimeWindow||'',
+    'Latest Time Window':s.latestTimeWindow||'',
     'WILL_CALL_INDICATOR':s.willCallIndicator||'',
     'Comment':s.comment||'',
   }));
@@ -4114,7 +4039,7 @@ function exportExcel(){
         'WILL_CALL_INDICATOR':o.willCallIndicator||'',
         'Order Requirements':o.orderRequirements||'',
         'Variable Service Time':o.variableServiceTime||0,
-        'CUTID':o.cutId||s.cutId||'',
+        'CUTID':o.cutId||'',
         'Alternative customer number':o.alternativeCustomerNumber||'',
         'Order Codes':o.orderCodes||'',
         'Active Tier':o.activeTier||'',
@@ -4124,9 +4049,8 @@ function exportExcel(){
         'Preferred Resource Key':o.preferredResourceKey||'',
         'Preferred resource indicator':o.preferredResourceIndicator||'',
         'Restrict preferred resource':o.restrictPreferredResource||'',
-        'Route Sequence':s.routeId?(s.seq||''):'',
-        'Preferred Route Sequence':o.preferredRouteSequence||s.preferredRouteSequence||'',
-        'Restrict route position':o.restrictRoutePosition||s.restrictRoutePosition||'',
+        'Route Sequence':o.preferredRouteSequence||'',
+        'Restrict route position':o.restrictRoutePosition||'',
         'Order Ship Date':o.orderShipDate||'',
         'Address':o.address||s.address||'',
         'Cross Street':o.crossStreet||s.crossStreet||'',
@@ -4139,8 +4063,8 @@ function exportExcel(){
         'Comment':o.comment||'',
         'Fixed Service Time':o.fixedServiceTime||0,
         'Customer Name':o.customerName||s.customerName||'',
-        'Earliest Time Window':fullWindowDisplay(o.earliestTimeWindowRaw,o.earliestTimeWindow),
-        'Latest Time Window':fullWindowDisplay(o.latestTimeWindowRaw,o.latestTimeWindow),
+        'Earliest Time Window':o.earliestTimeWindow||'',
+        'Latest Time Window':o.latestTimeWindow||'',
         'DRY Total Cases':o.dryCases||0,
         'DRY Cube':o.dryCube||0,
         'DRY Weight':o.dryWeight||0,
