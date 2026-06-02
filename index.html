@@ -2586,7 +2586,7 @@ function runPreferredJob(){
   const ua=stops.filter(s=>!s.routeId).filter(stopMatchesFilter);
   if(!ua.length){showToast('No unassigned stops');return;}
 
-  let assigned=0,noMatch=0,noPref=0,noRouteUdf=0,positionLocked=0,positionMissing=0;
+  let assigned=0,noMatch=0,noPref=0,positionApplied=0,positionAdjusted=0;
   const affectedRouteIds=new Set();
 
   ua.forEach(s=>{
@@ -2596,44 +2596,28 @@ function runPreferredJob(){
     if(!pref4){noPref++;return;}
 
     const route=routes.find(r=>first4Digits(r.udfNumber1)===pref4);
+    if(!route){noMatch++;return;}
 
-    if(!route){
-      noMatch++;
-      return;
-    }
-
-    if(!first4Digits(route.udfNumber1)){
-      noRouteUdf++;
-      return;
-    }
-
+    // First match the stop to the preferred route. Do NOT use the imported preferred
+    // Route Sequence as the actual routed sequence here. Actual sequence is rebuilt
+    // below by shortest distance, then preferred-position rules are compacted safely.
     s.routeId=route.id;
-
-    const prefSeq=parseInt(s.preferredRouteSequence||s.routeSequence,10)||0;
-    const restrictPosition=isYesFlag(s.restrictRoutePosition);
-
-    // Correction: only force the imported Route Sequence when Restrict route position = Yes.
-    // If it is not restricted, the preferred stop is assigned to the route and placed at the end
-    // before the route is resequenced around any locked positions.
-    if(restrictPosition&&prefSeq>0){
-      s.seq=prefSeq;
-      positionLocked++;
-    } else {
-      s.seq=Math.max(0,...stops.filter(x=>x.routeId===route.id&&x.id!==s.id).map(x=>x.seq||0))+1;
-      if(restrictPosition&&!prefSeq)positionMissing++;
-    }
-
+    s.seq=Math.max(0,...stops.filter(x=>x.routeId===route.id&&x.id!==s.id).map(x=>x.seq||0))+1;
     affectedRouteIds.add(route.id);
     assigned++;
   });
 
-  resequenceRoutesRespectingPreferredLocks([...affectedRouteIds]);
+  const prefResult=resequenceRoutesDistanceThenPreferredPositions([...affectedRouteIds]);
+  positionApplied=prefResult.applied;
+  positionAdjusted=prefResult.adjusted;
+
   render();
   showJob('&#11088; Preferred Resource / Position Job',`
     <strong>Matching Logic:</strong> First 4 digits of order Preferred Resource Key matched to Route UDFNumber1<br/>
     <strong>${assigned}</strong> stop(s) assigned to their preferred route<br/>
-    <strong>${positionLocked}</strong> stop(s) locked to their Route Sequence because Restrict route position = Yes<br/>
-    <strong>${positionMissing}</strong> stop(s) had Restrict route position = Yes but no usable Route Sequence<br/>
+    <strong>${affectedRouteIds.size}</strong> route(s) resequenced by shortest-distance order after assignment<br/>
+    <strong>${positionApplied}</strong> preferred stop position(s) applied after distance sequencing<br/>
+    <strong>${positionAdjusted}</strong> preferred stop position(s) adjusted because the requested position did not exist or would create a gap<br/>
     <strong>${noMatch}</strong> had a Preferred Resource Key but no route UDFNumber1 match was found<br/>
     <strong>${noPref}</strong> had no usable 4-digit Preferred Resource Key value (skipped)
   `);
@@ -2644,39 +2628,93 @@ function isYesFlag(value){
   return ['yes','y','true','1','x'].includes(v);
 }
 
-function resequenceRoutesRespectingPreferredLocks(routeIds){
-  routeIds.forEach(routeId=>{
-    const routeStops=stops.filter(s=>s.routeId===routeId);
-    if(!routeStops.length)return;
-
-    const used=new Set();
-    const locked=routeStops
-      .filter(s=>isYesFlag(s.restrictRoutePosition)&&(parseInt(s.preferredRouteSequence||s.routeSequence,10)||0)>0)
-      .sort((a,b)=>(parseInt(a.preferredRouteSequence||a.routeSequence,10)||0)-(parseInt(b.preferredRouteSequence||b.routeSequence,10)||0));
-
-    locked.forEach(s=>{
-      let pos=parseInt(s.preferredRouteSequence||s.routeSequence,10)||0;
-      while(pos>0&&used.has(pos))pos++;
-      if(pos>0){
-        s.seq=pos;
-        used.add(pos);
-      }
-    });
-
-    const flexible=routeStops
-      .filter(s=>!locked.includes(s))
-      .sort((a,b)=>(a.seq||999999)-(b.seq||999999));
-
-    let next=1;
-    flexible.forEach(s=>{
-      while(used.has(next))next++;
-      s.seq=next;
-      used.add(next);
-      next++;
-    });
-  });
+function preferredPositionNumber(stop){
+  const n=parseInt(stop?.preferredRouteSequence||stop?.routeSequence,10);
+  return Number.isFinite(n)&&n>0?n:0;
 }
 
+function nearestDistanceStopOrder(routeId){
+  const route=routes.find(r=>r.id===routeId);
+  const routeStops=stops.filter(s=>s.routeId===routeId);
+  if(routeStops.length<2)return routeStops.slice().sort((a,b)=>(a.seq||0)-(b.seq||0));
+
+  const geoStops=routeStops.filter(s=>s.lat&&s.lng);
+  const noGeoStops=routeStops.filter(s=>!s.lat||!s.lng).sort((a,b)=>(a.seq||999999)-(b.seq||999999));
+  const start=getRouteDepotPoint(route,geoStops)||geoStops[0];
+  if(!start)return routeStops.slice().sort((a,b)=>(a.seq||0)-(b.seq||0));
+
+  const remaining=geoStops.slice();
+  const ordered=[];
+  let current={lat:start.lat,lng:start.lng};
+
+  while(remaining.length){
+    let bestIndex=0,bestDistance=Infinity;
+    remaining.forEach((stop,index)=>{
+      const d=haversine(current.lat,current.lng,stop.lat,stop.lng);
+      if(d<bestDistance){bestDistance=d;bestIndex=index;}
+    });
+    const next=remaining.splice(bestIndex,1)[0];
+    ordered.push(next);
+    current={lat:next.lat,lng:next.lng};
+  }
+
+  return ordered.concat(noGeoStops);
+}
+
+function resequenceRoutesDistanceThenPreferredPositions(routeIds){
+  let applied=0, adjusted=0;
+
+  routeIds.forEach(routeId=>{
+    const baseOrder=nearestDistanceStopOrder(routeId);
+    const stopCount=baseOrder.length;
+    if(!stopCount)return;
+
+    // Start with shortest-distance order for every stop.
+    const locked=baseOrder
+      .filter(s=>isYesFlag(s.restrictRoutePosition)&&preferredPositionNumber(s)>0)
+      .sort((a,b)=>preferredPositionNumber(a)-preferredPositionNumber(b));
+    const lockedIds=new Set(locked.map(s=>s.id));
+    const flexible=baseOrder.filter(s=>!lockedIds.has(s.id));
+    const finalOrder=[];
+
+    // Preferred positions are compacted so they never create missing sequence gaps.
+    // Examples:
+    // - 7 stops and preferred position 15 => actual routed sequence 7.
+    // - First locked preferred position is 2 and there is no locked #1 => actual routed sequence 1.
+    locked.forEach((stop,index)=>{
+      const requested=preferredPositionNumber(stop);
+      let target;
+      if(requested>stopCount){
+        target=stopCount;
+      }else{
+        const priorExistingPositions=locked.slice(0,index).filter(x=>preferredPositionNumber(x)<requested&&preferredPositionNumber(x)<=stopCount).length;
+        target=Math.min(requested, priorExistingPositions+1);
+      }
+      target=Math.max(1,Math.min(stopCount,target));
+      if(target!==requested)adjusted++;
+      finalOrder.splice(target-1,0,stop);
+      applied++;
+    });
+
+    flexible.forEach(stop=>{
+      let insertAt=0;
+      while(insertAt<finalOrder.length)insertAt++;
+      finalOrder.splice(insertAt,0,stop);
+    });
+
+    // If any end-position locked stops pushed the array past the route stop count, keep
+    // all stops compacted and numbered 1..N.
+    finalOrder.slice(0,stopCount).forEach((stop,index)=>{stop.seq=index+1;});
+    finalOrder.slice(stopCount).forEach((stop,index)=>{stop.seq=stopCount+index+1;});
+  });
+
+  return {applied,adjusted};
+}
+
+// Backward-compatible function name used by older buttons/jobs.
+function resequenceRoutesRespectingPreferredLocks(routeIds){
+  return resequenceRoutesDistanceThenPreferredPositions(routeIds);
+}
 
 function cancelPotentialJob(){
   const cleared=Object.keys(potColors||{}).length || Object.keys(potRouteSuggestions||{}).length;
@@ -4022,7 +4060,7 @@ function exportExcel(){
         'REQ_DELIVERY_DATE':isStop?(s.reqDeliveryDate||''):'',
         'WILL_CALL_INDICATOR':isStop?(s.willCallIndicator||''):'',
         'Preferred Resource Key':isStop?(s.preferredResourceKey||''):'',
-        'Route Sequence':isStop?(s.preferredRouteSequence||''):'',
+        'Route Sequence':isStop?(s.seq||''):'',
         'Comment':isStop?(s.comment||''):'',
       });
     });
@@ -4046,7 +4084,7 @@ function exportExcel(){
     'Total Weight':parseFloat(tWeight(s).toFixed(2)),
     'Total Cube':parseFloat(tCube(s).toFixed(2)),
     'Preferred Resource Key':s.preferredResourceKey||'',
-    'Route Sequence':s.preferredRouteSequence||'',
+    'Route Sequence':s.routeId?(s.seq||''):'',
     'Earliest Time Window':fullWindowDisplay(s.earliestTimeWindowRaw,s.earliestTimeWindow)||'',
     'Latest Time Window':fullWindowDisplay(s.latestTimeWindowRaw,s.latestTimeWindow)||'',
     'WILL_CALL_INDICATOR':s.willCallIndicator||'',
@@ -4088,7 +4126,7 @@ function exportExcel(){
         'Preferred Resource Key':o.preferredResourceKey||'',
         'Preferred resource indicator':o.preferredResourceIndicator||'',
         'Restrict preferred resource':o.restrictPreferredResource||'',
-        'Route Sequence':o.preferredRouteSequence||'',
+        'Route Sequence':s.routeId?(s.seq||''):'',
         'Restrict route position':o.restrictRoutePosition||'',
         'Order Ship Date':o.orderShipDate||'',
         'Address':o.address||s.address||'',
