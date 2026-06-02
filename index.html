@@ -452,12 +452,13 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
       <p>Click or drag &amp; drop Excel / CSV file here</p>
       <span id="imp-hint">Upload one file with sheets named "Routes", "Trucks", "Orders", and "Depot Locations" — or load individually</span>
     </div>
-    <div style="margin:10px 0 8px;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg2);">
-      <div style="font-size:10px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:7px;">Route Date <span style="font-weight:400;color:var(--text3);text-transform:none;letter-spacing:0;">(optional — re-dates routes only)</span></div>
+    <div id="import-export-info" style="margin:10px 0 8px;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg2);">
+      <div style="font-size:10px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:7px;">Export Info</div>
       <div class="input-row" style="margin-bottom:0;">
-        <div class="field"><label>Apply this Route Date to imported routes</label><input type="date" id="import-route-date"/></div>
+        <div class="field"><label>Route Date <span style="font-weight:400;color:var(--text3);">(re-dates routes only)</span></label><input type="date" id="import-route-date"/></div>
+        <div class="field"><label>Region Code</label><input type="text" id="import-region-code" placeholder="Enter Region Code"/></div>
       </div>
-      <div style="font-size:9px;color:var(--text3);margin-top:6px;">Orders keep their imported Earliest/Latest Time Window dates. This only changes route dates.</div>
+      <div style="font-size:9px;color:var(--text3);margin-top:6px;">Route Date changes imported routes only. Orders keep their imported Earliest/Latest Time Window dates. Region Code exports to the Output File worksheet in column B: Region Code.</div>
     </div>
     <div id="route-day-filter" style="margin:10px 0 8px;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg2);">
       <div style="font-size:10px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:7px;">Route Day Filter <span style="font-weight:400;color:var(--text3);text-transform:none;letter-spacing:0;">(uses Route Templates UDFString2)</span></div>
@@ -658,6 +659,7 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
 // ============================================================
 const COLORS=['#4f8cff','#3ecf8e','#f59e0b','#ef4444','#a78bfa','#fb923c','#38bdf8','#f472b6','#34d399','#fbbf24','#60a5fa','#86efac'];
 let routes=[], stops=[], trucks=[], depotLocations=[];
+let sessionRegionCode='';
 let mapCleared=false;
 const visibleStopIds=new Set();
 const visibleRouteIds=new Set();
@@ -685,6 +687,8 @@ window.addEventListener('DOMContentLoaded',()=>{
   document.getElementById('route-date').value=new Date().toISOString().slice(0,10);
   const importRouteDateEl=document.getElementById('import-route-date');
   if(importRouteDateEl) importRouteDateEl.value=document.getElementById('route-date').value;
+  const importRegionCodeEl=document.getElementById('import-region-code');
+  if(importRegionCodeEl) importRegionCodeEl.value=sessionRegionCode;
   map=L.map('map',{zoomControl:true}).setView([39.5,-98.35],4);
   darkTileLayer=L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',{
     maxZoom:19, subdomains:'abcd',
@@ -3130,6 +3134,8 @@ function openImport(){
   document.getElementById('file-in').value='';
   const importRouteDateEl=document.getElementById('import-route-date');
   if(importRouteDateEl) importRouteDateEl.value=document.getElementById('route-date')?.value||new Date().toISOString().slice(0,10);
+  const importRegionCodeEl=document.getElementById('import-region-code');
+  if(importRegionCodeEl) importRegionCodeEl.value=sessionRegionCode||importRegionCodeEl.value||'';
 }
 
 function setImportMode(m){
@@ -3250,6 +3256,7 @@ function confirmImport(){
   if(btn){btn.disabled=true;btn.textContent='Importing...';}
 
   try{
+    sessionRegionCode=sval(document.getElementById('import-region-code')?.value||sessionRegionCode||'');
     let rc=0,dc=0,sc=0,lc=0, skipped=0;
     const sheets=pendingWB.SheetNames.map(name=>{
       const ws=pendingWB.Sheets[name];
@@ -3738,6 +3745,7 @@ function clearSession(){
   stops = [];
   trucks = [];
   depotLocations = [];
+  sessionRegionCode = '';
 
   mapCleared = true;
 
@@ -3854,6 +3862,7 @@ function fixedServiceSecondsForOutput(order,stop){return valueSecondsFromOrderOr
 function buildOutputFileRows(){
   const rows=[];
   const sessionDate=document.getElementById('route-date')?.value||new Date().toISOString().slice(0,10);
+  const outputRegionCode=sessionRegionCode||'';
 
   routes.forEach(route=>{
     const timeline=routeTimelineRows(route.id);
@@ -3862,7 +3871,7 @@ function buildOutputFileRows(){
         const d=pt.depot||{};
         rows.push({
           'District':route.district||'',
-          'Region_Code':route.regionCode||route.region||'',
+          'Region Code':outputRegionCode||route.regionCode||route.region||'',
           'Route':route.routeTemplateKey||route.name||'',
           'Customer':d.locationKey||'',
           'Sequence':pt.type==='depot-start'?0:(stops.filter(s=>s.routeId===route.id).length+1),
@@ -3898,11 +3907,11 @@ function buildOutputFileRows(){
         const weight=totalWeightForOrder(order)||tWeight(stop);
         const variable=variableServiceSecondsForOutput(order,stop);
         const fixed=fixedServiceSecondsForOutput(order,stop);
-        const region=sval(rawField(order,['Region_Code','Region Code','REGION_CODE','Region']))||route.regionCode||route.region||'';
+        const region=outputRegionCode||sval(rawField(order,['Region_Code','Region Code','REGION_CODE','Region']))||route.regionCode||route.region||'';
         const parent=sval(rawField(order,['Parent Account','ParentAccount','PARENT_ACCOUNT']))||order.alternativeCustomerNumber||'';
         rows.push({
           'District':order.district||stop.district||'',
-          'Region_Code':region,
+          'Region Code':region,
           'Route':route.routeTemplateKey||route.name||'',
           'Customer':order.customerNumber||stop.customerNumber||order.shipToId||stop.shipToId||'',
           'Sequence':stop.seq||'',
@@ -3942,7 +3951,7 @@ function buildOutputFileRows(){
       const fixed=fixedServiceSecondsForOutput(order,stop);
       rows.push({
         'District':order.district||stop.district||'',
-        'Region_Code':sval(rawField(order,['Region_Code','Region Code','REGION_CODE','Region'])),
+        'Region Code':outputRegionCode||sval(rawField(order,['Region_Code','Region Code','REGION_CODE','Region'])),
         'Route':'',
         'Customer':order.customerNumber||stop.customerNumber||order.shipToId||stop.shipToId||'',
         'Sequence':'',
@@ -4205,7 +4214,7 @@ function exportExcel(){
 
   // Tab 6: Output File (production-style session output)
   const outputFileRows=buildOutputFileRows();
-  const outputHeaders=['District','Region_Code','Route','Customer','Sequence','Order_number','Parent Account','EarliestDate','LatestDate','projectedArrivalDate','projectedBegunDate','serviceDurationPerCaseInSeconds','ServiceDuration','FixedserviceDuration','udfString4','truckKey','driverKey','routename','routeprojectedDepartedDate','locationType','stoptype','Measure1','Measure2','Measure3','udfString3'];
+  const outputHeaders=['District','Region Code','Route','Customer','Sequence','Order_number','Parent Account','EarliestDate','LatestDate','projectedArrivalDate','projectedBegunDate','serviceDurationPerCaseInSeconds','ServiceDuration','FixedserviceDuration','udfString4','truckKey','driverKey','routename','routeprojectedDepartedDate','locationType','stoptype','Measure1','Measure2','Measure3','udfString3'];
   const outputWs=XLSX.utils.json_to_sheet(outputFileRows.length?outputFileRows:[Object.fromEntries(outputHeaders.map(h=>[h,'']))],{header:outputHeaders});
   XLSX.utils.book_append_sheet(wb,outputWs,'Output File');
 
