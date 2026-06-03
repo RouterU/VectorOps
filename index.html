@@ -413,6 +413,7 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
       <button class="btn" onclick="displayAllUnassignedStopsOnMap()" title="Display every unassigned stop on the map">Display All Unassigned Stops</button>
       <button class="btn" onclick="enableStreetViewPicker()" title="Click anywhere on the map to open Google Street View nearby">🚶 Street View</button>
       <button class="btn" id="lasso-stops-btn" onclick="toggleLassoMode()" title="Draw a box on the map to select multiple stops">☐ Lasso Stops</button>
+      <button class="btn" id="route-line-toggle-btn" onclick="toggleRouteLines()" title="Hide or show dotted route lines on the map">☑ Route Lines</button>
       <span class="map-drop-hint">Drag routes/stops here to display</span>
     </div>
     <div id="map"></div>
@@ -667,6 +668,7 @@ let activeManifestRouteId=null, activeDetailStopId=null, activeDetailRouteId=nul
 let pendingOptimizationMode='selected';
 let appTab='routing', importMode='all', pendingWB=null;
 let dragState=null, map, markers={}, polylines={}, roadPolylines={}, expanded=new Set();
+let routeLinesVisible=true;
 let darkTileLayer=null, satelliteTileLayer=null, currentMapLayer='dark';
 let contextStopId=null;
 let potColors={}; // stopId -> color
@@ -1279,7 +1281,7 @@ function renderMap(){
     if(init&&init.lat&&init.lng)points.push([init.lat,init.lng]);
     rs.forEach(s=>points.push([s.lat,s.lng]));
     if(fin&&fin.lat&&fin.lng)points.push([fin.lat,fin.lng]);
-    if(points.length<2) return;
+    if(points.length<2 || !routeLinesVisible) return;
     polylines[r.id]=L.polyline(points,{color,weight:4,opacity:.72,dashArray:'5,4'}).addTo(map);
     polylines[r.id].on('click',()=>{toggleRouteFilter(r.id);fitRouteToMap(r.id);});
     polylines[r.id].on('mouseover',()=>{highlightRoute(r.id); if(polylines[r.id]) polylines[r.id].setStyle({weight:8,opacity:.95});});
@@ -1299,7 +1301,21 @@ function renderLegend(){
     '<div style="font-size:10px;color:var(--text3)">No routes</div>';
 }
 
+function updateRouteLineToggleButton(){
+  const btn=document.getElementById('route-line-toggle-btn');
+  if(!btn)return;
+  btn.textContent=routeLinesVisible?'☑ Route Lines':'☐ Route Lines';
+  btn.title=routeLinesVisible?'Hide dotted route lines on the map':'Show dotted route lines on the map';
+}
+function toggleRouteLines(){
+  routeLinesVisible=!routeLinesVisible;
+  updateRouteLineToggleButton();
+  renderMap();
+  showToast(routeLinesVisible?'Route lines shown':'Route lines hidden');
+}
+
 function updateApplyBar(){
+  updateRouteLineToggleButton();
   const sel=routes.filter(r=>r.selected).length;
   document.getElementById('sel-count').textContent=sel?`${sel} selected`:'';
   document.getElementById('chk-all').checked=routes.length>0&&routes.every(r=>r.selected);
@@ -3805,6 +3821,8 @@ function clearSession(){
   clearLassoSelection(true);
   lassoMode=false;
   lassoDragging=false;
+  routeLinesVisible=true;
+  updateRouteLineToggleButton();
   streetViewPickMode=false;
   if(map&&map.getContainer())map.getContainer().style.cursor='';
 
