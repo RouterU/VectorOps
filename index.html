@@ -680,6 +680,15 @@ let manualSequenceRouteId=null, manualSequenceOrder=[], manualSequenceDragStopId
 let lassoMode=false, lassoDragging=false, lassoStartPoint=null;
 let lassoSelectedStopIds=new Set();
 
+// Ending Session Warning: warns users before refreshing or closing the browser while session data exists.
+window.addEventListener('beforeunload', function(e){
+  const hasSessionData = (routes&&routes.length) || (stops&&stops.length) || (trucks&&trucks.length) || (depotLocations&&depotLocations.length);
+  if(!hasSessionData)return;
+  e.preventDefault();
+  e.returnValue = 'Ending Session Warning: refreshing or closing this browser will end the current routing session.';
+  return e.returnValue;
+});
+
 // ============================================================
 // INIT
 // ============================================================
