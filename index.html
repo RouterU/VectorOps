@@ -3870,6 +3870,8 @@ function buildOutputFileRows(){
   const outputRegionCode=sessionRegionCode||'';
 
   routes.forEach(route=>{
+    const routeCustomerStops=stops.filter(s=>s.routeId===route.id);
+    if(!routeCustomerStops.length)return;
     const timeline=routeTimelineRows(route.id);
     timeline.forEach(pt=>{
       if(pt.type!=='stop'){
@@ -3899,7 +3901,7 @@ function buildOutputFileRows(){
           'Measure1':'',
           'Measure2':'',
           'Measure3':'',
-          'udfString3':route.udfString2||''
+          'udfString3':''
         });
         return;
       }
@@ -3929,7 +3931,7 @@ function buildOutputFileRows(){
           'serviceDurationPerCaseInSeconds':cases?parseFloat((variable/cases).toFixed(6)):0,
           'ServiceDuration':fixed,
           'FixedserviceDuration':variable+fixed,
-          'udfString4':sval(rawField(order,['udfString4','UDFString4','UDF String 4','UDFString 4'])),
+          'udfString4':order.orderCodes||sval(rawField(order,['Order Codes','OrderCodes','ORDER_CODES'])),
           'truckKey':route.truckKey||'',
           'driverKey':route.driverKey||'',
           'routename':route.name||'',
@@ -3939,7 +3941,7 @@ function buildOutputFileRows(){
           'Measure1':cases,
           'Measure2':parseFloat(cube.toFixed(2)),
           'Measure3':parseFloat(weight.toFixed(2)),
-          'udfString3':sval(rawField(order,['udfString3','UDFString3','UDF String 3','UDFString 3']))||route.udfString2||''
+          'udfString3':order.alternativeCustomerNumber||sval(rawField(order,['Alternative customer number','Alternative Customer Number','AlternativeCustomerNumber']))
         });
       });
     });
@@ -3969,7 +3971,7 @@ function buildOutputFileRows(){
         'serviceDurationPerCaseInSeconds':cases?parseFloat((variable/cases).toFixed(6)):0,
         'ServiceDuration':fixed,
         'FixedserviceDuration':variable+fixed,
-        'udfString4':sval(rawField(order,['udfString4','UDFString4','UDF String 4','UDFString 4'])),
+        'udfString4':order.orderCodes||sval(rawField(order,['Order Codes','OrderCodes','ORDER_CODES'])),
         'truckKey':'',
         'driverKey':'',
         'routename':'',
@@ -3979,7 +3981,7 @@ function buildOutputFileRows(){
         'Measure1':cases,
         'Measure2':parseFloat(cube.toFixed(2)),
         'Measure3':parseFloat(weight.toFixed(2)),
-        'udfString3':sval(rawField(order,['udfString3','UDFString3','UDF String 3','UDFString 3']))
+        'udfString3':order.alternativeCustomerNumber||sval(rawField(order,['Alternative customer number','Alternative Customer Number','AlternativeCustomerNumber']))
       });
     });
   });
