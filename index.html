@@ -949,9 +949,14 @@ function roadAdjustedMiles(miles){return (parseFloat(miles)||0)*1.25;}
 function driveMinutesForMiles(miles){return (roadAdjustedMiles(miles)/35)*60;}
 function serviceDurationSecondsForStop(stop){
   // Production Orders fields are stored in seconds.
-  // Routing service time now matches Output File column M (ServiceDuration): Fixed Service Time.
-  const seconds=nval(stop?.fixedServiceTime);
-  return seconds>0?seconds:0;
+  // Route Manifest service time now matches Output File column N (FixedserviceDuration):
+  // variable service time + fixed service time, summed across consolidated orders.
+  const orderRows=Array.isArray(stop?.orders)&&stop.orders.length?stop.orders:[stop];
+  return orderRows.reduce((total,order)=>{
+    const variable=variableServiceSecondsForOutput(order,stop);
+    const fixed=fixedServiceSecondsForOutput(order,stop);
+    return total+variable+fixed;
+  },0);
 }
 function stopServiceMinutes(stop){return serviceDurationSecondsForStop(stop)/60;}
 function routePointSequence(routeId){
@@ -2542,9 +2547,12 @@ function renderRouteManifest(){
       ondragend="manifestDragEnd()"
       onclick="toggleStopFilter('${s.id}')"
       onmouseenter="highlightStop('${s.id}')" onmouseleave="clearMapHighlight()"`;
+    const customerCell=isDepot
+      ? `<div class="manifest-customer"><div class="manifest-name">${displayName}</div><div class="manifest-detail">${detail}</div></div>`
+      : `<div class="manifest-customer" onclick="event.stopPropagation();openStopDetail('${s.id}')" title="Click to view consolidated orders" style="cursor:pointer;"><div class="manifest-name">${displayName}</div><div class="manifest-detail">${detail}</div></div>`;
     return `<div class="manifest-row ${isDepot?'depot':'stop'}${violationClass}" ${dragAttrs}>
       <div class="manifest-seq">${seq}</div>
-      <div class="manifest-customer"><div class="manifest-name">${displayName}</div><div class="manifest-detail">${detail}</div></div>
+      ${customerCell}
       <div>${escapeHtml(pt.city||'')} ${escapeHtml(pt.state||'')}</div>
       <div>${isDepot?'—':tCases(s)}</div>
       <div>${isDepot?'—':Math.round(tWeight(s)).toLocaleString()}</div>
