@@ -1129,7 +1129,7 @@ function renderRoutes(){
       <div class="r-header" onclick="openRouteDetail('${r.id}')">
         <div class="r-colorbar" style="background:${color}"></div>
         <div class="r-info">
-          <div class="r-name">${r.name}</div>
+          <div class="r-name">${r.name}${r.published?'<span style="display:inline-block;margin-left:6px;padding:1px 6px;border-radius:6px;background:rgba(62,207,142,.16);border:1px solid rgba(62,207,142,.45);color:var(--success);font-size:9px;font-weight:800;box-shadow:0 3px 10px rgba(0,0,0,.35);vertical-align:middle;">Published</span>':''}</div>
           <div class="r-meta">${rStops.length} stops &middot; ${cs}cs &middot; ${Math.round(wt)}lbs &middot; ${cu.toFixed(1)}cu &middot; ${routeDistanceMiles(r.id).toFixed(1)}mi &middot; ${fmtMinutes(routeTotalMinutes(r.id))} &middot; ${dname}</div>
           <div class="r-timing">${fmtTiming(r)}${r.udfNumber1?' · UDF#1:'+r.udfNumber1:''}${r.initialLocationKey||r.finalLocationKey?' · Depot '+(r.initialLocationKey||'—')+' → '+(r.finalLocationKey||'—'):''}</div>
         </div>
@@ -1298,6 +1298,7 @@ function updateApplyBar(){
   const sel=routes.filter(r=>r.selected).length;
   document.getElementById('sel-count').textContent=sel?`${sel} selected`:'';
   document.getElementById('chk-all').checked=routes.length>0&&routes.every(r=>r.selected);
+  updateExportSelectedButton();
 }
 
 function updateAssignPotentialButton(){
@@ -1326,8 +1327,8 @@ function toggleExpand(id,e){
   renderRoutes();
 }
 
-function routeCheck(id,val){const r=routes.find(x=>x.id===id);if(r){r.selected=val;}updateApplyBar();}
-function toggleAllRouteChecks(val){routes.forEach(r=>r.selected=val);renderRoutes();updateApplyBar();}
+function routeCheck(id,val){const r=routes.find(x=>x.id===id);if(r){r.selected=val;}updateApplyBar();updateExportSelectedButton();}
+function toggleAllRouteChecks(val){routes.forEach(r=>r.selected=val);renderRoutes();updateApplyBar();updateExportSelectedButton();}
 function setCheck(id,val){const s=stops.find(x=>x.id===id);if(s)s.uiChecked=val;}
 function checkAllUA(val){stops.filter(s=>!s.routeId).forEach(s=>s.uiChecked=val);renderUA();}
 
@@ -3873,12 +3874,13 @@ function exportRouteValue(route){
   return value.replace(/_.*$/,'');
 }
 
-function buildOutputFileRows(){
+function buildOutputFileRows(routeIdSet=null){
   const rows=[];
   const sessionDate=document.getElementById('route-date')?.value||new Date().toISOString().slice(0,10);
   const outputRegionCode=sessionRegionCode||'';
 
-  routes.forEach(route=>{
+  const outputRoutes=routeIdSet?routes.filter(r=>routeIdSet.has(r.id)):routes;
+  outputRoutes.forEach(route=>{
     const routeCustomerStops=stops.filter(s=>s.routeId===route.id);
     if(!routeCustomerStops.length)return;
     const timeline=routeTimelineRows(route.id);
@@ -3956,7 +3958,8 @@ function buildOutputFileRows(){
     });
   });
 
-  // Include unassigned customer orders as CUSTOMER rows so the Output File always reflects the full session.
+  // Include unassigned customer orders only on full exports so selected-route exports contain checked routes only.
+  if(routeIdSet)return rows;
   stops.filter(s=>!s.routeId).forEach(stop=>{
     const orderRows=Array.isArray(stop.orders)&&stop.orders.length?stop.orders:[stop];
     orderRows.forEach(order=>{
@@ -4041,16 +4044,62 @@ function downloadOutputTextFile(outputHeaders,outputRows){
   return fileName;
 }
 
+
+function selectedRouteIdSet(){
+  const ids=routes.filter(r=>r.selected).map(r=>r.id);
+  return new Set(ids);
+}
+function selectedRouteCount(){return routes.filter(r=>r.selected).length;}
+function updateExportSelectedButton(){
+  let btn=document.getElementById('export-selected-btn');
+  const exportBtn=Array.from(document.querySelectorAll('button')).find(b=>b.getAttribute('onclick')==='exportExcel()');
+  if(!btn&&exportBtn&&exportBtn.parentNode){
+    btn=document.createElement('button');
+    btn.id='export-selected-btn';
+    btn.className='btn success';
+    btn.type='button';
+    btn.onclick=exportSelectedRoutes;
+    btn.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Export Selected';
+    exportBtn.parentNode.insertBefore(btn, exportBtn);
+  }
+  if(btn)btn.style.display=selectedRouteCount()>0?'inline-flex':'none';
+}
+function exportSelectedRoutes(){
+  const ids=selectedRouteIdSet();
+  if(!ids.size){showToast('Select one or more route checkboxes first');return;}
+  exportExcel({routeIdSet:ids, selectedOnly:true, markPublished:true});
+}
+function applyPublishedHighlight(ws,headers,rows){
+  if(!ws||!headers||!rows)return;
+  rows.forEach((row,rowIndex)=>{
+    const routeValue=cleanTxtCell(row['Route']||row['Route Number']);
+    if(!routeValue)return;
+    const route=routes.find(r=>exportRouteValue(r)===routeValue||(r.routeTemplateKey||'')===routeValue||(r.name||'')===routeValue);
+    if(!route||!route.published)return;
+    headers.forEach((h,colIndex)=>{
+      const addr=XLSX.utils.encode_cell({r:rowIndex+1,c:colIndex});
+      if(ws[addr]){
+        ws[addr].s={fill:{fgColor:{rgb:'FFF2CC'}}};
+      }
+    });
+  });
+}
+
 // ============================================================
 // EXPORT
 // ============================================================
-function exportExcel(){
+function exportExcel(options={}){
   if(!stops.length&&!routes.length){showToast('No data to export');return;}
+  const routeIdSet=options.routeIdSet||null;
+  const selectedOnly=options.selectedOnly===true;
+  const exportRoutes=routeIdSet?routes.filter(r=>routeIdSet.has(r.id)):routes;
+  const exportStops=routeIdSet?stops.filter(s=>s.routeId&&routeIdSet.has(s.routeId)):stops;
+  if(selectedOnly&&!exportRoutes.length){showToast('Select one or more route checkboxes first');return;}
   const wb=XLSX.utils.book_new();
 
   // Tab 1: Totals Summary
-  const usedRoutes=routes.filter(r=>stops.some(s=>s.routeId===r.id));
-  const routedStops=stops.filter(s=>s.routeId);
+  const usedRoutes=exportRoutes.filter(r=>exportStops.some(s=>s.routeId===r.id));
+  const routedStops=exportStops.filter(s=>s.routeId);
   const totalRunMinutes=usedRoutes.reduce((a,r)=>a+routeTotalMinutes(r.id),0);
   const totalCasesShipped=routedStops.reduce((a,s)=>a+tCases(s),0);
   const totalMiles=usedRoutes.reduce((a,r)=>a+routeDistanceMiles(r.id),0);
@@ -4066,8 +4115,8 @@ function exportExcel(){
   XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(totalsSummary),'Totals Summary');
 
   // Tab 2: Route Summary
-  const summary=routes.map(r=>{
-    const rs=stops.filter(s=>s.routeId===r.id);
+  const summary=exportRoutes.map(r=>{
+    const rs=exportStops.filter(s=>s.routeId===r.id);
     const drv=trucks.find(d=>d.truckKey===r.truckKey||d.driverKey===r.driverKey);
     const dname=r.driverFirstName?(r.driverFirstName+' '+(r.driverLastName||'')).trim():(drv?drv.name:'');
     return{
@@ -4104,7 +4153,7 @@ function exportExcel(){
 
   // Tab 3: Route Manifest
   const manifest=[];
-  routes.forEach(r=>{
+  exportRoutes.forEach(r=>{
     const drv=trucks.find(d=>d.truckKey===r.truckKey||d.driverKey===r.driverKey);
     const dname=r.driverFirstName?(r.driverFirstName+' '+(r.driverLastName||'')).trim():(drv?drv.name:'');
     const timeline=routeTimelineRows(r.id);
@@ -4176,7 +4225,7 @@ function exportExcel(){
   XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(manifest.length?manifest:[{Note:'No assigned stops'}]),'Route Manifest');
 
   // Tab 4: Unassigned
-  const ua=stops.filter(s=>!s.routeId).map(s=>({
+  const ua=(routeIdSet?[]:stops.filter(s=>!s.routeId)).map(s=>({
     'Customer Name':s.customerName||'',
     'ORDER_NUMBER':s.orderNumber||'',
     'CUTID':s.cutId||'',
@@ -4202,7 +4251,7 @@ function exportExcel(){
 
   // Tab 5: Orders Detail (explodes consolidated customer stops back to order-level rows)
   const orderDetail=[];
-  stops.forEach(s=>{
+  exportStops.forEach(s=>{
     const route=routes.find(r=>r.id===s.routeId)||{};
     const orderRows=Array.isArray(s.orders)&&s.orders.length?s.orders:[{}];
     orderRows.forEach(o=>{
@@ -4272,17 +4321,24 @@ function exportExcel(){
   XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(orderDetail.length?orderDetail:[{Note:'No orders'}]),'Orders Detail');
 
   // Tab 6: Output File (production-style session output)
-  const outputFileRows=buildOutputFileRows();
+  const outputFileRows=buildOutputFileRows(routeIdSet);
   const outputHeaders=['District','Region Code','Route','Customer','Sequence','Order_number','Parent Account','EarliestDate','LatestDate','projectedArrivalDate','projectedBegunDate','serviceDurationPerCaseInSeconds','ServiceDuration','FixedserviceDuration','udfString4','truckKey','driverKey','routename','routeprojectedDepartedDate','locationType','stoptype','Measure1','Measure2','Measure3','udfString3'];
   const outputWs=XLSX.utils.json_to_sheet(outputFileRows.length?outputFileRows:[Object.fromEntries(outputHeaders.map(h=>[h,'']))],{header:outputHeaders});
+  if(!selectedOnly)applyPublishedHighlight(outputWs,outputHeaders,outputFileRows);
   XLSX.utils.book_append_sheet(wb,outputWs,'Output File');
 
   // Depot Locations tab intentionally removed from export. Depots still appear inside Route Summary and Route Manifest where needed.
 
   const date=document.getElementById('route-date').value||new Date().toISOString().slice(0,10);
-  XLSX.writeFile(wb,`RouteDesk_${date}.xlsx`);
+  const xlsxName=selectedOnly?`RouteDesk_${date}_Selected.xlsx`:`RouteDesk_${date}.xlsx`;
+  XLSX.writeFile(wb,xlsxName);
   const txtFileName=downloadOutputTextFile(outputHeaders,outputFileRows);
-  showToast(`Exported Excel workbook and Publish Routes TXT file: ${txtFileName}`);
+  if(options.markPublished){
+    exportRoutes.forEach(r=>{r.published=true;});
+    renderRoutes();
+    updateExportSelectedButton();
+  }
+  showToast(selectedOnly?`Exported selected routes and Publish Routes TXT file: ${txtFileName}`:`Exported Excel workbook and Publish Routes TXT file: ${txtFileName}`);
 }
 
 // ============================================================
