@@ -3987,6 +3987,49 @@ function buildOutputFileRows(){
   return rows;
 }
 
+
+function cleanTxtCell(value){
+  if(value===null||value===undefined)return '';
+  return String(value).trim();
+}
+function outputTextFilePrefix(outputRows){
+  const firstDistrict=(outputRows||[]).map(r=>cleanTxtCell(r['District'])).find(Boolean);
+  const routeDate=document.getElementById('route-date')?.value||'';
+  return firstDistrict || (routeDate?`RouteDesk_${routeDate}`:'RouteDesk_Output');
+}
+function timestampForTextExport(){
+  const d=new Date();
+  return d.getFullYear().toString()
+    + String(d.getMonth()+1).padStart(2,'0')
+    + String(d.getDate()).padStart(2,'0')
+    + '_'
+    + String(d.getHours()).padStart(2,'0')
+    + String(d.getMinutes()).padStart(2,'0')
+    + String(d.getSeconds()).padStart(2,'0');
+}
+function buildOutputTextContent(outputHeaders,outputRows){
+  const lines=[];
+  lines.push(outputHeaders.map(cleanTxtCell).join('\t'));
+  (outputRows||[]).forEach(row=>{
+    lines.push(outputHeaders.map(h=>cleanTxtCell(row[h])).join('\t'));
+  });
+  return lines.join('\r\n');
+}
+function downloadOutputTextFile(outputHeaders,outputRows){
+  const txt=buildOutputTextContent(outputHeaders,outputRows);
+  const fileName=`${outputTextFilePrefix(outputRows)}_${timestampForTextExport()}.txt`;
+  const blob=new Blob([txt],{type:'text/plain;charset=utf-8'});
+  const url=URL.createObjectURL(blob);
+  const a=document.createElement('a');
+  a.href=url;
+  a.download=fileName;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(()=>URL.revokeObjectURL(url),1000);
+  return fileName;
+}
+
 // ============================================================
 // EXPORT
 // ============================================================
@@ -4227,7 +4270,8 @@ function exportExcel(){
 
   const date=document.getElementById('route-date').value||new Date().toISOString().slice(0,10);
   XLSX.writeFile(wb,`RouteDesk_${date}.xlsx`);
-  showToast('Exported: Totals Summary, Route Summary, Route Manifest, Unassigned Stops, Orders Detail, Output File');
+  const txtFileName=downloadOutputTextFile(outputHeaders,outputFileRows);
+  showToast(`Exported Excel workbook and Publish Routes TXT file: ${txtFileName}`);
 }
 
 // ============================================================
