@@ -3859,6 +3859,11 @@ function valueSecondsFromOrderOrStop(order,stop,field){
 function variableServiceSecondsForOutput(order,stop){return valueSecondsFromOrderOrStop(order,stop,'variableServiceTime');}
 function fixedServiceSecondsForOutput(order,stop){return valueSecondsFromOrderOrStop(order,stop,'fixedServiceTime');}
 
+function exportRouteValue(route){
+  const value=(route?.routeTemplateKey||route?.name||'').toString();
+  return value.replace(/_.*$/,'');
+}
+
 function buildOutputFileRows(){
   const rows=[];
   const sessionDate=document.getElementById('route-date')?.value||new Date().toISOString().slice(0,10);
@@ -3872,7 +3877,7 @@ function buildOutputFileRows(){
         rows.push({
           'District':route.district||'',
           'Region Code':outputRegionCode||route.regionCode||route.region||'',
-          'Route':route.routeTemplateKey||route.name||'',
+          'Route':exportRouteValue(route),
           'Customer':d.locationKey||'',
           'Sequence':pt.type==='depot-start'?0:(stops.filter(s=>s.routeId===route.id).length+1),
           'Order_number':'',
@@ -3912,7 +3917,7 @@ function buildOutputFileRows(){
         rows.push({
           'District':order.district||stop.district||'',
           'Region Code':region,
-          'Route':route.routeTemplateKey||route.name||'',
+          'Route':exportRouteValue(route),
           'Customer':order.customerNumber||stop.customerNumber||order.shipToId||stop.shipToId||'',
           'Sequence':stop.seq||'',
           'Order_number':order.orderNumber||stop.orderNumber||'',
