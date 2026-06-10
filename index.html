@@ -414,11 +414,6 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
       <button class="btn" onclick="enableStreetViewPicker()" title="Click anywhere on the map to open Google Street View nearby">🚶 Street View</button>
       <button class="btn" id="lasso-stops-btn" onclick="toggleLassoMode()" title="Draw a box on the map to select multiple stops">☐ Lasso Stops</button>
       <button class="btn" id="route-line-toggle-btn" onclick="toggleRouteLines()" title="Hide or show dotted route lines on the map">☑ Route Lines</button>
-      <select id="travel-model-select" class="map-layer-toggle" onchange="setTravelModel(this.value)" title="Adjust travel time estimates by vehicle type">
-        <option value="standard">Standard</option>
-        <option value="straight">Straight Truck</option>
-        <option value="semi">Semi-Trailer</option>
-      </select>
       <span class="map-drop-hint">Drag routes/stops here to display</span>
     </div>
     <div id="map"></div>
@@ -674,7 +669,6 @@ let pendingOptimizationMode='selected';
 let appTab='routing', importMode='all', pendingWB=null;
 let dragState=null, map, markers={}, polylines={}, roadPolylines={}, expanded=new Set();
 let routeLinesVisible=true;
-let travelModel='standard';
 let darkTileLayer=null, satelliteTileLayer=null, currentMapLayer='dark';
 let contextStopId=null;
 let potColors={}; // stopId -> color
@@ -682,6 +676,8 @@ let potRouteSuggestions={}; // stopId -> suggested routeId from Potential Routes
 let routeSort=""; // optional route sort; blank keeps import/original order
 let activeRouteFilterId=null;
 let activeStopFilterId=null;
+let mapRouteFilterActiveId=null;
+let mapRouteFilterSnapshot=null;
 let measureFromStopId=null, measureLine=null;
 let streetViewPickMode=false;
 let manualSequenceRouteId=null, manualSequenceOrder=[], manualSequenceDragStopId=null;
@@ -722,6 +718,10 @@ window.addEventListener('DOMContentLoaded',()=>{
       streetViewPickMode=false;
       map.getContainer().style.cursor='';
       showToast('Opening Street View for selected map point');
+      return;
+    }
+    if(mapRouteFilterActiveId){
+      restoreMapRouteFilter();
     }
   });
   const mapEl=document.getElementById('map');
@@ -729,8 +729,6 @@ window.addEventListener('DOMContentLoaded',()=>{
   mapEl.addEventListener('drop',dropOnMap);
   initSplitter();
   initLassoTool();
-  const travelModelSelect=document.getElementById('travel-model-select');
-  if(travelModelSelect)travelModelSelect.value=travelModel;
   render();
 });
 
@@ -956,27 +954,7 @@ function routeEndEstimate(routeId){
 }
 
 function roadAdjustedMiles(miles){return (parseFloat(miles)||0)*1.25;}
-function travelModelFactor(){
-  if(travelModel==='semi')return 1.18;
-  if(travelModel==='straight')return 1.08;
-  return 1;
-}
-function travelModelLabel(){
-  if(travelModel==='semi')return 'Semi-Trailer';
-  if(travelModel==='straight')return 'Straight Truck';
-  return 'Standard';
-}
-function driveMinutesForMiles(miles){return ((roadAdjustedMiles(miles)/35)*60)*travelModelFactor();}
-function setTravelModel(value){
-  travelModel=value||'standard';
-  const sel=document.getElementById('travel-model-select');
-  if(sel)sel.value=travelModel;
-  renderStats();
-  renderRoutes();
-  if(activeManifestRouteId)renderRouteManifest();
-  renderLassoPanel();
-  showToast('Travel model set to '+travelModelLabel());
-}
+function driveMinutesForMiles(miles){return (roadAdjustedMiles(miles)/35)*60;}
 function serviceDurationSecondsForStop(stop){
   // Production Orders fields are stored in seconds.
   // Route Manifest service time now matches Output File column N (FixedserviceDuration):
@@ -1065,6 +1043,66 @@ function stopMatchesFilter(stop){
 }
 function clearLeftFilter(){activeRouteFilterId=null;activeStopFilterId=null;renderRoutes();renderUA();}
 
+function snapshotCurrentMapVisibility(){
+  return {
+    mapCleared,
+    visibleRouteIds:Array.from(visibleRouteIds),
+    visibleStopIds:Array.from(visibleStopIds)
+  };
+}
+function restoreMapRouteFilter(){
+  if(!mapRouteFilterSnapshot){
+    mapRouteFilterActiveId=null;
+    renderMap();
+    return;
+  }
+  mapCleared=mapRouteFilterSnapshot.mapCleared;
+  visibleRouteIds.clear();
+  mapRouteFilterSnapshot.visibleRouteIds.forEach(id=>visibleRouteIds.add(id));
+  visibleStopIds.clear();
+  mapRouteFilterSnapshot.visibleStopIds.forEach(id=>visibleStopIds.add(id));
+  mapRouteFilterActiveId=null;
+  mapRouteFilterSnapshot=null;
+  activeRouteFilterId=null;
+  renderRoutes();
+  renderMap();
+  showToast('Map route filter cleared');
+}
+function filterMapToRoute(routeId){
+  const route=routes.find(r=>r.id===routeId);
+  if(!route)return;
+  if(mapRouteFilterActiveId===routeId){
+    restoreMapRouteFilter();
+    return;
+  }
+  if(!mapRouteFilterActiveId){
+    mapRouteFilterSnapshot=snapshotCurrentMapVisibility();
+  }
+  mapRouteFilterActiveId=routeId;
+  activeRouteFilterId=routeId;
+  mapCleared=true;
+  visibleRouteIds.clear();
+  visibleRouteIds.add(routeId);
+  visibleStopIds.clear();
+  stops.filter(s=>s.routeId===routeId).forEach(s=>visibleStopIds.add(s.id));
+  renderRoutes();
+  renderMap();
+  fitRouteToMap(routeId);
+  showToast(`Map filtered to ${route.name||'selected route'}. Click the map to clear.`);
+}
+function clearAllFilters(){
+  activeRouteFilterId=null;
+  activeStopFilterId=null;
+  if(mapRouteFilterActiveId){
+    restoreMapRouteFilter();
+  }else{
+    renderRoutes();
+    renderUA();
+    renderMap();
+  }
+  showToast('Filters cleared');
+}
+
 function normalizeKey(value){return (value??'').toString().trim();}
 function findDepotByKey(key){
   const needle=normalizeKey(key);
@@ -1124,6 +1162,7 @@ function renderStats(){
     <div class="stat"><div class="stat-val">${tc.toLocaleString()}</div><div class="stat-lbl">Cases</div></div>
     <div class="stat"><div class="stat-val">${Math.round(tw).toLocaleString()}</div><div class="stat-lbl">Weight</div></div>
     <div class="stat"><div class="stat-val">${tcu.toFixed(1)}</div><div class="stat-lbl">Cube</div></div>
+    <div class="stat" style="display:flex;align-items:center;justify-content:center;"><button class="btn" style="padding:3px 8px;font-size:10px;" onclick="clearAllFilters()">Clear Filters</button></div>
   `;
 }
 
@@ -1311,7 +1350,10 @@ function renderMap(){
     if(fin&&fin.lat&&fin.lng)points.push([fin.lat,fin.lng]);
     if(points.length<2 || !routeLinesVisible) return;
     polylines[r.id]=L.polyline(points,{color,weight:4,opacity:.72,dashArray:'5,4'}).addTo(map);
-    polylines[r.id].on('click',()=>{toggleRouteFilter(r.id);fitRouteToMap(r.id);});
+    polylines[r.id].on('click',ev=>{
+      if(ev&&ev.originalEvent)L.DomEvent.stopPropagation(ev);
+      filterMapToRoute(r.id);
+    });
     polylines[r.id].on('mouseover',()=>{highlightRoute(r.id); if(polylines[r.id]) polylines[r.id].setStyle({weight:8,opacity:.95});});
     polylines[r.id].on('mouseout',()=>{clearMapHighlight(); if(polylines[r.id]) polylines[r.id].setStyle({weight:4,opacity:.72});});
     polylines[r.id].on('contextmenu',ev=>{
