@@ -414,6 +414,11 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
       <button class="btn" onclick="enableStreetViewPicker()" title="Click anywhere on the map to open Google Street View nearby">🚶 Street View</button>
       <button class="btn" id="lasso-stops-btn" onclick="toggleLassoMode()" title="Draw a box on the map to select multiple stops">☐ Lasso Stops</button>
       <button class="btn" id="route-line-toggle-btn" onclick="toggleRouteLines()" title="Hide or show dotted route lines on the map">☑ Route Lines</button>
+      <select id="travel-model-select" class="map-layer-toggle" onchange="setTravelModel(this.value)" title="Adjust travel time estimates by vehicle type">
+        <option value="standard">Standard</option>
+        <option value="straight">Straight Truck</option>
+        <option value="semi">Semi-Trailer</option>
+      </select>
       <span class="map-drop-hint">Drag routes/stops here to display</span>
     </div>
     <div id="map"></div>
@@ -669,6 +674,7 @@ let pendingOptimizationMode='selected';
 let appTab='routing', importMode='all', pendingWB=null;
 let dragState=null, map, markers={}, polylines={}, roadPolylines={}, expanded=new Set();
 let routeLinesVisible=true;
+let travelModel='standard';
 let darkTileLayer=null, satelliteTileLayer=null, currentMapLayer='dark';
 let contextStopId=null;
 let potColors={}; // stopId -> color
@@ -729,6 +735,8 @@ window.addEventListener('DOMContentLoaded',()=>{
   mapEl.addEventListener('drop',dropOnMap);
   initSplitter();
   initLassoTool();
+  const travelModelSelect=document.getElementById('travel-model-select');
+  if(travelModelSelect)travelModelSelect.value=travelModel;
   render();
 });
 
@@ -954,7 +962,27 @@ function routeEndEstimate(routeId){
 }
 
 function roadAdjustedMiles(miles){return (parseFloat(miles)||0)*1.25;}
-function driveMinutesForMiles(miles){return (roadAdjustedMiles(miles)/35)*60;}
+function travelModelFactor(){
+  if(travelModel==='semi')return 1.18;
+  if(travelModel==='straight')return 1.08;
+  return 1;
+}
+function travelModelLabel(){
+  if(travelModel==='semi')return 'Semi-Trailer';
+  if(travelModel==='straight')return 'Straight Truck';
+  return 'Standard';
+}
+function driveMinutesForMiles(miles){return ((roadAdjustedMiles(miles)/35)*60)*travelModelFactor();}
+function setTravelModel(value){
+  travelModel=value||'standard';
+  const sel=document.getElementById('travel-model-select');
+  if(sel)sel.value=travelModel;
+  renderStats();
+  renderRoutes();
+  if(activeManifestRouteId)renderRouteManifest();
+  renderLassoPanel();
+  showToast('Travel model set to '+travelModelLabel());
+}
 function serviceDurationSecondsForStop(stop){
   // Production Orders fields are stored in seconds.
   // Route Manifest service time now matches Output File column N (FixedserviceDuration):
