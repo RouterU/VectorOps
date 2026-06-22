@@ -309,6 +309,10 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
       Add Stop
     </button>
+    <button class="btn" onclick="openOrderStatusDetails()" title="Review current order statuses by CUTID">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></svg>
+      Order Status Details
+    </button>
     <button class="btn" onclick="openAddRoute()">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
       New Route
@@ -444,10 +448,7 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
     <h2>Import Templates</h2>
     <div class="imp-tabs">
       <div class="imp-tab active" id="itab-all" onclick="setImportMode('all')">All Templates</div>
-      <div class="imp-tab" id="itab-routes" onclick="setImportMode('routes')">Routes Only</div>
-      <div class="imp-tab" id="itab-trucks" onclick="setImportMode('trucks')">Trucks Only</div>
       <div class="imp-tab" id="itab-stops" onclick="setImportMode('stops')">Orders Only</div>
-      <div class="imp-tab" id="itab-depots" onclick="setImportMode('depots')">Depots Only</div>
     </div>
     <div id="imp-drop" class="file-drop"
       onclick="document.getElementById('file-in').click()"
@@ -465,6 +466,25 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
         <div class="field"><label>Region Code</label><input type="text" id="import-region-code" placeholder="Enter Region Code"/></div>
       </div>
       <div style="font-size:9px;color:var(--text3);margin-top:6px;">Route Date changes imported routes only. Orders keep their imported Earliest/Latest Time Window dates. Region Code exports to the Output File worksheet in column B: Region Code.</div>
+    </div>
+    <div id="orders-cutid-filter" style="display:none;margin:10px 0 8px;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg2);">
+      <div style="font-size:10px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:7px;">Order Cut Import <span style="font-weight:400;color:var(--text3);text-transform:none;letter-spacing:0;">(Orders Only)</span></div>
+      <div style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;font-size:10px;color:var(--text2);">
+        <label style="display:flex;align-items:center;gap:5px;cursor:pointer;"><input type="checkbox" class="cutid-chk" value="CUTID_1" style="accent-color:var(--accent);"> CUTID_1</label>
+        <label style="display:flex;align-items:center;gap:5px;cursor:pointer;"><input type="checkbox" class="cutid-chk" value="CUTID_2" style="accent-color:var(--accent);"> CUTID_2</label>
+        <label style="display:flex;align-items:center;gap:5px;cursor:pointer;"><input type="checkbox" class="cutid-chk" value="CUTID_3" style="accent-color:var(--accent);"> CUTID_3</label>
+        <label style="display:flex;align-items:center;gap:5px;cursor:pointer;"><input type="checkbox" class="cutid-chk" value="CUTID_4" style="accent-color:var(--accent);"> CUTID_4</label>
+        <label style="display:flex;align-items:center;gap:5px;cursor:pointer;"><input type="checkbox" class="cutid-chk" value="CUTID_5" style="accent-color:var(--accent);"> CUTID_5</label>
+        <label style="display:flex;align-items:center;gap:5px;cursor:pointer;"><input type="checkbox" class="cutid-chk" value="CUTID_6" style="accent-color:var(--accent);"> CUTID_6</label>
+        <label style="display:flex;align-items:center;gap:5px;cursor:pointer;"><input type="checkbox" class="cutid-chk" value="CUTID_7" style="accent-color:var(--accent);"> CUTID_7</label>
+        <label style="display:flex;align-items:center;gap:5px;cursor:pointer;"><input type="checkbox" class="cutid-chk" value="CUTID_8" style="accent-color:var(--accent);"> CUTID_8</label>
+        <label style="display:flex;align-items:center;gap:5px;cursor:pointer;"><input type="checkbox" class="cutid-chk" value="CUTID_9" style="accent-color:var(--accent);"> CUTID_9</label>
+      </div>
+      <div style="display:flex;gap:6px;margin-top:7px;">
+        <button type="button" class="btn" style="padding:2px 6px;font-size:9px;" onclick="toggleAllCutIds(true)">Select All</button>
+        <button type="button" class="btn" style="padding:2px 6px;font-size:9px;" onclick="toggleAllCutIds(false)">Clear</button>
+      </div>
+      <div style="font-size:9px;color:var(--text3);margin-top:6px;">Select the new cut(s) being added. The full file is still used to remove missing orders and refresh ORDER_STATUS values for orders already in the session.</div>
     </div>
     <div id="route-day-filter" style="margin:10px 0 8px;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg2);">
       <div style="font-size:10px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:7px;">Route Day Filter <span style="font-weight:400;color:var(--text3);text-transform:none;letter-spacing:0;">(uses Route Templates UDFString2)</span></div>
@@ -637,6 +657,30 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
   </div>
 </div>
 
+<!-- Order Status Details Modal -->
+<div id="order-status-modal" style="display:none" class="modal-overlay">
+  <div class="modal manifest-modal">
+    <h2>Order Status Details</h2>
+    <div id="order-status-controls" style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;"></div>
+    <div id="order-status-body" class="manifest-route-list"></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="showOrderStatusGlossary()">Explanation / Glossary</button>
+      <button class="btn" onclick="closeModal('order-status-modal')">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- Order Status Glossary Modal -->
+<div id="order-status-glossary-modal" style="display:none" class="modal-overlay">
+  <div class="modal">
+    <h2>Tandem Order Status Glossary</h2>
+    <div id="order-status-glossary-body" class="job-result"></div>
+    <div class="modal-actions">
+      <button class="btn primary" onclick="closeModal('order-status-glossary-modal')">Close</button>
+    </div>
+  </div>
+</div>
+
 <!-- Optimization Options Modal -->
 <div id="optimization-modal" style="display:none" class="modal-overlay">
   <div class="modal">
@@ -664,7 +708,7 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
 // STATE
 // ============================================================
 const COLORS=['#4f8cff','#3ecf8e','#f59e0b','#ef4444','#a78bfa','#fb923c','#38bdf8','#f472b6','#34d399','#fbbf24','#60a5fa','#86efac'];
-let routes=[], stops=[], trucks=[], depotLocations=[];
+let routes=[], stops=[], trucks=[], depotLocations=[], cancelledOrders=[];
 let sessionRegionCode='';
 let mapCleared=false;
 const visibleStopIds=new Set();
@@ -689,6 +733,22 @@ let streetViewPickMode=false;
 let manualSequenceRouteId=null, manualSequenceOrder=[], manualSequenceDragStopId=null;
 let lassoMode=false, lassoDragging=false, lassoStartPoint=null;
 let lassoSelectedStopIds=new Set();
+let currentOrderStatusFilter='ALL';
+const ORDER_STATUS_GLOSSARY={
+  '00':'Incomplete Order - Order has no products entered yet.',
+  '02':'Incomplete and Cancelled - Cancelled order without products.',
+  '10':'Order in Progress - Products are being added; at least one product is present.',
+  '20':'Complete Active Order - Order entry is complete but not shipped; changes can still be made.',
+  '21':'Complete Order on Hold - Complete order placed on credit hold.',
+  '22':'Cancelled Order - Complete order that has been cancelled.',
+  '30':'Order in Routing - Order is being routed after cutoff or routing has begun.',
+  '33':'Order Being Routed (Roadnet) - Order is in Roadnet routing and cannot be modified further.',
+  '40':'Routing Complete - Route is confirmed and picking documents have begun.',
+  '60':'Pick Documents Created - Regular order with pick tickets generated but not yet invoiced.',
+  '70':'Verification Complete - Vendor Ship order with pick tickets generated and pending invoicing.',
+  '80':'Being Invoiced - Order is being processed for invoicing.',
+  '90':'Shipped/Invoiced - Order is invoiced and shipped; final status.'
+};
 
 // Ending Session Warning: warns users before refreshing or closing the browser while session data exists.
 window.addEventListener('beforeunload', function(e){
@@ -3268,19 +3328,35 @@ function openImport(){
   if(importRouteDateEl) importRouteDateEl.value=document.getElementById('route-date')?.value||new Date().toISOString().slice(0,10);
   const importRegionCodeEl=document.getElementById('import-region-code');
   if(importRegionCodeEl) importRegionCodeEl.value=sessionRegionCode||importRegionCodeEl.value||'';
+  setImportMode(importMode==='stops'?'stops':'all');
 }
 
 function setImportMode(m){
-  importMode=m;
-  ['all','routes','trucks','stops','depots'].forEach(x=>document.getElementById('itab-'+x).className='imp-tab'+(m===x?' active':''));
+  importMode=(m==='stops')?'stops':'all';
+  ['all','stops'].forEach(x=>{
+    const tab=document.getElementById('itab-'+x);
+    if(tab)tab.className='imp-tab'+(importMode===x?' active':'');
+  });
   const hints={
-    all:'Upload one file with sheets named "Routes", "Trucks", "Orders", and "Depot Locations" — or load individually',
-    routes:'Upload your Route Template file. Include UDFNumber1, UDFString2, InitialLocationKey, and FinalLocationKey.',
-    trucks:'Upload your Truck Template file',
-    stops:'Upload your Orders file',
-    depots:'Upload your Depot Locations file with LocationKey, Name, Ship address fields, Latitude, and Longitude.'
+    all:'Upload one file with sheets named "Routes", "Trucks", "Orders", and "Depot Locations".',
+    stops:'Upload your Orders file. Select the CUTID(s) that are being added to the session.'
   };
-  document.getElementById('imp-hint').textContent=hints[m];
+  const hint=document.getElementById('imp-hint');
+  if(hint)hint.textContent=hints[importMode];
+  const cutPanel=document.getElementById('orders-cutid-filter');
+  if(cutPanel)cutPanel.style.display=importMode==='stops'?'block':'none';
+  const dayPanel=document.getElementById('route-day-filter');
+  if(dayPanel)dayPanel.style.display=importMode==='all'?'block':'none';
+}
+
+function toggleAllCutIds(checked){
+  document.querySelectorAll('.cutid-chk').forEach(cb=>cb.checked=checked);
+}
+function getSelectedCutIds(){
+  return Array.from(document.querySelectorAll('.cutid-chk:checked')).map(cb=>normalizeCutId(cb.value));
+}
+function normalizeCutId(value){
+  return sval(value).toUpperCase().replace(/\s+/g,'_');
 }
 
 function getSelectedRouteDayCodes(){
@@ -3373,7 +3449,7 @@ function readFile(file){
             <span>${s.name} <span style="color:var(--text3);">(${s.rows} rows)</span></span>
             <strong style="color:${s.type==='not detected'?'var(--warn)':(s.type==='reference only'?'var(--text3)':'var(--success)')};">${s.type}</strong>
           </div>`).join('')}
-          <br/><span style="color:var(--text3);">All Templates mode imports every detected tab from the workbook. Individual modes still import only the selected template type.</span>
+          <br/><span style="color:var(--text3);">All Templates mode imports detected route, truck, depot, and order tabs. Orders Only runs the incremental cut import/status refresh process.</span>
         </div>`;
       document.getElementById('imp-confirm').style.display='';
     }catch(err){showToast('Error reading file: '+err.message);}
@@ -3390,37 +3466,43 @@ function confirmImport(){
   try{
     sessionRegionCode=sval(document.getElementById('import-region-code')?.value||sessionRegionCode||'');
     let rc=0,dc=0,sc=0,lc=0, skipped=0;
+    let orderImportSummary=null;
     const sheets=pendingWB.SheetNames.map(name=>{
       const ws=pendingWB.Sheets[name];
       const data=XLSX.utils.sheet_to_json(ws,{defval:'', raw:false});
       return {name,data,type:detectImportSheetType(name,data)};
     }).filter(x=>x.data.length);
 
-    // In All Templates mode, import depots first so route start/end locations can be attached immediately.
-    const ordered=importMode==='all'
-      ? [...sheets.filter(x=>x.type==='depots'), ...sheets.filter(x=>x.type==='routes'), ...sheets.filter(x=>x.type==='trucks'), ...sheets.filter(x=>x.type==='stops')]
-      : sheets;
+    if(importMode==='stops'){
+      const selectedCutIds=getSelectedCutIds();
+      if(!selectedCutIds.length){
+        showToast('Select at least one CUTID to add before importing Orders Only.');
+        if(btn){btn.disabled=false;btn.textContent=originalText||'Import Data';}
+        return;
+      }
+      const orderSheets=sheets.filter(x=>x.type==='stops' || sheets.length===1);
+      if(!orderSheets.length){
+        showToast('No Orders sheet was detected in the selected file.');
+        if(btn){btn.disabled=false;btn.textContent=originalText||'Import Data';}
+        return;
+      }
+      const orderRows=[];
+      orderSheets.forEach(x=>orderRows.push(...x.data));
+      orderImportSummary=importStopsIncremental(orderRows,selectedCutIds);
+      sc=orderImportSummary.addedOrders;
+    }else{
+      // In All Templates mode, import depots first so route start/end locations can be attached immediately.
+      const ordered=[...sheets.filter(x=>x.type==='depots'), ...sheets.filter(x=>x.type==='routes'), ...sheets.filter(x=>x.type==='trucks'), ...sheets.filter(x=>x.type==='stops')];
 
-    ordered.forEach(({data,type})=>{
-      if(importMode==='all'){
+      ordered.forEach(({data,type})=>{
         if(type==='depots'){importDepots(data);lc+=data.length;return;}
         if(type==='routes'){rc+=importRoutes(data);return;}
         if(type==='trucks'){importTrucks(data);dc+=data.length;return;}
         if(type==='stops'){importStops(data);sc+=data.length;return;}
         if(type==='reference only'){return;}
-        skipped+=data.length;return;
-      }
-
-      // Individual modes still work. If the workbook only has one sheet, import that sheet as the selected type.
-      // If it has multiple sheets, only import sheets detected as the selected type.
-      const singleSheet=sheets.length===1;
-      if(importMode==='depots'&&(type==='depots'||singleSheet)){importDepots(data);lc+=data.length;return;}
-      if(importMode==='routes'&&(type==='routes'||singleSheet)){rc+=importRoutes(data);return;}
-      if(importMode==='trucks'&&(type==='trucks'||singleSheet)){importTrucks(data);dc+=data.length;return;}
-      if(importMode==='stops'&&(type==='stops'||singleSheet)){importStops(data);sc+=data.length;return;}
-      if(type==='reference only')return;
-      skipped+=data.length;
-    });
+        skipped+=data.length;
+      });
+    }
 
     enrichRouteDepots();
     reseq();
@@ -3440,8 +3522,12 @@ function confirmImport(){
       render();
       expanded.clear();
       renderRoutes();
-      const skipText=skipped?`, ${skipped} skipped/not detected`:'';
-      showToast(`Imported: ${rc} route rows, ${dc} truck rows, ${sc} stop rows, ${lc} depot rows${skipText}`);
+      if(orderImportSummary){
+        showIncrementalOrderImportSummary(orderImportSummary);
+      }else{
+        const skipText=skipped?`, ${skipped} skipped/not detected`:'';
+        showToast(`Imported: ${rc} route rows, ${dc} truck rows, ${sc} stop rows, ${lc} depot rows${skipText}`);
+      }
       if(btn){btn.disabled=false;btn.textContent=originalText||'Import Data';}
     },25);
   }catch(err){
@@ -3795,6 +3881,245 @@ function importStops(data){
   if(skippedNoGeo)console.warn(`Skipped ${skippedNoGeo} order row(s) without valid Latitude/Longitude`);
 }
 
+
+function orderIdentity(order){
+  return sval(order?.orderNumber);
+}
+function eachSessionOrder(callback){
+  stops.forEach(stop=>{
+    const orderRows=Array.isArray(stop.orders)&&stop.orders.length?stop.orders:[stop];
+    orderRows.forEach(order=>callback(order,stop));
+  });
+}
+function findSessionOrder(orderNumber){
+  let found=null;
+  eachSessionOrder((order,stop)=>{
+    if(!found&&orderIdentity(order)===orderNumber)found={order,stop};
+  });
+  return found;
+}
+function rebuildStopFromCurrentOrders(stop){
+  const orderRows=Array.isArray(stop.orders)&&stop.orders.length?stop.orders:[stop];
+  const obj=buildConsolidatedStopFromOrders(orderRows,stop);
+  obj.consolidationKey=stop.consolidationKey||normalizeCustomerStopKey(orderRows[0]||stop);
+  Object.assign(stop,obj);
+}
+function cancelledOrderRecord(order,stop,reason){
+  const route=routes.find(r=>r.id===stop?.routeId)||{};
+  return {
+    removedAt:new Date().toISOString(),
+    reason:reason||'Removed from latest Orders Only import',
+    routeName:route.name||'',
+    routeNumber:exportRouteValue(route)||route.routeTemplateKey||'',
+    stopSequence:stop?.seq||'',
+    customerName:order.customerName||stop?.customerName||'',
+    orderNumber:order.orderNumber||stop?.orderNumber||'',
+    cutId:order.cutId||stop?.cutId||'',
+    orderStatus:order.orderStatus||stop?.orderStatus||'',
+    shipToId:order.shipToId||stop?.shipToId||'',
+    customerNumber:order.customerNumber||stop?.customerNumber||'',
+    address:order.address||stop?.address||'',
+    city:order.city||stop?.city||'',
+    state:order.state||stop?.state||'',
+    zip:order.zip||stop?.zip||'',
+    totalCases:nval(order.dryCases)+nval(order.coolerCases)+nval(order.frozenCases)+nval(order.pkgCases),
+    totalWeight:nval(order.dryWeight)+nval(order.coolerWeight)+nval(order.frozenWeight)+nval(order.pkgWeight),
+    totalCube:nval(order.dryCube)+nval(order.coolerCube)+nval(order.frozenCube)+nval(order.pkgCube),
+    raw:{...(order.raw||{})}
+  };
+}
+function importStopsIncremental(data,selectedCutIds){
+  const selectedSet=new Set((selectedCutIds||[]).map(normalizeCutId));
+  const fileOrders=[];
+  let skippedNoGeo=0;
+
+  data.forEach(row=>{
+    const order=makeOrderFromRow(row);
+    if(!order){skippedNoGeo++;return;}
+    fileOrders.push(order);
+  });
+
+  const fileOrderMap=new Map();
+  fileOrders.forEach(order=>{
+    const num=orderIdentity(order);
+    if(num)fileOrderMap.set(num,order);
+  });
+
+  const existingOrderNumbers=new Set();
+  eachSessionOrder(order=>{
+    const num=orderIdentity(order);
+    if(num)existingOrderNumbers.add(num);
+  });
+
+  const removedOrders=[];
+  const statusChanges=[];
+  const touchedStops=new Set();
+
+  // Remove any existing session orders that are no longer present in the full imported order list.
+  stops.slice().forEach(stop=>{
+    const orderRows=Array.isArray(stop.orders)&&stop.orders.length?stop.orders.slice():[stop];
+    const kept=[];
+    orderRows.forEach(order=>{
+      const num=orderIdentity(order);
+      if(num && !fileOrderMap.has(num)){
+        const record=cancelledOrderRecord(order,stop,'Missing from latest Orders Only import');
+        removedOrders.push(record);
+        cancelledOrders.push(record);
+      }else{
+        kept.push(order);
+      }
+    });
+
+    if(kept.length!==orderRows.length){
+      touchedStops.add(stop.id);
+      if(kept.length){
+        stop.orders=kept;
+        rebuildStopFromCurrentOrders(stop);
+      }else{
+        visibleStopIds.delete(stop.id);
+        delete potColors[stop.id];
+        delete potRouteSuggestions[stop.id];
+        stops=stops.filter(s=>s.id!==stop.id);
+      }
+    }
+  });
+
+  // Refresh ORDER_STATUS and other order-level fields for orders that remain in the session.
+  eachSessionOrder((sessionOrder,stop)=>{
+    const num=orderIdentity(sessionOrder);
+    if(!num||!fileOrderMap.has(num))return;
+    const incoming=fileOrderMap.get(num);
+    const oldStatus=sval(sessionOrder.orderStatus);
+    const newStatus=sval(incoming.orderStatus);
+    if(oldStatus!==newStatus){
+      statusChanges.push({orderNumber:num,customerName:sessionOrder.customerName||stop.customerName||incoming.customerName||'',oldStatus,newStatus,cutId:incoming.cutId||sessionOrder.cutId||stop.cutId||''});
+    }
+    Object.assign(sessionOrder,incoming);
+    touchedStops.add(stop.id);
+  });
+
+  touchedStops.forEach(stopId=>{
+    const stop=stops.find(s=>s.id===stopId);
+    if(stop)rebuildStopFromCurrentOrders(stop);
+  });
+
+  // Add only the selected new cut orders. They stage as unassigned for the router to clean up.
+  const newOrderGroups=new Map();
+  fileOrders.forEach(order=>{
+    const num=orderIdentity(order);
+    if(!num)return;
+    if(existingOrderNumbers.has(num))return;
+    if(!selectedSet.has(normalizeCutId(order.cutId)))return;
+    const key=normalizeCustomerStopKey(order)+'|NEWCUT|'+normalizeCutId(order.cutId);
+    if(!newOrderGroups.has(key))newOrderGroups.set(key,[]);
+    newOrderGroups.get(key).push(order);
+  });
+
+  const addedOrders=[];
+  newOrderGroups.forEach((orders,key)=>{
+    const stop=buildConsolidatedStopFromOrders(orders,null);
+    stop.consolidationKey=key;
+    stop.routeId=null;
+    stop.seq=0;
+    stop.uiChecked=false;
+    stops.push(stop);
+    orders.forEach(o=>addedOrders.push({orderNumber:o.orderNumber,customerName:o.customerName,cutId:o.cutId,orderStatus:o.orderStatus}));
+  });
+
+  reseq();
+  if(skippedNoGeo)console.warn(`Skipped ${skippedNoGeo} order row(s) without valid Latitude/Longitude`);
+  return {
+    selectedCutIds:Array.from(selectedSet),
+    addedOrders:addedOrders.length,
+    addedOrderList:addedOrders,
+    removedOrders,
+    removedCount:removedOrders.length,
+    statusChanges,
+    statusChangedCount:statusChanges.length,
+    skippedNoGeo,
+    fileOrders:fileOrders.length
+  };
+}
+function showIncrementalOrderImportSummary(summary){
+  const addedHtml=summary.addedOrderList.length
+    ? `<div style="max-height:140px;overflow:auto;margin-top:6px;">${summary.addedOrderList.map(o=>`&bull; ${escapeHtml(o.orderNumber)} — ${escapeHtml(o.customerName||'')} (${escapeHtml(o.cutId||'')}, status ${escapeHtml(o.orderStatus||'')})`).join('<br/>')}</div>`
+    : '<span style="color:var(--text3);">No new orders were added for the selected CUTID(s).</span>';
+  const removedHtml=summary.removedOrders.length
+    ? `<div style="max-height:140px;overflow:auto;margin-top:6px;">${summary.removedOrders.map(o=>`&bull; ${escapeHtml(o.orderNumber)} — ${escapeHtml(o.customerName||'')} (${escapeHtml(o.cutId||'')}, last status ${escapeHtml(o.orderStatus||'')})`).join('<br/>')}</div>`
+    : '<span style="color:var(--text3);">No session orders were missing from the latest list.</span>';
+  const statusHtml=summary.statusChanges.length
+    ? `<div style="max-height:140px;overflow:auto;margin-top:6px;">${summary.statusChanges.map(c=>`&bull; ${escapeHtml(c.orderNumber)} — ${escapeHtml(c.customerName||'')}: ${escapeHtml(c.oldStatus||'blank')} → ${escapeHtml(c.newStatus||'blank')} (${escapeHtml(c.cutId||'')})`).join('<br/>')}</div>`
+    : '<span style="color:var(--text3);">No ORDER_STATUS changes found.</span>';
+
+  showJob('Orders Only Import Summary',`
+    <strong>Selected CUTID(s):</strong> ${summary.selectedCutIds.map(escapeHtml).join(', ')}<br/>
+    <strong>Orders scanned in file:</strong> ${summary.fileOrders.toLocaleString()}<br/>
+    <strong>Added to session:</strong> ${summary.addedOrders}<br/>
+    ${addedHtml}<br/><br/>
+    <strong>Removed from active session:</strong> ${summary.removedCount}<br/>
+    ${removedHtml}<br/><br/>
+    <strong>ORDER_STATUS changed:</strong> ${summary.statusChangedCount}<br/>
+    ${statusHtml}
+    ${summary.skippedNoGeo?`<br/><br/><strong>Skipped rows without valid geocode:</strong> ${summary.skippedNoGeo}`:''}
+  `);
+}
+
+function activeOrderStatusRows(){
+  const rows=[];
+  eachSessionOrder((order,stop)=>{
+    rows.push({
+      orderNumber:order.orderNumber||stop.orderNumber||'',
+      customerName:order.customerName||stop.customerName||'',
+      status:sval(order.orderStatus||stop.orderStatus||''),
+      cutId:order.cutId||stop.cutId||'',
+      routeName:routes.find(r=>r.id===stop.routeId)?.name||'Unassigned'
+    });
+  });
+  rows.sort((a,b)=>(a.cutId||'').localeCompare(b.cutId||'')||(a.status||'').localeCompare(b.status||'')||(a.customerName||'').localeCompare(b.customerName||''));
+  return rows;
+}
+function openOrderStatusDetails(){
+  currentOrderStatusFilter='ALL';
+  renderOrderStatusDetails();
+  document.getElementById('order-status-modal').style.display='flex';
+}
+function setOrderStatusFilter(status){
+  currentOrderStatusFilter=status||'ALL';
+  renderOrderStatusDetails();
+}
+function renderOrderStatusDetails(){
+  const rows=activeOrderStatusRows();
+  const statuses=['ALL',...Array.from(new Set(rows.map(r=>r.status||'Blank'))).sort((a,b)=>String(a).localeCompare(String(b)))];
+  const controls=document.getElementById('order-status-controls');
+  if(controls){
+    controls.innerHTML=statuses.map(status=>{
+      const count=status==='ALL'?rows.length:rows.filter(r=>(r.status||'Blank')===status).length;
+      const active=currentOrderStatusFilter===status;
+      return `<button class="btn ${active?'primary':''}" style="padding:4px 8px;font-size:10px;" onclick="setOrderStatusFilter('${escapeHtml(status)}')">${escapeHtml(status)} (${count})</button>`;
+    }).join('');
+  }
+  const filtered=currentOrderStatusFilter==='ALL'?rows:rows.filter(r=>(r.status||'Blank')===currentOrderStatusFilter);
+  const body=document.getElementById('order-status-body');
+  if(!body)return;
+  body.innerHTML=`
+    <div class="manifest-row header" style="grid-template-columns:160px 1.6fr 120px 120px 180px;min-width:820px;"><div>Order Number</div><div>Customer Name</div><div>Current Status</div><div>CUTID</div><div>Route</div></div>
+    ${filtered.length?filtered.map(r=>`
+      <div class="manifest-row" style="grid-template-columns:160px 1.6fr 120px 120px 180px;min-width:820px;">
+        <div>${escapeHtml(r.orderNumber||'')}</div>
+        <div>${escapeHtml(r.customerName||'')}</div>
+        <div>${escapeHtml(r.status||'Blank')}</div>
+        <div>${escapeHtml(r.cutId||'')}</div>
+        <div>${escapeHtml(r.routeName||'')}</div>
+      </div>`).join(''):'<div class="empty-state">No orders match this status filter.</div>'}`;
+}
+function showOrderStatusGlossary(){
+  const body=document.getElementById('order-status-glossary-body');
+  if(body){
+    body.innerHTML=Object.keys(ORDER_STATUS_GLOSSARY).sort().map(code=>`<strong>${escapeHtml(code)}</strong> — ${escapeHtml(ORDER_STATUS_GLOSSARY[code])}`).join('<br/>');
+  }
+  document.getElementById('order-status-glossary-modal').style.display='flex';
+}
+
 // ============================================================
 // ADD STOP / ROUTE MANUALLY
 // ============================================================
@@ -3877,6 +4202,7 @@ function clearSession(){
   stops = [];
   trucks = [];
   depotLocations = [];
+  cancelledOrders = [];
   sessionRegionCode = '';
 
   mapCleared = true;
@@ -4444,7 +4770,30 @@ function exportExcel(options={}){
   });
   XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(orderDetail.length?orderDetail:[{Note:'No orders'}]),'Orders Detail');
 
-  // Tab 6: Output File (production-style session output)
+  // Tab 6: Cancelled Orders (orders removed from the active session during Orders Only refresh)
+  const cancelledRows=(routeIdSet?cancelledOrders.filter(o=>o.routeNumber&&exportRoutes.some(r=>exportRouteValue(r)===(o.routeNumber||'')||(r.routeTemplateKey||'')===(o.routeNumber||''))):cancelledOrders).map(o=>({
+    'Removed At':o.removedAt||'',
+    'Reason':o.reason||'',
+    'Route Number':o.routeNumber||'',
+    'Route Name':o.routeName||'',
+    'Stop Sequence':o.stopSequence||'',
+    'ORDER_NUMBER':o.orderNumber||'',
+    'Customer Name':o.customerName||'',
+    'ORDER_STATUS':o.orderStatus||'',
+    'CUTID':o.cutId||'',
+    'SHIP_TO_ID':o.shipToId||'',
+    'CUSTOMER_NUMBER':o.customerNumber||'',
+    'Address':o.address||'',
+    'City':o.city||'',
+    'State':o.state||'',
+    'Zip':o.zip||'',
+    'Total Cases':o.totalCases||0,
+    'Total Weight':parseFloat(nval(o.totalWeight).toFixed(2)),
+    'Total Cube':parseFloat(nval(o.totalCube).toFixed(2))
+  }));
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(cancelledRows.length?cancelledRows:[{Note:'No cancelled orders'}]),'Cancelled Orders');
+
+  // Tab 7: Output File (production-style session output)
   const outputFileRows=buildOutputFileRows(routeIdSet);
   const outputHeaders=['District','Region Code','Route','Customer','Sequence','Order_number','Parent Account','EarliestDate','LatestDate','projectedArrivalDate','projectedBegunDate','serviceDurationPerCaseInSeconds','ServiceDuration','FixedserviceDuration','udfString4','truckKey','driverKey','routename','routeprojectedDepartedDate','locationType','stoptype','Measure1','Measure2','Measure3','udfString3'];
   const outputWs=XLSX.utils.json_to_sheet(outputFileRows.length?outputFileRows:[Object.fromEntries(outputHeaders.map(h=>[h,'']))],{header:outputHeaders});
