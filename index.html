@@ -3923,6 +3923,17 @@ function importStops(data){
 function orderIdentity(order){
   return sval(order?.orderNumber);
 }
+function normalizeOrderStatusForCompare(value){
+  let v=sval(value);
+  if(!v)return '';
+  const numericMatch=v.match(/^0*(\d+)(?:\.0+)?$/);
+  if(numericMatch)return numericMatch[1].padStart(2,'0');
+  return v;
+}
+function displayOrderStatusValue(value){
+  const normalized=normalizeOrderStatusForCompare(value);
+  return normalized || sval(value);
+}
 function eachSessionOrder(callback){
   stops.forEach(stop=>{
     const orderRows=Array.isArray(stop.orders)&&stop.orders.length?stop.orders:[stop];
@@ -3972,12 +3983,8 @@ function importStopsIncremental(data,selectedCutIds){
   let skippedNoGeo=0;
 
   data.forEach(row=>{
-    // For incremental Orders Only imports, every row should be scanned for order-number presence
-    // and ORDER_STATUS updates even if the row is missing geocode. New orders still need
-    // geocode before they can be staged as unassigned stops.
-    const order=makeOrderFromRow(row,false);
-    if(!order||!orderIdentity(order))return;
-    if(!order.lat||!order.lng)skippedNoGeo++;
+    const order=makeOrderFromRow(row);
+    if(!order){skippedNoGeo++;return;}
     fileOrders.push(order);
   });
 
@@ -3987,23 +3994,42 @@ function importStopsIncremental(data,selectedCutIds){
     if(num)fileOrderMap.set(num,order);
   });
 
-  const existingOrderNumbers=new Set();
-  const statusBeforeImport=new Map();
-  const customerBeforeImport=new Map();
-  const cutIdBeforeImport=new Map();
+  // Snapshot current session orders before any removals, rebuilds, or new-cut inserts happen.
+  // This lets the first Orders Only refresh compare the incoming list to the true pre-import session state.
+  const sessionOrderSnapshot=new Map();
   eachSessionOrder((order,stop)=>{
     const num=orderIdentity(order);
-    if(num){
-      existingOrderNumbers.add(num);
-      statusBeforeImport.set(num,normalizeOrderStatusValue(order.orderStatus||stop.orderStatus));
-      customerBeforeImport.set(num,order.customerName||stop.customerName||'');
-      cutIdBeforeImport.set(num,order.cutId||stop.cutId||'');
-    }
+    if(!num)return;
+    sessionOrderSnapshot.set(num,{
+      orderNumber:num,
+      customerName:order.customerName||stop.customerName||'',
+      orderStatus:order.orderStatus||stop.orderStatus||'',
+      cutId:order.cutId||stop.cutId||'',
+      stopId:stop.id
+    });
   });
 
+  const existingOrderNumbers=new Set(sessionOrderSnapshot.keys());
   const removedOrders=[];
   const statusChanges=[];
   const touchedStops=new Set();
+
+  // Detect ORDER_STATUS changes from the snapshot first, before the session is refreshed.
+  sessionOrderSnapshot.forEach((snapshot,num)=>{
+    const incoming=fileOrderMap.get(num);
+    if(!incoming)return;
+    const oldStatusCompare=normalizeOrderStatusForCompare(snapshot.orderStatus);
+    const newStatusCompare=normalizeOrderStatusForCompare(incoming.orderStatus);
+    if(oldStatusCompare!==newStatusCompare){
+      statusChanges.push({
+        orderNumber:num,
+        customerName:snapshot.customerName||incoming.customerName||'',
+        oldStatus:displayOrderStatusValue(snapshot.orderStatus),
+        newStatus:displayOrderStatusValue(incoming.orderStatus),
+        cutId:incoming.cutId||snapshot.cutId||''
+      });
+    }
+  });
 
   // Remove any existing session orders that are no longer present in the full imported order list.
   stops.slice().forEach(stop=>{
@@ -4039,11 +4065,6 @@ function importStopsIncremental(data,selectedCutIds){
     const num=orderIdentity(sessionOrder);
     if(!num||!fileOrderMap.has(num))return;
     const incoming=fileOrderMap.get(num);
-    const oldStatus=statusBeforeImport.has(num)?statusBeforeImport.get(num):normalizeOrderStatusValue(sessionOrder.orderStatus||stop.orderStatus);
-    const newStatus=normalizeOrderStatusValue(incoming.orderStatus);
-    if(oldStatus!==newStatus){
-      statusChanges.push({orderNumber:num,customerName:customerBeforeImport.get(num)||sessionOrder.customerName||stop.customerName||incoming.customerName||'',oldStatus,newStatus,cutId:incoming.cutId||cutIdBeforeImport.get(num)||sessionOrder.cutId||stop.cutId||''});
-    }
     Object.assign(sessionOrder,incoming);
     touchedStops.add(stop.id);
   });
@@ -4060,7 +4081,6 @@ function importStopsIncremental(data,selectedCutIds){
     if(!num)return;
     if(existingOrderNumbers.has(num))return;
     if(!selectedSet.has(normalizeCutId(order.cutId)))return;
-    if(!order.lat||!order.lng)return;
     const key=normalizeCustomerStopKey(order)+'|NEWCUT|'+normalizeCutId(order.cutId);
     if(!newOrderGroups.has(key))newOrderGroups.set(key,[]);
     newOrderGroups.get(key).push(order);
