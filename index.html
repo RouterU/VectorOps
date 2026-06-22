@@ -1316,7 +1316,7 @@ function renderRoutes(){
           <span class="s-seq">${s.seq}</span>
           <span class="s-dot" style="background:${color}"></span>
           <div class="s-info">
-            <div class="s-name">${s.customerName||'Stop'}${cutIdBadgesForStop(s)}</div>
+            <div class="s-name">${customerNameWithCutIdBadges(s,s.customerName)}</div>
             <div class="s-detail">${orderLabel(s)} &middot; ${tCases(s)}cs &middot; ${s.city||''} ${s.state||''}</div>
           </div>
           <div class="s-acts">
@@ -1351,7 +1351,7 @@ function renderUA(){
         onclick="setCheck('${s.id}',this.checked);event.stopPropagation()"/>
       <span class="ua-dot" style="background:${pc||'var(--text3)'}"></span>
       <div class="ua-info">
-        <div class="ua-name">${s.customerName||'Stop'}${cutIdBadgesForStop(s)}${hasPref?'<span class="tag tag-pref">&#11088; Pref</span>':''}${isWC?'<span class="tag tag-wc">Will Call</span>':''}</div>
+        <div class="ua-name">${customerNameWithCutIdBadges(s,s.customerName)}${hasPref?'<span class="tag tag-pref">&#11088; Pref</span>':''}${isWC?'<span class="tag tag-wc">Will Call</span>':''}</div>
         <div class="ua-detail">${orderLabel(s)} &middot; ${tCases(s)}cs &middot; ${s.city||''} ${s.state||''}${pc?`<span class="tag-pot" style="background:${pc};margin-left:4px;">&#128204; Suggested</span>`:''}</div>
       </div>
       <select class="ua-assign" onclick="event.stopPropagation()" onchange="assignStop('${s.id}',this.value);this.value=''">
@@ -2711,7 +2711,7 @@ function renderRouteManifest(){
     const seq=liveSeq;
     const name=escapeHtml(pt.name||'Stop');
     const seqDisplay=liveSeq;
-    const displayName=isDepot?name:`#${escapeHtml(seqDisplay)} · ${name}${cutIdBadgesForStop(s)}`;
+    const displayName=isDepot?name:`#${escapeHtml(seqDisplay)} · ${cutIdBadgesForStop(s)}${name}`;
     const detail=isDepot?`LocationKey: ${escapeHtml(pt.depot?.locationKey||'')}`:`${escapeHtml(orderLabel(s))} · ${escapeHtml(s.address||'')} ${escapeHtml(s.city||'')} ${escapeHtml(s.state||'')}`;
     const violationClass=pt.twStatus==='LATE'?' tw-violation':'';
     const twClass=pt.twStatus==='LATE'?'tw-late':(pt.twStatus==='WAIT'?'tw-wait':'tw-ok');
@@ -3616,6 +3616,10 @@ function cutIdBadgeHtml(value){
 }
 function cutIdBadgesForStop(stop){
   return cutIdValuesForStop(stop).map(cutIdBadgeHtml).join('');
+}
+function customerNameWithCutIdBadges(stop,name){
+  const badges=cutIdBadgesForStop(stop);
+  return `${badges}${escapeHtml(name||'Stop')}`;
 }
 function normalizeOrderStatusValue(value){
   let s=sval(value).replace(/^'/,'');
