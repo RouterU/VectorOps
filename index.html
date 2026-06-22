@@ -115,6 +115,8 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
 .tag{display:inline-block;padding:1px 4px;border-radius:3px;font-size:8px;font-weight:700;margin-left:3px;vertical-align:middle;}
 .tag-pref{background:rgba(167,139,250,.2);color:var(--purple);}
 .tag-wc{background:rgba(239,68,68,.2);color:var(--danger);}
+.cutid-badge{display:inline-flex;align-items:center;gap:3px;margin-left:4px;padding:1px 5px;border-radius:999px;font-size:8px;font-weight:800;color:#0f1117;vertical-align:middle;line-height:1.25;border:1px solid rgba(255,255,255,.18);box-shadow:0 1px 5px rgba(0,0,0,.25);}
+.cutid-badge-dot{width:5px;height:5px;border-radius:50%;background:rgba(15,17,23,.75);display:inline-block;}
 .tag-pot{font-size:8px;font-weight:700;padding:1px 4px;border-radius:3px;color:#000;margin-left:3px;vertical-align:middle;}
 
 /* Trucks */
@@ -1314,7 +1316,7 @@ function renderRoutes(){
           <span class="s-seq">${s.seq}</span>
           <span class="s-dot" style="background:${color}"></span>
           <div class="s-info">
-            <div class="s-name">${s.customerName||'Stop'}</div>
+            <div class="s-name">${s.customerName||'Stop'}${cutIdBadgesForStop(s)}</div>
             <div class="s-detail">${orderLabel(s)} &middot; ${tCases(s)}cs &middot; ${s.city||''} ${s.state||''}</div>
           </div>
           <div class="s-acts">
@@ -1349,7 +1351,7 @@ function renderUA(){
         onclick="setCheck('${s.id}',this.checked);event.stopPropagation()"/>
       <span class="ua-dot" style="background:${pc||'var(--text3)'}"></span>
       <div class="ua-info">
-        <div class="ua-name">${s.customerName||'Stop'}${hasPref?'<span class="tag tag-pref">&#11088; Pref</span>':''}${isWC?'<span class="tag tag-wc">Will Call</span>':''}</div>
+        <div class="ua-name">${s.customerName||'Stop'}${cutIdBadgesForStop(s)}${hasPref?'<span class="tag tag-pref">&#11088; Pref</span>':''}${isWC?'<span class="tag tag-wc">Will Call</span>':''}</div>
         <div class="ua-detail">${orderLabel(s)} &middot; ${tCases(s)}cs &middot; ${s.city||''} ${s.state||''}${pc?`<span class="tag-pot" style="background:${pc};margin-left:4px;">&#128204; Suggested</span>`:''}</div>
       </div>
       <select class="ua-assign" onclick="event.stopPropagation()" onchange="assignStop('${s.id}',this.value);this.value=''">
@@ -2709,7 +2711,7 @@ function renderRouteManifest(){
     const seq=liveSeq;
     const name=escapeHtml(pt.name||'Stop');
     const seqDisplay=liveSeq;
-    const displayName=isDepot?name:`#${escapeHtml(seqDisplay)} · ${name}`;
+    const displayName=isDepot?name:`#${escapeHtml(seqDisplay)} · ${name}${cutIdBadgesForStop(s)}`;
     const detail=isDepot?`LocationKey: ${escapeHtml(pt.depot?.locationKey||'')}`:`${escapeHtml(orderLabel(s))} · ${escapeHtml(s.address||'')} ${escapeHtml(s.city||'')} ${escapeHtml(s.state||'')}`;
     const violationClass=pt.twStatus==='LATE'?' tw-violation':'';
     const twClass=pt.twStatus==='LATE'?'tw-late':(pt.twStatus==='WAIT'?'tw-wait':'tw-ok');
@@ -3585,10 +3587,46 @@ function orderLabel(stop){
   const count=orderCount(stop);
   return count>1?`${count} orders`:(stop?.orderNumber||'1 order');
 }
-function makeOrderFromRow(row){
+function cutIdColor(value){
+  const norm=normalizeCutId(value);
+  const match=norm.match(/(\d+)/);
+  const palette=['#4f8cff','#3ecf8e','#f59e0b','#ef4444','#a78bfa','#fb923c','#38bdf8','#f472b6','#34d399'];
+  if(match){
+    const idx=(parseInt(match[1],10)-1)%palette.length;
+    return palette[idx>=0?idx:0];
+  }
+  let hash=0;
+  for(let i=0;i<norm.length;i++)hash=(hash*31+norm.charCodeAt(i))>>>0;
+  return palette[hash%palette.length];
+}
+function cutIdValuesForStop(stop){
+  const values=[];
+  const orders=Array.isArray(stop?.orders)&&stop.orders.length?stop.orders:[stop];
+  orders.forEach(order=>{
+    const cut=normalizeCutId(order?.cutId||stop?.cutId);
+    if(cut&&!values.includes(cut))values.push(cut);
+  });
+  return values;
+}
+function cutIdBadgeHtml(value){
+  const cut=normalizeCutId(value);
+  if(!cut)return '';
+  const color=cutIdColor(cut);
+  return `<span class="cutid-badge" style="background:${color};" title="${escapeHtml(cut)}"><span class="cutid-badge-dot"></span>${escapeHtml(cut.replace(/^CUTID_?/,'C'))}</span>`;
+}
+function cutIdBadgesForStop(stop){
+  return cutIdValuesForStop(stop).map(cutIdBadgeHtml).join('');
+}
+function normalizeOrderStatusValue(value){
+  let s=sval(value).replace(/^'/,'');
+  if(/^\d+(?:\.0+)?$/.test(s))s=String(parseInt(s,10));
+  return s.padStart(s.length===1?2:s.length,'0');
+}
+function makeOrderFromRow(row,requireGeo=true){
   const lat=parseFloat(gc(row,['Latitude','latitude','Lat','lat']));
   const lng=parseFloat(gc(row,['Longitude','longitude','Long','long','Lng','lng']));
-  if(isNaN(lat)||isNaN(lng))return null;
+  const hasGeo=!isNaN(lat)&&!isNaN(lng);
+  if(requireGeo&&!hasGeo)return null;
   return {
     orderNumber:sval(gc(row,['ORDER_NUMBER','Order Number','OrderNumber'])),
     shipToId:sval(gc(row,['SHIP_TO_ID','Ship To ID','ShipToId'])),
@@ -3621,7 +3659,7 @@ function makeOrderFromRow(row){
     state:sval(gc(row,['State','state'])),
     zip:sval(gc(row,['Zip','ZIP','zip'])),
     country:sval(gc(row,['Country','country'])),
-    lat,lng,
+    lat:hasGeo?lat:null,lng:hasGeo?lng:null,
     comment:sval(gc(row,['Comment'])),
     fixedServiceTime:nval(gc(row,['Fixed Service Time','FixedServiceTime'])),
     customerName:sval(gc(row,['Customer Name','CustomerName'])),
@@ -3934,8 +3972,12 @@ function importStopsIncremental(data,selectedCutIds){
   let skippedNoGeo=0;
 
   data.forEach(row=>{
-    const order=makeOrderFromRow(row);
-    if(!order){skippedNoGeo++;return;}
+    // For incremental Orders Only imports, every row should be scanned for order-number presence
+    // and ORDER_STATUS updates even if the row is missing geocode. New orders still need
+    // geocode before they can be staged as unassigned stops.
+    const order=makeOrderFromRow(row,false);
+    if(!order||!orderIdentity(order))return;
+    if(!order.lat||!order.lng)skippedNoGeo++;
     fileOrders.push(order);
   });
 
@@ -3946,9 +3988,17 @@ function importStopsIncremental(data,selectedCutIds){
   });
 
   const existingOrderNumbers=new Set();
-  eachSessionOrder(order=>{
+  const statusBeforeImport=new Map();
+  const customerBeforeImport=new Map();
+  const cutIdBeforeImport=new Map();
+  eachSessionOrder((order,stop)=>{
     const num=orderIdentity(order);
-    if(num)existingOrderNumbers.add(num);
+    if(num){
+      existingOrderNumbers.add(num);
+      statusBeforeImport.set(num,normalizeOrderStatusValue(order.orderStatus||stop.orderStatus));
+      customerBeforeImport.set(num,order.customerName||stop.customerName||'');
+      cutIdBeforeImport.set(num,order.cutId||stop.cutId||'');
+    }
   });
 
   const removedOrders=[];
@@ -3989,10 +4039,10 @@ function importStopsIncremental(data,selectedCutIds){
     const num=orderIdentity(sessionOrder);
     if(!num||!fileOrderMap.has(num))return;
     const incoming=fileOrderMap.get(num);
-    const oldStatus=sval(sessionOrder.orderStatus);
-    const newStatus=sval(incoming.orderStatus);
+    const oldStatus=statusBeforeImport.has(num)?statusBeforeImport.get(num):normalizeOrderStatusValue(sessionOrder.orderStatus||stop.orderStatus);
+    const newStatus=normalizeOrderStatusValue(incoming.orderStatus);
     if(oldStatus!==newStatus){
-      statusChanges.push({orderNumber:num,customerName:sessionOrder.customerName||stop.customerName||incoming.customerName||'',oldStatus,newStatus,cutId:incoming.cutId||sessionOrder.cutId||stop.cutId||''});
+      statusChanges.push({orderNumber:num,customerName:customerBeforeImport.get(num)||sessionOrder.customerName||stop.customerName||incoming.customerName||'',oldStatus,newStatus,cutId:incoming.cutId||cutIdBeforeImport.get(num)||sessionOrder.cutId||stop.cutId||''});
     }
     Object.assign(sessionOrder,incoming);
     touchedStops.add(stop.id);
@@ -4010,6 +4060,7 @@ function importStopsIncremental(data,selectedCutIds){
     if(!num)return;
     if(existingOrderNumbers.has(num))return;
     if(!selectedSet.has(normalizeCutId(order.cutId)))return;
+    if(!order.lat||!order.lng)return;
     const key=normalizeCustomerStopKey(order)+'|NEWCUT|'+normalizeCutId(order.cutId);
     if(!newOrderGroups.has(key))newOrderGroups.set(key,[]);
     newOrderGroups.get(key).push(order);
@@ -4108,7 +4159,7 @@ function renderOrderStatusDetails(){
         <div>${escapeHtml(r.orderNumber||'')}</div>
         <div>${escapeHtml(r.customerName||'')}</div>
         <div>${escapeHtml(r.status||'Blank')}</div>
-        <div>${escapeHtml(r.cutId||'')}</div>
+        <div>${cutIdBadgeHtml(r.cutId)||escapeHtml(r.cutId||'')}</div>
         <div>${escapeHtml(r.routeName||'')}</div>
       </div>`).join(''):'<div class="empty-state">No orders match this status filter.</div>'}`;
 }
