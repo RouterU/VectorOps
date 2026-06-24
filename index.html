@@ -276,7 +276,7 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
 .safety-summary-card .val{font-family:'DM Mono',monospace;font-size:16px;font-weight:700;color:var(--text1);}
 .safety-summary-card .lbl{font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.4px;margin-top:2px;}
 .safety-table{border:1px solid var(--border);border-radius:10px;background:var(--bg2);max-height:56vh;overflow:auto;}
-.safety-row{display:grid;grid-template-columns:84px 250px 82px 82px 82px 70px 170px 210px 220px;gap:10px;align-items:center;padding:9px 12px;border-bottom:1px solid var(--border);font-size:11px;min-width:1450px;}
+.safety-row{display:grid;grid-template-columns:84px 260px 88px 88px 88px 80px 230px 210px 220px;gap:10px;align-items:center;padding:9px 12px;border-bottom:1px solid var(--border);font-size:11px;min-width:1480px;}
 .safety-row:last-child{border-bottom:none;}
 .safety-row.header{background:var(--bg3);position:sticky;top:0;z-index:2;color:var(--text3);font-size:9px;text-transform:uppercase;letter-spacing:.5px;font-weight:800;}
 .safety-customer{font-weight:700;color:var(--text1);white-space:normal;line-height:1.25;}
@@ -743,12 +743,12 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
   <div class="modal safety-modal">
     <h2>Delivery Safety Assessment</h2>
     <div class="job-result" style="margin-bottom:10px;">
-      Uses the currently imported Orders/stops and their latitude/longitude to create a remote safety screen. Image links open Google aerial, Google Street View, and Mapillary street-level views where coverage exists. This is a pre-site-review screen and should be field verified before final approval.
+      Uses the currently imported Orders/stops and their latitude/longitude to create a remote safety screen. Image links open Google aerial and Street View views where coverage exists. This is a pre-site-review screen and should be field verified before final approval.
     </div>
     <div id="safety-summary" class="safety-summary-grid"></div>
     <div style="display:flex;gap:7px;align-items:center;margin-bottom:10px;flex-wrap:wrap;">
       <button class="btn primary" onclick="runSafetyAssessment()">Run / Refresh Assessment</button>
-      <button class="btn purple" id="safety-ai-btn" onclick="runSafetyMapillaryAssessment()">Run Mapillary Check</button>
+      <button class="btn purple" id="safety-ai-btn" onclick="runSafetyImageryAssessment()">Run Imagery Check</button>
       <button class="btn success" onclick="exportSafetyAssessment()">Export Safety Workbook</button>
       <button class="btn" onclick="showHighRiskSafetyStopsOnMap()">Show High Risk on Map</button>
       <button class="btn" onclick="closeModal('safety-assessment-modal')">Close</button>
@@ -4681,7 +4681,7 @@ function applyPublishedHighlight(ws,headers,rows){
 // ============================================================
 let safetyAssessmentRows=[];
 const SAFETY_AI_WORKER_URL='https://routedesk-safety-ai.derrick-jimenez.workers.dev';
-let safetyMapillaryRunning=false;
+let safetyImageryRunning=false;
 
 function openSafetyAssessment(){
   document.getElementById('safety-assessment-modal').style.display='flex';
@@ -4712,6 +4712,18 @@ function googleStreetViewUrl(lat,lng,heading){
 function googleMapUrl(lat,lng){
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(lat+','+lng)}`;
 }
+
+function esriAerialImageUrl(lat,lng){
+  const radiusDegrees=0.0012;
+  const minLng=Number(lng)-radiusDegrees;
+  const minLat=Number(lat)-radiusDegrees;
+  const maxLng=Number(lng)+radiusDegrees;
+  const maxLat=Number(lat)+radiusDegrees;
+  return 'https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/export'
+    + `?bbox=${encodeURIComponent([minLng,minLat,maxLng,maxLat].join(','))}`
+    + '&bboxSR=4326&imageSR=4326&size=640,640&format=jpg&f=image';
+}
+
 
 function safetyBand(score){
   if(score>=7)return {label:'High',cls:'safety-high'};
@@ -4797,6 +4809,11 @@ function classifySafetyStop(stop){
     streetEastUrl:googleStreetViewUrl(stop.lat,stop.lng,90),
     streetSouthUrl:googleStreetViewUrl(stop.lat,stop.lng,180),
     streetWestUrl:googleStreetViewUrl(stop.lat,stop.lng,270),
+    esriAerialUrl:esriAerialImageUrl(stop.lat,stop.lng),
+    imageryStatus:'Not checked',
+    imageryConfidence:'Google/Esri links only - imagery check not run',
+    esriStatus:'Not checked',
+    esriImageUrl:esriAerialImageUrl(stop.lat,stop.lng),
     mapillaryUrl:`https://www.mapillary.com/app/?lat=${encodeURIComponent(stop.lat)}&lng=${encodeURIComponent(stop.lng)}&z=18`,
     mapillaryStatus:'Not checked',
     mapillaryImageCount:0,
@@ -4805,29 +4822,28 @@ function classifySafetyStop(stop){
     mapillaryThumbUrl:'',
     mapillaryBestUrl:'',
     mapillaryError:'',
-    imageryConfidence:'Google links only - Mapillary not checked',
     confidence:(isMainStreet||isSchool)?'Medium':'Medium-Low'
   };
 }
 
 
-function safetyMapillaryStatusHtml(r){
-  const count=Number(r.mapillaryImageCount||0);
-  if(r.mapillaryStatus==='Checking'){
-    return `<div class="safety-note"><strong>Mapillary:</strong> Checking...</div>`;
+
+function safetyImageryStatusHtml(r){
+  const mCount=Number(r.mapillaryImageCount||0);
+  const esri=(r.esriStatus||'Not checked');
+  if(r.imageryStatus==='Checking'){
+    return `<div class="safety-note"><strong>Imagery:</strong> Checking...</div>`;
   }
-  if(r.mapillaryStatus==='Error'){
-    return `<div class="safety-note"><strong>Mapillary:</strong> Error<br/><span style="color:var(--text3);">${escapeHtml(r.mapillaryError||'Lookup failed')}</span></div>`;
+  if(r.imageryStatus==='Error'){
+    return `<div class="safety-note"><strong>Imagery:</strong> Error<br/><span style="color:var(--text3);">${escapeHtml(r.mapillaryError||'Lookup failed')}</span></div>`;
   }
-  if(r.mapillaryStatus==='Checked'&&count>0){
-    const dist=(r.mapillaryClosestDistance!==null&&r.mapillaryClosestDistance!==undefined)?`${r.mapillaryClosestDistance}m`:'Near';
-    const date=r.mapillaryCapturedAt?safetyFormatMapillaryDate(r.mapillaryCapturedAt):'Date unknown';
-    return `<div class="safety-note"><strong>Mapillary:</strong> ${count} image${count===1?'':'s'}<br/>Closest: ${escapeHtml(dist)} &bull; ${escapeHtml(date)}</div>`;
+  if(r.imageryStatus==='Checked'){
+    const mText=mCount>0
+      ? `Mapillary: ${mCount} image${mCount===1?'':'s'}${r.mapillaryClosestDistance!==null&&r.mapillaryClosestDistance!==undefined?' · '+r.mapillaryClosestDistance+'m':''}`
+      : 'Mapillary: none within 50m';
+    return `<div class="safety-note"><strong>Imagery:</strong> Checked<br/>Esri aerial: ${escapeHtml(esri)}<br/>${escapeHtml(mText)}</div>`;
   }
-  if(r.mapillaryStatus==='Checked'){
-    return `<div class="safety-note"><strong>Mapillary:</strong> No images within 50m<br/><span style="color:var(--text3);">Confidence stays limited</span></div>`;
-  }
-  return `<div class="safety-note"><strong>Mapillary:</strong> Not checked<br/><span style="color:var(--text3);">Run Mapillary Check</span></div>`;
+  return `<div class="safety-note"><strong>Imagery:</strong> Not checked<br/><span style="color:var(--text3);">Run Imagery Check</span></div>`;
 }
 
 function safetyFormatMapillaryDate(value){
@@ -4837,47 +4853,65 @@ function safetyFormatMapillaryDate(value){
   return value.toString();
 }
 
-function safetyMergeMapillaryResult(row,result){
+function safetyMergeImageryResult(row,result){
   const mapillary=result&&result.mapillary?result.mapillary:null;
-  if(!mapillary||mapillary.ok!==true){
+  const esri=result&&result.esri?result.esri:null;
+
+  row.imageryStatus='Checked';
+  row.esriStatus=esri?.ok?'Available':'Unavailable';
+  row.esriImageUrl=esri?.aerialImageUrl||row.esriAerialUrl||'';
+  row.esriAerialUrl=row.esriImageUrl||row.esriAerialUrl||'';
+
+  if(mapillary&&mapillary.ok===true){
+    const images=Array.isArray(mapillary.images)?mapillary.images:[];
+    const best=images[0]||null;
+    row.mapillaryStatus='Checked';
+    row.mapillaryImageCount=mapillary.imageCount||images.length||0;
+    row.mapillaryClosestDistance=best?.distanceMeters??null;
+    row.mapillaryCapturedAt=best?.capturedAt||'';
+    row.mapillaryThumbUrl=best?.thumb1024||best?.thumb256||'';
+    row.mapillaryBestUrl=best?.mapillaryUrl||row.mapillaryUrl;
+    row.mapillaryError='';
+  }else{
     row.mapillaryStatus='Error';
     row.mapillaryError=mapillary?.error||result?.error||'Mapillary lookup failed';
-    row.imageryConfidence='Google links only - Mapillary lookup failed';
-    return row;
   }
 
-  const images=Array.isArray(mapillary.images)?mapillary.images:[];
-  const best=images[0]||null;
-  row.mapillaryStatus='Checked';
-  row.mapillaryImageCount=mapillary.imageCount||images.length||0;
-  row.mapillaryClosestDistance=best?.distanceMeters??null;
-  row.mapillaryCapturedAt=best?.capturedAt||'';
-  row.mapillaryThumbUrl=best?.thumb1024||best?.thumb256||'';
-  row.mapillaryBestUrl=best?.mapillaryUrl||row.mapillaryUrl;
-
-  if(row.mapillaryImageCount>0){
-    row.imageryConfidence='Higher - Google links plus nearby Mapillary street-level imagery';
+  if(row.esriStatus==='Available' && row.mapillaryImageCount>0){
+    row.imageryConfidence='Higher - Esri aerial plus nearby Mapillary street-level imagery';
+    if(!row.hazards.some(h=>/Esri aerial imagery/i.test(h))){
+      row.hazards=[...row.hazards,'Esri aerial imagery available for remote review of parking lot, driveway, building layout, and approach path'];
+    }
     if(!row.hazards.some(h=>/Mapillary street-level imagery/i.test(h))){
       row.hazards=[...row.hazards,`Mapillary street-level imagery available near delivery point (${row.mapillaryImageCount} image${row.mapillaryImageCount===1?'':'s'}; closest ${row.mapillaryClosestDistance!==null?row.mapillaryClosestDistance+'m':'unknown distance'})`];
     }
-  }else{
-    row.imageryConfidence='Limited - no Mapillary images found within 50m';
-    if(!row.fieldVerify.some(h=>/Mapillary coverage/i.test(h))){
+  }else if(row.esriStatus==='Available'){
+    row.imageryConfidence='Medium - Esri aerial available, no nearby Mapillary street-level imagery';
+    if(!row.hazards.some(h=>/Esri aerial imagery/i.test(h))){
+      row.hazards=[...row.hazards,'Esri aerial imagery available for remote review of site layout'];
+    }
+    if(!row.fieldVerify.some(h=>/street-level image/i.test(h))){
       row.fieldVerify=[...row.fieldVerify,'No Mapillary street-level image was found within 50m; field photo verification is more important'];
     }
+  }else{
+    row.imageryConfidence='Limited - imagery lookup failed or unavailable';
+    if(!row.fieldVerify.some(h=>/imagery coverage/i.test(h))){
+      row.fieldVerify=[...row.fieldVerify,'Imagery coverage was unavailable or failed; field verification required'];
+    }
   }
+  row.confidence=row.imageryConfidence;
   return row;
 }
 
-async function getSafetyMapillaryAssessment(row){
+async function getSafetyImageryAssessment(row){
   const response=await fetch(SAFETY_AI_WORKER_URL+'/assess',{
     method:'POST',
     headers:{'Content-Type':'application/json'},
     body:JSON.stringify({
       customerName:row.customerName,
       address:row.address,
-      lat:row.lat,
-      lng:row.lng,
+      lat:Number(row.lat),
+      lng:Number(row.lng),
       cases:row.cases,
       routeName:row.routeName
     })
@@ -4887,38 +4921,43 @@ async function getSafetyMapillaryAssessment(row){
   return data;
 }
 
-async function runSafetyMapillaryAssessment(){
-  if(safetyMapillaryRunning){showToast('Mapillary check is already running');return;}
+async function runSafetyImageryAssessment(){
+  if(safetyImageryRunning){showToast('Imagery check is already running');return;}
   if(!safetyAssessmentRows.length)runSafetyAssessment(false);
   if(!safetyAssessmentRows.length){showToast('Import Orders with Latitude/Longitude first');return;}
 
-  safetyMapillaryRunning=true;
+  safetyImageryRunning=true;
   const btn=document.getElementById('safety-ai-btn');
-  if(btn){btn.disabled=true;btn.textContent='Checking Mapillary...';}
+  if(btn){btn.disabled=true;btn.textContent='Checking Imagery...';}
 
-  let checked=0,withImages=0,errors=0;
+  let checked=0,withMapillary=0,errors=0;
   for(const row of safetyAssessmentRows){
+    row.imageryStatus='Checking';
+    row.esriStatus='Checking';
     row.mapillaryStatus='Checking';
     renderSafetyAssessment();
     try{
-      const result=await getSafetyMapillaryAssessment(row);
-      safetyMergeMapillaryResult(row,result);
-      if((row.mapillaryImageCount||0)>0)withImages++;
+      const result=await getSafetyImageryAssessment(row);
+      safetyMergeImageryResult(row,result);
+      if((row.mapillaryImageCount||0)>0)withMapillary++;
     }catch(err){
+      row.imageryStatus='Error';
+      row.esriStatus='Unavailable';
       row.mapillaryStatus='Error';
       row.mapillaryError=err.message||String(err);
-      row.imageryConfidence='Google links only - Mapillary lookup failed';
+      row.imageryConfidence='Limited - imagery lookup failed';
+      row.confidence=row.imageryConfidence;
       errors++;
     }
     checked++;
-    if(checked%3===0)showToast(`Mapillary checked ${checked}/${safetyAssessmentRows.length} location(s)`);
+    if(checked%3===0)showToast(`Imagery checked ${checked}/${safetyAssessmentRows.length} location(s)`);
   }
 
   safetyAssessmentRows.sort((a,b)=>b.riskScore-a.riskScore||a.customerName.localeCompare(b.customerName));
   renderSafetyAssessment();
-  safetyMapillaryRunning=false;
-  if(btn){btn.disabled=false;btn.textContent='Run Mapillary Check';}
-  showToast(`Mapillary check complete: ${withImages} with imagery, ${errors} error(s)`);
+  safetyImageryRunning=false;
+  if(btn){btn.disabled=false;btn.textContent='Run Imagery Check';}
+  showToast(`Imagery check complete: ${withMapillary} with Mapillary imagery, ${errors} error(s)`);
 }
 
 
@@ -4958,11 +4997,11 @@ function renderSafetyAssessment(){
         <div><span class="safety-pill ${safetyTextBand(r.truck36)}">${escapeHtml(r.truck36)}</span></div>
         <div><span class="safety-pill ${safetyTextBand(r.truck48)}">${escapeHtml(r.truck48)}</span></div>
         <div style="font-family:'DM Mono',monospace;font-weight:800;">${r.riskScore}/10</div>
-        <div>${safetyMapillaryStatusHtml(r)}</div>
+        <div>${safetyImageryStatusHtml(r)}</div>
         <div class="safety-note">${escapeHtml(r.hazards.slice(0,2).join(' | '))}</div>
         <div class="safety-actions">
           <button class="btn" style="padding:3px 7px;font-size:9px;" onclick="openSafetyDetail('${r.stopId}')">Details</button>
-          <a class="safety-link" href="${r.aerialUrl}" target="_blank" rel="noopener noreferrer">Aerial</a>
+          <a class="safety-link" href="${r.esriImageUrl||r.esriAerialUrl||r.aerialUrl}" target="_blank" rel="noopener noreferrer">Esri Aerial</a>
           <a class="safety-link" href="${r.streetFrontUrl}" target="_blank" rel="noopener noreferrer">Street View</a>
           <a class="safety-link" href="${r.mapillaryBestUrl||r.mapillaryUrl}" target="_blank" rel="noopener noreferrer">Mapillary</a>
         </div>
@@ -4976,12 +5015,13 @@ function openSafetyDetail(stopId){
   document.getElementById('safety-detail-body').innerHTML=`
     <div class="safety-detail-grid">
       <div class="safety-detail-card"><div class="lbl">Customer / Address</div><div class="val">${escapeHtml(r.customerNumber||r.shipToId||'')}<br/>${escapeHtml(r.address)}</div></div>
-      <div class="safety-detail-card"><div class="lbl">Risk Rating</div><div class="val"><span class="safety-pill ${r.riskClass}">${r.riskBand}</span> &nbsp; ${r.riskScore}/10 &nbsp; Confidence: ${escapeHtml(r.confidence)}<br/>Imagery Confidence: ${escapeHtml(r.imageryConfidence||'Google links only')}</div></div>
+      <div class="safety-detail-card"><div class="lbl">Risk Rating</div><div class="val"><span class="safety-pill ${r.riskClass}">${r.riskBand}</span> &nbsp; ${r.riskScore}/10 &nbsp; Confidence: ${escapeHtml(r.confidence)}</div></div>
       <div class="safety-detail-card"><div class="lbl">Truck Fit</div><div class="val">28ft: ${escapeHtml(r.truck28)}<br/>36ft: ${escapeHtml(r.truck36)}<br/>48ft: ${escapeHtml(r.truck48)}</div></div>
       <div class="safety-detail-card"><div class="lbl">Parking / Backing</div><div class="val">Parking: ${escapeHtml(r.parking)}<br/>Backing: ${escapeHtml(r.backing)}</div></div>
       <div class="safety-detail-card"><div class="lbl">Dock / Lighting</div><div class="val">Dock: ${escapeHtml(r.dock)}<br/>Lighting: ${escapeHtml(r.lighting)}</div></div>
       <div class="safety-detail-card"><div class="lbl">Image / Map Links</div><div class="val">
-        <a class="safety-link" href="${r.aerialUrl}" target="_blank" rel="noopener noreferrer">Aerial / Satellite</a> &nbsp;
+        <a class="safety-link" href="${r.esriImageUrl||r.esriAerialUrl||r.aerialUrl}" target="_blank" rel="noopener noreferrer">Esri Aerial Image</a> &nbsp;
+        <a class="safety-link" href="${r.aerialUrl}" target="_blank" rel="noopener noreferrer">Google Aerial Link</a> &nbsp;
         <a class="safety-link" href="${r.mapUrl}" target="_blank" rel="noopener noreferrer">Google Map</a> &nbsp;
         <a class="safety-link" href="${r.streetFrontUrl}" target="_blank" rel="noopener noreferrer">Street View</a> &nbsp;
         <a class="safety-link" href="${r.mapillaryBestUrl||r.mapillaryUrl}" target="_blank" rel="noopener noreferrer">Mapillary</a><br/>
@@ -4990,12 +5030,15 @@ function openSafetyDetail(stopId){
         <a class="safety-link" href="${r.streetSouthUrl}" target="_blank" rel="noopener noreferrer">S</a>
         <a class="safety-link" href="${r.streetWestUrl}" target="_blank" rel="noopener noreferrer">W</a>
       </div></div>
-      <div class="safety-detail-card" style="grid-column:1/-1;"><div class="lbl">Mapillary Street-Level Coverage</div><div class="val">
-        Status: ${escapeHtml(r.mapillaryStatus||'Not checked')}<br/>
-        Images found: ${r.mapillaryImageCount||0}<br/>
-        Closest image distance: ${(r.mapillaryClosestDistance!==null&&r.mapillaryClosestDistance!==undefined)?escapeHtml(r.mapillaryClosestDistance+'m'):'—'}<br/>
+      <div class="safety-detail-card" style="grid-column:1/-1;"><div class="lbl">Imagery Coverage</div><div class="val">
+        Imagery status: ${escapeHtml(r.imageryStatus||'Not checked')}<br/>
+        Imagery confidence: ${escapeHtml(r.imageryConfidence||r.confidence||'')}<br/>
+        Esri aerial: ${escapeHtml(r.esriStatus||'Not checked')}<br/>
+        Mapillary status: ${escapeHtml(r.mapillaryStatus||'Not checked')}<br/>
+        Mapillary images found: ${r.mapillaryImageCount||0}<br/>
+        Closest Mapillary image: ${(r.mapillaryClosestDistance!==null&&r.mapillaryClosestDistance!==undefined)?escapeHtml(r.mapillaryClosestDistance+'m'):'—'}<br/>
         Capture date: ${escapeHtml(safetyFormatMapillaryDate(r.mapillaryCapturedAt)||'—')}<br/>
-        ${r.mapillaryThumbUrl?`<a class="safety-link" href="${r.mapillaryThumbUrl}" target="_blank" rel="noopener noreferrer">Open closest image thumbnail</a><br/>`:''}
+        ${r.mapillaryThumbUrl?`<a class="safety-link" href="${r.mapillaryThumbUrl}" target="_blank" rel="noopener noreferrer">Open closest Mapillary thumbnail</a><br/>`:''}
         ${r.mapillaryError?`Error: ${escapeHtml(r.mapillaryError)}`:''}
       </div></div>
       <div class="safety-detail-card" style="grid-column:1/-1;"><div class="lbl">Observed / Inferred Hazards</div><div class="val">${r.hazards.map(h=>'&bull; '+escapeHtml(h)).join('<br/>')}</div></div>
@@ -5032,7 +5075,7 @@ function exportSafetyAssessment(){
     'High Risk Locations':high,
     'Medium Risk Locations':med,
     '48ft Requires Verification':safetyAssessmentRows.filter(r=>/avoid|caution|verify/i.test(r.truck48)).length,
-    'Method':'Remote Safety Screen using imported order/customer coordinates, rule-based risk scoring, Google image links, and optional Mapillary street-level coverage from the Safety AI Worker. Field verification required before final approval.'
+    'Method':'Remote Safety Screen using imported order/customer coordinates and rule-based risk scoring. Field verification required before final approval.'
   }]),'Safety Dashboard');
   const detail=safetyAssessmentRows.map(r=>({
     'Customer Number':r.customerNumber,
@@ -5048,12 +5091,12 @@ function exportSafetyAssessment(){
     'Risk Band':r.riskBand,
     'Confidence':r.confidence,
     'Imagery Confidence':r.imageryConfidence||'',
+    'Imagery Status':r.imageryStatus||'',
+    'Esri Aerial Status':r.esriStatus||'',
     'Mapillary Status':r.mapillaryStatus||'',
     'Mapillary Image Count':r.mapillaryImageCount||0,
     'Mapillary Closest Distance Meters':r.mapillaryClosestDistance??'',
     'Mapillary Capture Date':safetyFormatMapillaryDate(r.mapillaryCapturedAt)||'',
-    'Mapillary Link':r.mapillaryBestUrl||r.mapillaryUrl||'',
-    'Mapillary Error':r.mapillaryError||'',
     '28ft Truck Fit':r.truck28,
     '36ft Truck Fit':r.truck36,
     '48ft Truck Fit':r.truck48,
@@ -5063,13 +5106,15 @@ function exportSafetyAssessment(){
     'Lighting Assessment':r.lighting,
     'Hazards / Obstacles':r.hazards.join(' | '),
     'Field Verification Checklist':r.fieldVerify.join(' | '),
-    'Aerial / Satellite Link':r.aerialUrl,
+    'Google Aerial / Satellite Link':r.aerialUrl,
+    'Esri Aerial Image Link':r.esriImageUrl||r.esriAerialUrl||'',
+    'Mapillary Link':r.mapillaryBestUrl||r.mapillaryUrl||'',
+    'Mapillary Thumbnail Link':r.mapillaryThumbUrl||'',
     'Street View Link':r.streetFrontUrl,
     'Street View North':r.streetNorthUrl,
     'Street View East':r.streetEastUrl,
     'Street View South':r.streetSouthUrl,
-    'Street View West':r.streetWestUrl,
-    'Mapillary Link':r.mapillaryBestUrl||r.mapillaryUrl||''
+    'Street View West':r.streetWestUrl
   }));
   XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(detail),'Safety Assessment');
   const verify=safetyAssessmentRows.map(r=>({
