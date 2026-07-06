@@ -483,6 +483,7 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
     <div class="imp-tabs">
       <div class="imp-tab active" id="itab-all" onclick="setImportMode('all')">All Templates</div>
       <div class="imp-tab" id="itab-stops" onclick="setImportMode('stops')">Orders Only</div>
+      <div class="imp-tab" id="itab-backhauls" onclick="setImportMode('backhauls')">Backhauls</div>
     </div>
     <div id="imp-drop" class="file-drop"
       onclick="document.getElementById('file-in').click()"
@@ -1460,9 +1461,11 @@ function renderMap(){
       <b>${s.customerName||'Stop'}</b><br/>
       <span style="color:#666;font-size:11px;">${s.address||''} ${s.city||''} ${s.state||''}</span>
       <hr style="margin:5px 0;border-color:#eee;"/>
-      <b>Orders:</b> ${orderLabel(s)} &nbsp;|&nbsp; <b>Cases:</b> ${tCases(s)}<br/>
+      ${s.sourceType==='backhaul'
+        ? `<b>Backhaul:</b> ${escapeHtml(s.vendor||s.backhaul?.vendor||'')} &nbsp;|&nbsp; <b>Lane:</b> ${escapeHtml(s.laneNumber||'—')}<br/><b>Avg Cases:</b> ${tCases(s).toLocaleString()} &nbsp;|&nbsp; <b>Avg Cube:</b> ${tCube(s).toFixed(1)}<br/><b>Avg Weight:</b> ${tWeight(s).toFixed(0)} &nbsp;|&nbsp; <b>Avg Rev:</b> ${escapeHtml(s.backhaul?.avgRevenue??'—')}<br/><b>Miles:</b> ${escapeHtml(s.backhaul?.miles??'—')} &nbsp;|&nbsp; <b>Partner:</b> ${escapeHtml(s.backhaul?.partner??'—')}<br/>`
+        : `<b>Orders:</b> ${orderLabel(s)} &nbsp;|&nbsp; <b>Cases:</b> ${tCases(s)}<br/>
       <b>Weight:</b> ${tWeight(s).toFixed(0)} &nbsp;|&nbsp; <b>Cube:</b> ${tCube(s).toFixed(1)}<br/>
-      <b>Window:</b> ${s.earliestTimeWindow||'—'} – ${s.latestTimeWindow||'—'}<br/>
+      <b>Window:</b> ${s.earliestTimeWindow||'—'} – ${s.latestTimeWindow||'—'}<br/>`}
       ${r.name?`<b>Route:</b> ${r.name}`:'<b style="color:#f59e0b;">Unassigned</b>'}
       ${s.preferredResourceKey?`<br/><b>Pref Key:</b> ${s.preferredResourceKey}`:''}
       <br/><span style="font-size:10px;color:#999;">Right-click marker for actions</span>
@@ -1707,7 +1710,7 @@ function openStopDetail(stopId){
     ${detailInput('ed-s-district','District',s.district)}
     ${detailInput('ed-s-willCallIndicator','Will Call',s.willCallIndicator)}
     ${detailTextArea('ed-s-comment','Comment',s.comment)}
-    ${renderStopOrdersHtml(s)}
+    ${s.sourceType==='backhaul'?renderBackhaulDetailHtml(s):renderStopOrdersHtml(s)}
   </div>`;
   document.getElementById('stop-detail-modal').style.display='flex';
 }
@@ -3398,14 +3401,15 @@ function openImport(){
 }
 
 function setImportMode(m){
-  importMode=(m==='stops')?'stops':'all';
-  ['all','stops'].forEach(x=>{
+  importMode=(m==='stops'||m==='backhauls')?m:'all';
+  ['all','stops','backhauls'].forEach(x=>{
     const tab=document.getElementById('itab-'+x);
     if(tab)tab.className='imp-tab'+(importMode===x?' active':'');
   });
   const hints={
     all:'Upload one file with sheets named "Routes", "Trucks", "Orders", and "Depot Locations".',
-    stops:'Upload your Orders file. Select the CUTID(s) that are being added to the session.'
+    stops:'Upload your Orders file. Select the CUTID(s) that are being added to the session.',
+    backhauls:'Upload the Backhauls workbook. Rows with Latitude/Longtitude will be added as map locations with average cases/cube/weight/revenue details.'
   };
   const hint=document.getElementById('imp-hint');
   if(hint)hint.textContent=hints[importMode];
@@ -3413,6 +3417,8 @@ function setImportMode(m){
   if(cutPanel)cutPanel.style.display=importMode==='stops'?'block':'none';
   const dayPanel=document.getElementById('route-day-filter');
   if(dayPanel)dayPanel.style.display=importMode==='all'?'block':'none';
+  const exportInfo=document.getElementById('import-export-info');
+  if(exportInfo)exportInfo.style.display=importMode==='backhauls'?'none':'block';
 }
 
 function toggleAllCutIds(checked){
@@ -3451,6 +3457,9 @@ function detectImportSheetType(name,data){
   if(!data||!data.length)return null;
   const keys=Object.keys(data[0]).map(k=>k.toLowerCase().trim());
   const sheetLower=name.toLowerCase().trim();
+
+  const looksBackhauls=keys.includes('lane #')&&keys.includes('vendor')&&keys.includes('sf-name')&&keys.some(k=>k==='longtitude'||k==='longitude'||k==='long'||k==='lng');
+  if(sheetLower.includes('backhaul')||sheetLower==='3pl'||looksBackhauls)return looksBackhauls?'backhauls':null;
 
   const hasLocationKey=keys.some(k=>k==='locationkey'||k==='location key'||k==='locationk');
   const hasDepotAddress=keys.some(k=>k==='shipcity'||k==='ship city'||k==='shipzipcode'||k==='ship zip code'||k==='shipzipcode'||k==='shipstate'||k==='ship state');
@@ -3515,7 +3524,7 @@ function readFile(file){
             <span>${s.name} <span style="color:var(--text3);">(${s.rows} rows)</span></span>
             <strong style="color:${s.type==='not detected'?'var(--warn)':(s.type==='reference only'?'var(--text3)':'var(--success)')};">${s.type}</strong>
           </div>`).join('')}
-          <br/><span style="color:var(--text3);">All Templates mode imports detected route, truck, depot, and order tabs. Orders Only runs the incremental cut import/status refresh process.</span>
+          <br/><span style="color:var(--text3);">All Templates mode imports detected route, truck, depot, and order tabs. Orders Only runs the incremental cut import/status refresh process. Backhauls mode imports vendor/customer average data as map locations.</span>
         </div>`;
       document.getElementById('imp-confirm').style.display='';
     }catch(err){showToast('Error reading file: '+err.message);}
@@ -3531,7 +3540,7 @@ function confirmImport(){
 
   try{
     sessionRegionCode=sval(document.getElementById('import-region-code')?.value||sessionRegionCode||'');
-    let rc=0,dc=0,sc=0,lc=0, skipped=0;
+    let rc=0,dc=0,sc=0,lc=0,bhc=0, skipped=0;
     let orderImportSummary=null;
     const sheets=pendingWB.SheetNames.map(name=>{
       const ws=pendingWB.Sheets[name];
@@ -3539,7 +3548,17 @@ function confirmImport(){
       return {name,data,type:detectImportSheetType(name,data)};
     }).filter(x=>x.data.length);
 
-    if(importMode==='stops'){
+    if(importMode==='backhauls'){
+      const backhaulSheets=sheets.filter(x=>x.type==='backhauls' || sheets.length===1);
+      if(!backhaulSheets.length){
+        showToast('No Backhauls sheet was detected in the selected file.');
+        if(btn){btn.disabled=false;btn.textContent=originalText||'Import Data';}
+        return;
+      }
+      const backhaulRows=[];
+      backhaulSheets.forEach(x=>backhaulRows.push(...x.data));
+      bhc=importBackhauls(backhaulRows);
+    }else if(importMode==='stops'){
       const selectedCutIds=getSelectedCutIds();
       if(!selectedCutIds.length){
         showToast('Select at least one CUTID to add before importing Orders Only.');
@@ -3578,6 +3597,9 @@ function confirmImport(){
     mapCleared=true;
     visibleStopIds.clear();
     visibleRouteIds.clear();
+    if(importMode==='backhauls'){
+      stops.filter(s=>s.sourceType==='backhaul').forEach(s=>visibleStopIds.add(s.id));
+    }
     potColors={};
     if(typeof potRouteSuggestions!=='undefined') potRouteSuggestions={};
 
@@ -3592,7 +3614,8 @@ function confirmImport(){
         showIncrementalOrderImportSummary(orderImportSummary);
       }else{
         const skipText=skipped?`, ${skipped} skipped/not detected`:'';
-        showToast(`Imported: ${rc} route rows, ${dc} truck rows, ${sc} stop rows, ${lc} depot rows${skipText}`);
+        if(importMode==='backhauls') showToast(`Imported: ${bhc} backhaul locations`);
+        else showToast(`Imported: ${rc} route rows, ${dc} truck rows, ${sc} stop rows, ${lc} depot rows${skipText}`);
       }
       if(btn){btn.disabled=false;btn.textContent=originalText||'Import Data';}
     },25);
@@ -3648,6 +3671,7 @@ function orderCount(stop){
   return Array.isArray(stop?.orders)&&stop.orders.length?stop.orders.length:1;
 }
 function orderLabel(stop){
+  if(stop?.sourceType==='backhaul')return stop.laneNumber?`Backhaul Lane ${stop.laneNumber}`:'Backhaul Location';
   const count=orderCount(stop);
   return count>1?`${count} orders`:(stop?.orderNumber||'1 order');
 }
@@ -3682,6 +3706,7 @@ function cutIdBadgesForStop(stop){
   return cutIdValuesForStop(stop).map(cutIdBadgeHtml).join('');
 }
 function customerNameWithCutIdBadges(stop,name){
+  if(stop?.sourceType==='backhaul')return `<span class="tag" style="background:rgba(62,207,142,.16);color:var(--success);">BH</span> ${escapeHtml(name||'Backhaul')}`;
   const badges=cutIdBadgesForStop(stop);
   return `${badges}${escapeHtml(name||'Stop')}`;
 }
@@ -3827,6 +3852,23 @@ function buildConsolidatedStopFromOrders(orders, existing){
     uiChecked:existing?existing.uiChecked:false,
   };
 }
+function renderBackhaulDetailHtml(stop){
+  const bh=stop.backhaul||{};
+  const fields=[
+    ['Lane #',bh.laneNumber],['LAP Stage',bh.lapStage],['LAP',bh.lap],['Act Ship Via',bh.actShipVia],
+    ['Partner',bh.partner],['Notes',bh.notes],['Vendor',bh.vendor],['Vendor #',bh.vendorNumber],
+    ['SF Name',bh.sfName],['SF City',bh.sfCity],['SF State',bh.sfState],['SF Zip',bh.sfZip],
+    ['Miles',bh.miles],['TP',bh.tp],['Managed POs',bh.managedPOs],['Monthly Frequency',bh.monthlyFrequency],
+    ['Annual Cases',bh.annualCases],['Avg Cases',bh.avgCases],['Avg Cube',bh.avgCube],['Avg Weight',bh.avgWeight],
+    ['Avg Pallets',bh.avgPallets],['Avg Revenue',bh.avgRevenue]
+  ];
+  const rows=fields.map(([label,value])=>`<div class="stop-detail-field"><div class="lbl">${escapeHtml(label)}</div><div class="val">${escapeHtml(value??'—')}</div></div>`).join('');
+  return `<details class="order-expand" open>
+    <summary>Backhaul average details <span class="order-badge">BH</span></summary>
+    <div class="stop-detail-grid" style="padding:8px;">${rows}</div>
+  </details>`;
+}
+
 function renderStopOrdersHtml(stop){
   const orders=Array.isArray(stop.orders)&&stop.orders.length?stop.orders:[{
     orderNumber:stop.orderNumber, cutId:stop.cutId, orderType:stop.orderType, orderStatus:stop.orderStatus,
@@ -3949,6 +3991,94 @@ function importTrucks(data){
     };
     if(existing)Object.assign(existing,obj); else trucks.push(obj);
   });
+}
+
+function makeBackhaulFromRow(row){
+  const lat=parseFloat(gc(row,['Latitude','latitude','Lat','lat']));
+  const lng=parseFloat(gc(row,['Longtitude','Longitude','longitude','Long','long','Lng','lng']));
+  if(isNaN(lat)||isNaN(lng))return null;
+  const laneNumber=sval(gc(row,['Lane #','Lane','Lane Number']));
+  const vendor=sval(gc(row,['Vendor']));
+  const vendorNumber=sval(gc(row,['Vend #','Vendor #','Vendor Number']));
+  const sfName=sval(gc(row,['SF-Name','SF Name','Name']));
+  const sfCity=sval(gc(row,['SF-City','SF City','City']));
+  const sfState=sval(gc(row,['SF-St','SF St','SF State','State']));
+  const sfZip=sval(gc(row,['SF-Zip','SF Zip','Zip']));
+  const bh={
+    laneNumber,
+    lapStage:sval(gc(row,['LAP Stage'])),
+    lap:sval(gc(row,['LAP'])),
+    actShipVia:sval(gc(row,['Act Ship Via'])),
+    partner:sval(gc(row,['Partner'])),
+    notes:sval(gc(row,['Notes'])),
+    vendor,
+    vendorNumber,
+    sfName,
+    sfCity,
+    sfState,
+    sfZip,
+    latitude:lat,
+    longitude:lng,
+    miles:nval(gc(row,['Miles'])),
+    tp:sval(gc(row,['TP'])),
+    managedPOs:nval(gc(row,['Mgd POs','Managed POs'])),
+    monthlyFrequency:nval(gc(row,['Mth Freq','Monthly Frequency'])),
+    annualCases:nval(gc(row,['Annual Cs','Annual Cases'])),
+    avgCases:nval(gc(row,['Avg Cs','Avg Cases'])),
+    avgCube:nval(gc(row,['Avg Cube'])),
+    avgWeight:nval(gc(row,['Avg Wgt','Avg Weight'])),
+    avgPallets:nval(gc(row,['Avg Plt','Avg Pallets'])),
+    avgRevenue:nval(gc(row,['Avg Rev','Avg Revenue']))
+  };
+  return {
+    id:uid(),
+    sourceType:'backhaul',
+    routeId:null,
+    seq:0,
+    laneNumber,
+    orderNumber:laneNumber,
+    customerName:sfName||vendor||'Backhaul Location',
+    shipToId:vendorNumber,
+    customerNumber:vendorNumber,
+    address:'',
+    city:sfCity,
+    state:sfState,
+    zip:sfZip,
+    country:'US',
+    lat,lng,
+    vendor,
+    vendorNumber,
+    dryCases:bh.avgCases,
+    dryCube:bh.avgCube,
+    dryWeight:bh.avgWeight,
+    coolerCases:0,coolerCube:0,coolerWeight:0,
+    frozenCases:0,frozenCube:0,frozenWeight:0,
+    pkgCases:0,pkgCube:0,pkgWeight:0,
+    comment:bh.notes,
+    orderType:'Backhaul Average',
+    orderStatus:bh.lapStage,
+    district:bh.partner,
+    earliestTimeWindow:'',latestTimeWindow:'',earliestTimeWindowRaw:'',latestTimeWindowRaw:'',
+    backhaul:bh,
+    raw:{...row}
+  };
+}
+function backhaulIdentity(bh){
+  return ['BH',bh.laneNumber,bh.vendorNumber,bh.customerName,bh.city,bh.state,bh.zip].map(sval).join('|').toUpperCase();
+}
+function importBackhauls(data){
+  let imported=0, skippedNoGeo=0;
+  data.forEach(row=>{
+    const bh=makeBackhaulFromRow(row);
+    if(!bh){skippedNoGeo++;return;}
+    const ident=backhaulIdentity(bh);
+    const existing=stops.find(s=>s.sourceType==='backhaul'&&backhaulIdentity(s)===ident);
+    if(existing)Object.assign(existing,bh,{id:existing.id,routeId:existing.routeId||null,seq:existing.seq||0});
+    else stops.push(bh);
+    imported++;
+  });
+  if(skippedNoGeo)console.warn(`Skipped ${skippedNoGeo} backhaul row(s) without valid Latitude/Longtitude`);
+  return imported;
 }
 
 function importStops(data){
