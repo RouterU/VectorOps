@@ -1327,6 +1327,77 @@ function renderDepotRouteRow(route,type,color){
 }
 function depotLatLng(depot){return depot&&depot.lat&&depot.lng?[depot.lat,depot.lng]:null;}
 
+function depotAddressLine(depot){
+  return [depot?.shipStreet,depot?.shipCity,depot?.shipState,depot?.shipZipCode].map(sval).filter(Boolean).join(', ');
+}
+function makeStopFromDepot(depot){
+  return {
+    id:uid(),
+    sourceType:'depot-clone',
+    routeId:null,
+    seq:0,
+    orderNumber:'DEPOT-'+sval(depot.locationKey),
+    laneNumber:'',
+    customerName:depot.name||depot.locationKey||'Depot Stop',
+    shipToId:depot.locationKey||'',
+    customerNumber:depot.locationKey||'',
+    address:depot.shipStreet||'',
+    city:depot.shipCity||'',
+    state:depot.shipState||'',
+    zip:depot.shipZipCode||'',
+    country:'US',
+    lat:depot.lat,
+    lng:depot.lng,
+    dryCases:0,dryCube:0,dryWeight:0,
+    coolerCases:0,coolerCube:0,coolerWeight:0,
+    frozenCases:0,frozenCube:0,frozenWeight:0,
+    pkgCases:0,pkgCube:0,pkgWeight:0,
+    comment:'Cloned from Depot Location '+(depot.locationKey||''),
+    orderType:'Depot Clone',
+    orderStatus:'',
+    district:depot.branchDivision||depot.market||'',
+    earliestTimeWindow:'',latestTimeWindow:'',earliestTimeWindowRaw:'',latestTimeWindowRaw:'',
+    depotClone:{...depot},
+    raw:{...depot},
+    lockStart:false,
+    lockFinal:false
+  };
+}
+function cloneDepotAsStop(depotId,routeId=''){
+  const depot=depotLocations.find(d=>d.id===depotId);
+  if(!depot){showToast('Depot not found');return;}
+  if(!depot.lat||!depot.lng){showToast('Depot needs latitude/longitude before it can be cloned');return;}
+  const stop=makeStopFromDepot(depot);
+  if(routeId){
+    stop.routeId=routeId;
+    stop.seq=Math.max(0,...stops.filter(s=>s.routeId===routeId).map(s=>s.seq||0))+1;
+    expanded.add(routeId);
+  }
+  stops.push(stop);
+  visibleStopIds.add(stop.id);
+  reseq();
+  render();
+  closeModal('job-modal');
+  openStopDetail(stop.id);
+  showToast('Depot cloned as a routeable stop');
+}
+function openDepotDetail(depotId){
+  const depot=depotLocations.find(d=>d.id===depotId);
+  if(!depot)return;
+  const routeOptions=[{value:'',label:'Clone to Unassigned'},...routes.map(r=>({value:r.id,label:'Clone to '+(r.name||r.routeTemplateKey||'Route')}))];
+  document.getElementById('job-title').innerHTML='Depot Location Details';
+  document.getElementById('job-body').innerHTML=`<div class="stop-detail-grid">
+    <div class="stop-detail-field"><div class="lbl">Name</div><div class="val">${escapeHtml(depot.name||'—')}</div></div>
+    <div class="stop-detail-field"><div class="lbl">LocationKey</div><div class="val">${escapeHtml(depot.locationKey||'—')}</div></div>
+    <div class="stop-detail-field"><div class="lbl">Branch (Division)</div><div class="val">${escapeHtml(depot.branchDivision||'—')}</div></div>
+    <div class="stop-detail-field"><div class="lbl">Market</div><div class="val">${escapeHtml(depot.market||'—')}</div></div>
+    <div class="stop-detail-field"><div class="lbl">Address</div><div class="val">${escapeHtml(depotAddressLine(depot)||'—')}</div></div>
+    <div class="stop-detail-field"><div class="lbl">Latitude / Longitude</div><div class="val">${escapeHtml(depot.lat??'—')} / ${escapeHtml(depot.lng??'—')}</div></div>
+    <div class="stop-detail-field" style="grid-column:1/-1;"><div class="lbl">Clone Depot Stop</div><div class="val" style="display:flex;gap:7px;align-items:center;flex-wrap:wrap;"><select id="clone-depot-route" style="background:var(--bg2);border:1px solid var(--border);border-radius:6px;color:var(--text1);font-size:11px;font-family:'Sora',sans-serif;padding:6px 7px;min-width:220px;">${routeOptions.map(o=>`<option value="${escapeHtml(o.value)}">${escapeHtml(o.label)}</option>`).join('')}</select><button class="btn primary" onclick="cloneDepotAsStop('${depot.id}',document.getElementById('clone-depot-route')?.value||'')">Clone</button><span style="font-size:9px;color:var(--text3);">Each clone becomes a separate routeable stop, so the same depot can appear multiple times on a route.</span></div></div>
+  </div>`;
+  document.getElementById('job-modal').style.display='flex';
+}
+
 // ============================================================
 // RENDER
 // ============================================================
@@ -1413,7 +1484,7 @@ function renderRoutes(){
           <span class="s-seq">${s.seq}</span>
           <span class="s-dot" style="background:${color}"></span>
           <div class="s-info">
-            <div class="s-name">${customerNameWithCutIdBadges(s,s.customerName)}</div>
+            <div class="s-name">${customerNameWithCutIdBadges(s,s.customerName)}${s.lockStart?'<span class="tag tag-pref">START LOCK</span>':''}${s.lockFinal?'<span class="tag tag-pref">FINAL LOCK</span>':''}</div>
             <div class="s-detail">${orderLabel(s)} &middot; ${tCases(s)}cs &middot; ${s.city||''} ${s.state||''}</div>
           </div>
           <div class="s-acts">
@@ -1448,7 +1519,7 @@ function renderUA(){
         onclick="setCheck('${s.id}',this.checked);event.stopPropagation()"/>
       <span class="ua-dot" style="background:${pc||'var(--text3)'}"></span>
       <div class="ua-info">
-        <div class="ua-name">${customerNameWithCutIdBadges(s,s.customerName)}${hasPref?'<span class="tag tag-pref">&#11088; Pref</span>':''}${isWC?'<span class="tag tag-wc">Will Call</span>':''}</div>
+        <div class="ua-name">${customerNameWithCutIdBadges(s,s.customerName)}${s.lockStart?'<span class="tag tag-pref">START LOCK</span>':''}${s.lockFinal?'<span class="tag tag-pref">FINAL LOCK</span>':''}${hasPref?'<span class="tag tag-pref">&#11088; Pref</span>':''}${isWC?'<span class="tag tag-wc">Will Call</span>':''}</div>
         <div class="ua-detail">${orderLabel(s)} &middot; ${tCases(s)}cs &middot; ${s.city||''} ${s.state||''}${pc?`<span class="tag-pot" style="background:${pc};margin-left:4px;">&#128204; Suggested</span>`:''}</div>
       </div>
       <select class="ua-assign" onclick="event.stopPropagation()" onchange="assignStop('${s.id}',this.value);this.value=''">
@@ -1529,7 +1600,8 @@ function renderMap(){
       html:`<div class="depot-map-label" style="color:#a78bfa;"><span class="depot-building">🏢</span><span class="depot-text"><span class="depot-type">DEPOT</span><span class="depot-name">${escapeHtml(d.name||d.locationKey||'Depot')}</span></span></div>`,
       iconSize:null,iconAnchor:[10,16]});
     const m=L.marker([d.lat,d.lng],{icon}).addTo(map);
-    m.bindPopup(`<div style="font-family:Sora,sans-serif;min-width:220px;font-size:12px;"><b>DEPOT</b><br/><b>${escapeHtml(d.name||'Depot')}</b><br/>LocationKey: ${escapeHtml(d.locationKey||'')}<br/>Branch: ${escapeHtml(d.branchDivision||'—')}<br/>Market: ${escapeHtml(d.market||'—')}<br/>${escapeHtml(d.shipStreet||'')}<br/>${escapeHtml(d.shipCity||'')} ${escapeHtml(d.shipState||'')} ${escapeHtml(d.shipZipCode||'')}</div>`);
+    m.bindPopup(`<div style="font-family:Sora,sans-serif;min-width:240px;font-size:12px;"><b>DEPOT</b><br/><b>${escapeHtml(d.name||'Depot')}</b><br/>LocationKey: ${escapeHtml(d.locationKey||'')}<br/>Branch: ${escapeHtml(d.branchDivision||'—')}<br/>Market: ${escapeHtml(d.market||'—')}<br/>${escapeHtml(d.shipStreet||'')}<br/>${escapeHtml(d.shipCity||'')} ${escapeHtml(d.shipState||'')} ${escapeHtml(d.shipZipCode||'')}<br/><button class="btn primary" style="margin-top:7px;padding:3px 7px;font-size:10px;" onclick="cloneDepotAsStop('${d.id}')">Clone as Stop</button> <button class="btn" style="margin-top:7px;padding:3px 7px;font-size:10px;" onclick="openDepotDetail('${d.id}')">Details</button></div>`);
+    m.on('click',()=>openDepotDetail(d.id));
     markers[depotId]=m;
   });
 
@@ -1659,8 +1731,23 @@ function assignStop(sid,rid){
   reseq();render();
 }
 
+function orderWithStartFinalLocks(routeId, orderedStops){
+  const list=(orderedStops||[]).filter(Boolean);
+  if(!list.length)return list;
+  const startLocks=list.filter(s=>s.lockStart).sort((a,b)=>(a.seq||999999)-(b.seq||999999));
+  const finalLocks=list.filter(s=>s.lockFinal).sort((a,b)=>(a.seq||999999)-(b.seq||999999));
+  const startStop=startLocks[0]||null;
+  const finalStop=finalLocks[finalLocks.length-1]||null;
+  const used=new Set([startStop?.id,finalStop?.id].filter(Boolean));
+  const middle=list.filter(s=>!used.has(s.id));
+  return [startStop,...middle,finalStop].filter(Boolean);
+}
+function applyStartFinalLocksToRoute(routeId){
+  const ordered=orderWithStartFinalLocks(routeId,stops.filter(s=>s.routeId===routeId).sort((a,b)=>(a.seq||0)-(b.seq||0)));
+  ordered.forEach((s,i)=>s.seq=i+1);
+}
 function reseq(){
-  routes.forEach(r=>stops.filter(s=>s.routeId===r.id).sort((a,b)=>a.seq-b.seq).forEach((s,i)=>s.seq=i+1));
+  routes.forEach(r=>applyStartFinalLocksToRoute(r.id));
 }
 
 // Drag & drop
@@ -1717,6 +1804,9 @@ function detailTextArea(id,label,value){
 function detailSelect(id,label,value,options){
   return `<div class="stop-detail-field"><div class="lbl">${escapeHtml(label)}</div><select id="${id}">${options.map(o=>`<option value="${escapeHtml(o.value)}" ${String(o.value)===String(value??'')?'selected':''}>${escapeHtml(o.label)}</option>`).join('')}</select></div>`;
 }
+function detailCheckbox(id,label,checked,help=''){
+  return `<div class="stop-detail-field"><div class="lbl">${escapeHtml(label)}</div><label style="display:flex;align-items:center;gap:7px;font-size:12px;color:var(--text1);cursor:pointer;"><input id="${id}" type="checkbox" ${checked?'checked':''} style="accent-color:var(--accent);width:14px;height:14px;"/> ${checked?'Locked':'Not locked'}</label>${help?`<div style="font-size:9px;color:var(--text3);margin-top:5px;line-height:1.3;">${escapeHtml(help)}</div>`:''}</div>`;
+}
 function numVal(id){const n=parseFloat(document.getElementById(id)?.value);return isNaN(n)?0:n;}
 function strVal(id){return document.getElementById(id)?.value ?? '';}
 
@@ -1734,6 +1824,8 @@ function openStopDetail(stopId){
     ${detailInput('ed-s-customerNumber','Customer Number',s.customerNumber)}
     ${detailSelect('ed-s-routeId','Assigned Route',s.routeId||'',routeOptions)}
     ${detailInput('ed-s-seq','Routed Sequence',s.seq||0,'number')}
+    ${detailCheckbox('ed-s-lockStart','Lock as start of route',!!s.lockStart,'Resequence jobs will keep this stop as sequence 1 on its assigned route.')}
+    ${detailCheckbox('ed-s-lockFinal','Lock as final stop',!!s.lockFinal,'Resequence jobs will keep this stop as the last customer stop on its assigned route.')}
     ${detailInput('ed-s-address','Address',s.address)}
     ${detailInput('ed-s-city','City',s.city)}
     ${detailInput('ed-s-state','State',s.state)}
@@ -1779,6 +1871,12 @@ function saveStopDetail(){
   s.customerNumber=strVal('ed-s-customerNumber');
   s.routeId=strVal('ed-s-routeId')||null;
   s.seq=parseInt(strVal('ed-s-seq'),10)||0;
+  s.lockStart=document.getElementById('ed-s-lockStart')?.checked===true;
+  s.lockFinal=document.getElementById('ed-s-lockFinal')?.checked===true;
+  if(s.lockStart&&s.lockFinal){
+    s.lockFinal=false;
+    showToast('A stop cannot be both route start and final stop. Start lock was kept.');
+  }
   s.address=strVal('ed-s-address');
   s.city=strVal('ed-s-city');
   s.state=strVal('ed-s-state');
@@ -2627,6 +2725,7 @@ function saveManualSequence(){
     const s=stops.find(x=>x.id===stopId&&x.routeId===manualSequenceRouteId);
     if(s)s.seq=index+1;
   });
+  applyStartFinalLocksToRoute(manualSequenceRouteId);
   expanded.add(manualSequenceRouteId);
   const savedRouteId=manualSequenceRouteId;
   manualSequenceRouteId=null;
@@ -2739,7 +2838,7 @@ function resequnceRouteByDistance(routeId){
     current={lat:next.lat,lng:next.lng};
   }
 
-  ordered.forEach((stop,index)=>{stop.seq=index+1;});
+  orderWithStartFinalLocks(routeId, ordered).forEach((stop,index)=>{stop.seq=index+1;});
   expanded.add(routeId);
   render();
   return {ok:true,count:ordered.length};
@@ -2830,7 +2929,8 @@ function renderRouteManifest(){
     const seq=liveSeq;
     const name=escapeHtml(pt.name||'Stop');
     const seqDisplay=liveSeq;
-    const displayName=isDepot?name:`#${escapeHtml(seqDisplay)} · ${cutIdBadgesForStop(s)}${name}`;
+    const lockBadge=!isDepot?(s.lockStart?'<span class="tag tag-pref">START LOCK</span>':(s.lockFinal?'<span class="tag tag-pref">FINAL LOCK</span>':'')):'';
+    const displayName=isDepot?name:`#${escapeHtml(seqDisplay)} · ${cutIdBadgesForStop(s)}${name}${lockBadge}`;
     const detail=isDepot?`LocationKey: ${escapeHtml(pt.depot?.locationKey||'')}`:`${escapeHtml(orderLabel(s))} · ${escapeHtml(s.address||'')} ${escapeHtml(s.city||'')} ${escapeHtml(s.state||'')}`;
     const violationClass=pt.twStatus==='LATE'?' tw-violation':'';
     const twClass=pt.twStatus==='LATE'?'tw-late':(pt.twStatus==='WAIT'?'tw-wait':'tw-ok');
@@ -2895,6 +2995,7 @@ function manifestDrop(e,targetStopId){
   const [moved]=ordered.splice(from,1);
   ordered.splice(to,0,moved);
   ordered.forEach((s,i)=>s.seq=i+1);
+  applyStartFinalLocksToRoute(routeId);
   render();
   renderRouteManifest();
   showToast('Route sequence updated');
@@ -2991,7 +3092,7 @@ function nearestDistanceStopOrder(routeId){
     current={lat:next.lat,lng:next.lng};
   }
 
-  return ordered.concat(noGeoStops);
+  return orderWithStartFinalLocks(routeId, ordered.concat(noGeoStops));
 }
 
 function resequenceRoutesDistanceThenPreferredPositions(routeIds){
@@ -3277,7 +3378,7 @@ function optimizeRouteSequence(routeId,opts={}){
     current={lat:next.lat,lng:next.lng};
   }
   movable.forEach(s=>ordered.push(s));
-  ordered.forEach((stop,index)=>{stop.seq=index+1;});
+  orderWithStartFinalLocks(routeId, ordered).forEach((stop,index)=>{stop.seq=index+1;});
   expanded.add(routeId);
   return {ok:true,count:ordered.length,locked:lockedCount};
 }
@@ -3650,14 +3751,11 @@ function readFile(file){
         return {name, rows:data.length, type:detectImportSheetType(name,data)||'not detected'};
       });
       if(importMode==='backhauls'){
-        // In Backhauls mode, keep the preview focused on only the tabs this import uses.
-        // Data, Divisions, and <100 & 48 foot are helper/reference tabs and are not required for this process.
-        sheetInfo=sheetInfo.map(s=>{
-          const n=(s.name||'').toLowerCase().trim();
-          if(s.type==='backhauls')return {...s,type:'vendors / 3PL Lanes'};
-          if(s.type==='depots')return {...s,type:'depots'};
-          return {...s,type:'ignored'};
-        });
+        // In Backhauls mode, keep the preview focused only on the tabs this import actually uses.
+        // Helper/reference tabs such as Data, Divisions, and <100 & 48 foot are hidden from the preview.
+        sheetInfo=sheetInfo
+          .filter(s=>s.type==='backhauls'||s.type==='depots')
+          .map(s=>s.type==='backhauls'?{...s,type:'vendors / 3PL Lanes'}:{...s,type:'depots'});
       }
       document.getElementById('imp-preview').innerHTML=`
         <div style="margin-top:8px;font-size:11px;color:var(--text2);">
@@ -3828,6 +3926,7 @@ function orderCount(stop){
 }
 function orderLabel(stop){
   if(stop?.sourceType==='backhaul')return stop.laneNumber?`Backhaul Lane ${stop.laneNumber}`:'Backhaul Location';
+  if(stop?.sourceType==='depot-clone')return 'Depot Clone';
   const count=orderCount(stop);
   return count>1?`${count} orders`:(stop?.orderNumber||'1 order');
 }
@@ -4243,7 +4342,7 @@ function importBackhauls(data){
     if(!bh){skippedNoGeo++;return;}
     const ident=backhaulIdentity(bh);
     const existing=stops.find(s=>s.sourceType==='backhaul'&&backhaulIdentity(s)===ident);
-    if(existing)Object.assign(existing,bh,{id:existing.id,routeId:existing.routeId||null,seq:existing.seq||0});
+    if(existing)Object.assign(existing,bh,{id:existing.id,routeId:existing.routeId||null,seq:existing.seq||0,lockStart:!!existing.lockStart,lockFinal:!!existing.lockFinal});
     else stops.push(bh);
     imported++;
   });
