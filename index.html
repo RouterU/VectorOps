@@ -447,8 +447,8 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
         <option value="satellite">Satellite Map</option>
       </select>
       <button class="btn" onclick="clearMapView()" title="Remove all routes and stops from the map">Clear Map</button>
-      <button class="btn" onclick="displayAllRoutesOnMap()" title="Display every assigned route on the map">Display All Routes</button>
-      <button class="btn" onclick="displayAllUnassignedStopsOnMap()" title="Display every unassigned stop on the map">Display All Unassigned Stops</button>
+      <button class="btn" id="display-all-routes-btn" onclick="displayAllRoutesOnMap()" title="Display or hide every assigned route on the map">Display All Routes</button>
+      <button class="btn" id="display-all-unassigned-btn" onclick="displayAllUnassignedStopsOnMap()" title="Display or hide every unassigned stop on the map">Display All Unassigned Stops</button>
       <button class="btn" id="depot-toggle-btn" onclick="toggleImportedDepotsOnMap()" title="Hide or show imported depot locations on the map">Hide Depots</button>
       <button class="btn" onclick="enableStreetViewPicker()" title="Click anywhere on the map to open Google Street View nearby">🚶 Street View</button>
       <button class="btn" id="lasso-stops-btn" onclick="toggleLassoMode()" title="Draw a box on the map to select multiple stops">☐ Lasso Stops</button>
@@ -1739,6 +1739,7 @@ function toggleImportedDepotsOnMap(){
 function updateApplyBar(){
   updateRouteLineToggleButton();
   updateImportedDepotToggleButton();
+  updateDisplayToggleButtons();
   const sel=routes.filter(r=>r.selected).length;
   document.getElementById('sel-count').textContent=sel?`${sel} selected`:'';
   document.getElementById('chk-all').checked=routes.length>0&&routes.every(r=>r.selected);
@@ -2569,7 +2570,7 @@ function ensureCustomMapView(){
   }
 }
 function clearMapView(){
-  mapCleared=true;visibleStopIds.clear();visibleRouteIds.clear();visibleDepotIds.clear();Object.values(roadPolylines).forEach(p=>map.removeLayer(p));roadPolylines={};renderMap();showToast('Map cleared. Drag routes or stops back onto the map.');
+  mapCleared=true;visibleStopIds.clear();visibleRouteIds.clear();visibleDepotIds.clear();Object.values(roadPolylines).forEach(p=>map.removeLayer(p));roadPolylines={};renderMap();updateDisplayToggleButtons();showToast('Map cleared. Drag routes or stops back onto the map.');
 }
 
 function showSelectedRoutesOnMap(){
@@ -2589,19 +2590,64 @@ function showSelectedUnassignedOnMap(){
   renderMap();
   showToast(`Displayed ${selected.length} selected unassigned stop(s) on the map`);
 }
+function allRoutesCurrentlyDisplayed(){
+  const assignedRouteIds=routes.filter(r=>stops.some(s=>s.routeId===r.id)).map(r=>r.id);
+  if(!assignedRouteIds.length)return false;
+  if(!mapCleared)return true;
+  return assignedRouteIds.every(routeId=>visibleRouteIds.has(routeId));
+}
+function allUnassignedStopsCurrentlyDisplayed(){
+  const unassignedStopIds=stops.filter(s=>!s.routeId&&s.lat&&s.lng).map(s=>s.id);
+  if(!unassignedStopIds.length)return false;
+  if(!mapCleared)return true;
+  return unassignedStopIds.every(stopId=>visibleStopIds.has(stopId));
+}
+function updateDisplayToggleButtons(){
+  const routesBtn=document.getElementById('display-all-routes-btn');
+  if(routesBtn){
+    const routesShown=allRoutesCurrentlyDisplayed();
+    routesBtn.textContent=routesShown?'Hide All Routes':'Display All Routes';
+    routesBtn.title=routesShown?'Hide every assigned route from the map':'Display every assigned route on the map';
+  }
+  const unassignedBtn=document.getElementById('display-all-unassigned-btn');
+  if(unassignedBtn){
+    const unassignedShown=allUnassignedStopsCurrentlyDisplayed();
+    unassignedBtn.textContent=unassignedShown?'Hide Unassigned Stops':'Display All Unassigned Stops';
+    unassignedBtn.title=unassignedShown?'Hide every unassigned stop from the map':'Display every unassigned stop on the map';
+  }
+}
 function displayAllRoutesOnMap(){
+  if(allRoutesCurrentlyDisplayed()){
+    ensureCustomMapView();
+    routes.forEach(r=>visibleRouteIds.delete(r.id));
+    stops.filter(s=>s.routeId).forEach(s=>visibleStopIds.delete(s.id));
+    renderMap();
+    updateDisplayToggleButtons();
+    showToast('Hidden all routes from the map.');
+    return;
+  }
   mapCleared=true;
   routes.forEach(r=>visibleRouteIds.add(r.id));
   stops.filter(s=>s.routeId).forEach(s=>visibleStopIds.add(s.id));
   renderMap();
   fitMapToVisible();
+  updateDisplayToggleButtons();
   showToast('Displayed all routes on the map.');
 }
 function displayAllUnassignedStopsOnMap(){
+  if(allUnassignedStopsCurrentlyDisplayed()){
+    ensureCustomMapView();
+    stops.filter(s=>!s.routeId).forEach(s=>visibleStopIds.delete(s.id));
+    renderMap();
+    updateDisplayToggleButtons();
+    showToast('Hidden all unassigned stops from the map.');
+    return;
+  }
   mapCleared=true;
   stops.filter(s=>!s.routeId).forEach(s=>visibleStopIds.add(s.id));
   renderMap();
   fitMapToVisible();
+  updateDisplayToggleButtons();
   showToast('Displayed all unassigned stops on the map.');
 }
 function fitMapToVisible(){
