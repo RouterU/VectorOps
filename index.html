@@ -521,6 +521,22 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
       </div>
       <div style="font-size:9px;color:var(--text3);margin-top:6px;">Select the new cut(s) being added. The full file is still used to remove missing orders and refresh ORDER_STATUS values for orders already in the session.</div>
     </div>
+    <div id="backhaul-depot-filter" style="display:none;margin:10px 0 8px;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg2);">
+      <div style="font-size:10px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:7px;">Backhaul Depot Import <span style="font-weight:400;color:var(--text3);text-transform:none;letter-spacing:0;">(Depot Locations tab)</span></div>
+      <label style="display:flex;align-items:center;gap:7px;font-size:11px;color:var(--text1);cursor:pointer;margin-bottom:8px;">
+        <input type="checkbox" id="bh-import-depots" checked style="accent-color:var(--accent);"> Import depot locations with Backhauls
+      </label>
+      <div class="input-row" style="margin-bottom:0;">
+        <div class="field"><label>Filter By</label>
+          <select id="bh-depot-filter-field"><option value="branch">Branch (Division)</option><option value="market">Market</option></select>
+        </div>
+        <div class="field"><label>Filter Value <span style="font-weight:400;color:var(--text3);">(comma separated; blank = all)</span></label>
+          <input id="bh-depot-filter-value" list="bh-depot-filter-options" placeholder="Example: CHICAGO, 2A, 123"/>
+          <datalist id="bh-depot-filter-options"></datalist>
+        </div>
+      </div>
+      <div style="font-size:9px;color:var(--text3);margin-top:6px;">Uses column B “Branch (Division)” or column K “Market” from Depot Locations. Only matching depot rows are imported/displayed in the session.</div>
+    </div>
     <div id="route-day-filter" style="margin:10px 0 8px;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg2);">
       <div style="font-size:10px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:7px;">Route Day Filter <span style="font-weight:400;color:var(--text3);text-transform:none;letter-spacing:0;">(uses Route Templates UDFString2)</span></div>
       <div style="display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;font-size:10px;color:var(--text2);">
@@ -780,6 +796,7 @@ let sessionRegionCode='';
 let mapCleared=false;
 const visibleStopIds=new Set();
 const visibleRouteIds=new Set();
+const visibleDepotIds=new Set();
 let activeManifestRouteId=null, activeDetailStopId=null, activeDetailRouteId=null, manifestDragStopId=null;
 let pendingOptimizationMode='selected';
 let appTab='routing', importMode='all', pendingWB=null;
@@ -1202,7 +1219,8 @@ function snapshotCurrentMapVisibility(){
   return {
     mapCleared,
     visibleRouteIds:Array.from(visibleRouteIds),
-    visibleStopIds:Array.from(visibleStopIds)
+    visibleStopIds:Array.from(visibleStopIds),
+    visibleDepotIds:Array.from(visibleDepotIds)
   };
 }
 function restoreMapRouteFilter(){
@@ -1216,6 +1234,8 @@ function restoreMapRouteFilter(){
   mapRouteFilterSnapshot.visibleRouteIds.forEach(id=>visibleRouteIds.add(id));
   visibleStopIds.clear();
   mapRouteFilterSnapshot.visibleStopIds.forEach(id=>visibleStopIds.add(id));
+  visibleDepotIds.clear();
+  (mapRouteFilterSnapshot.visibleDepotIds||[]).forEach(id=>visibleDepotIds.add(id));
   mapRouteFilterActiveId=null;
   mapRouteFilterSnapshot=null;
   activeRouteFilterId=null;
@@ -1489,6 +1509,18 @@ function renderMap(){
     m.on('mouseout',()=>clearMapHighlight());
     markers[s.id]=m;
   });
+  depotLocations.forEach(d=>{
+    if(!d.lat||!d.lng)return;
+    if(mapCleared && !visibleDepotIds.has(d.id))return;
+    const depotId=`standalone-depot-${d.id}`;
+    const icon=L.divIcon({className:'',
+      html:`<div class="depot-map-label" style="color:#a78bfa;"><span class="depot-building">🏢</span><span class="depot-text"><span class="depot-type">DEPOT</span><span class="depot-name">${escapeHtml(d.name||d.locationKey||'Depot')}</span></span></div>`,
+      iconSize:null,iconAnchor:[10,16]});
+    const m=L.marker([d.lat,d.lng],{icon}).addTo(map);
+    m.bindPopup(`<div style="font-family:Sora,sans-serif;min-width:220px;font-size:12px;"><b>DEPOT</b><br/><b>${escapeHtml(d.name||'Depot')}</b><br/>LocationKey: ${escapeHtml(d.locationKey||'')}<br/>Branch: ${escapeHtml(d.branchDivision||'—')}<br/>Market: ${escapeHtml(d.market||'—')}<br/>${escapeHtml(d.shipStreet||'')}<br/>${escapeHtml(d.shipCity||'')} ${escapeHtml(d.shipState||'')} ${escapeHtml(d.shipZipCode||'')}</div>`);
+    markers[depotId]=m;
+  });
+
   routes.forEach((r,ri)=>{
     if(mapCleared && !visibleRouteIds.has(r.id)) return;
     const color=COLORS[ri%COLORS.length];
@@ -2354,7 +2386,7 @@ function ensureCustomMapView(){
   }
 }
 function clearMapView(){
-  mapCleared=true;visibleStopIds.clear();visibleRouteIds.clear();Object.values(roadPolylines).forEach(p=>map.removeLayer(p));roadPolylines={};renderMap();showToast('Map cleared. Drag routes or stops back onto the map.');
+  mapCleared=true;visibleStopIds.clear();visibleRouteIds.clear();visibleDepotIds.clear();Object.values(roadPolylines).forEach(p=>map.removeLayer(p));roadPolylines={};renderMap();showToast('Map cleared. Drag routes or stops back onto the map.');
 }
 
 function showSelectedRoutesOnMap(){
@@ -2395,6 +2427,7 @@ function fitMapToVisible(){
     if(!s.lat||!s.lng)return;
     if(!mapCleared || visibleStopIds.has(s.id) || (s.routeId&&visibleRouteIds.has(s.routeId)))pts.push([s.lat,s.lng]);
   });
+  depotLocations.forEach(d=>{if(d&&d.lat&&d.lng&&(!mapCleared||visibleDepotIds.has(d.id)))pts.push([d.lat,d.lng]);});
   routes.forEach(r=>{
     if(mapCleared&&!visibleRouteIds.has(r.id))return;
     [routeInitialDepot(r),routeFinalDepot(r)].forEach(d=>{if(d&&d.lat&&d.lng)pts.push([d.lat,d.lng]);});
@@ -3404,7 +3437,7 @@ function openImport(){
   if(importRouteDateEl) importRouteDateEl.value=document.getElementById('route-date')?.value||new Date().toISOString().slice(0,10);
   const importRegionCodeEl=document.getElementById('import-region-code');
   if(importRegionCodeEl) importRegionCodeEl.value=sessionRegionCode||importRegionCodeEl.value||'';
-  setImportMode(importMode==='stops'?'stops':'all');
+  setImportMode(importMode==='stops'||importMode==='backhauls'?importMode:'all');
 }
 
 function setImportMode(m){
@@ -3416,7 +3449,7 @@ function setImportMode(m){
   const hints={
     all:'Upload one file with sheets named "Routes", "Trucks", "Orders", and "Depot Locations".',
     stops:'Upload your Orders file. Select the CUTID(s) that are being added to the session.',
-    backhauls:'Upload the Backhauls workbook. Rows with Latitude/Longtitude will be added as map locations with average cases/cube/weight/revenue details.'
+    backhauls:'Upload the Backhauls workbook. 3PL Lanes imports as map locations, and Depot Locations can be filtered by Branch (Division) or Market.'
   };
   const hint=document.getElementById('imp-hint');
   if(hint)hint.textContent=hints[importMode];
@@ -3424,6 +3457,8 @@ function setImportMode(m){
   if(cutPanel)cutPanel.style.display=importMode==='stops'?'block':'none';
   const dayPanel=document.getElementById('route-day-filter');
   if(dayPanel)dayPanel.style.display=importMode==='all'?'block':'none';
+  const bhDepotPanel=document.getElementById('backhaul-depot-filter');
+  if(bhDepotPanel)bhDepotPanel.style.display=importMode==='backhauls'?'block':'none';
   const exportInfo=document.getElementById('import-export-info');
   if(exportInfo)exportInfo.style.display=importMode==='backhauls'?'none':'block';
 }
@@ -3460,6 +3495,45 @@ function handleDrop(e){
 }
 function handleFileSelect(inp){if(inp.files[0])readFile(inp.files[0]);}
 
+
+function normHeaderKey(value){return (value??'').toString().toLowerCase().replace(/[^a-z0-9]/g,'');}
+function gcLoose(row,keys){
+  const rk=Object.keys(row||{});
+  for(const k of (Array.isArray(keys)?keys:[keys])){
+    const nk=normHeaderKey(k);
+    const f=rk.find(x=>normHeaderKey(x)===nk || normHeaderKey(x).startsWith(nk) || nk.startsWith(normHeaderKey(x)));
+    if(f!==undefined)return row[f];
+  }
+  return '';
+}
+function backhaulDepotFilterValues(){
+  const raw=(document.getElementById('bh-depot-filter-value')?.value||'').toString();
+  return raw.split(',').map(x=>x.trim()).filter(Boolean).map(x=>x.toUpperCase());
+}
+function depotRowMatchesBackhaulFilter(row){
+  const values=backhaulDepotFilterValues();
+  if(!values.length)return true;
+  const field=document.getElementById('bh-depot-filter-field')?.value||'branch';
+  const raw=field==='market'
+    ? gcLoose(row,['Market'])
+    : gcLoose(row,['Branch (Division)','Branch (Divison)','Branch','Division']);
+  const val=sval(raw).toUpperCase();
+  return values.some(v=>val===v || val.includes(v));
+}
+function populateBackhaulDepotFilterOptions(wb){
+  const list=document.getElementById('bh-depot-filter-options');
+  if(!list||!wb)return;
+  const wsName=(wb.SheetNames||[]).find(n=>n.toLowerCase().trim()==='depot locations' || n.toLowerCase().includes('depot'));
+  if(!wsName){list.innerHTML='';return;}
+  const rows=XLSX.utils.sheet_to_json(wb.Sheets[wsName],{defval:'', raw:false});
+  const field=document.getElementById('bh-depot-filter-field')?.value||'branch';
+  const vals=[...new Set(rows.map(r=>sval(field==='market'?gcLoose(r,['Market']):gcLoose(r,['Branch (Division)','Branch (Divison)','Branch','Division']))).filter(Boolean))].sort();
+  list.innerHTML=vals.map(v=>`<option value="${escapeHtml(v)}"></option>`).join('');
+}
+document.addEventListener('change',e=>{
+  if(e.target&&e.target.id==='bh-depot-filter-field'&&pendingWB)populateBackhaulDepotFilterOptions(pendingWB);
+});
+
 function detectImportSheetType(name,data){
   if(!data||!data.length)return null;
   const keys=Object.keys(data[0]).map(k=>k.toLowerCase().trim());
@@ -3468,9 +3542,9 @@ function detectImportSheetType(name,data){
   const looksBackhauls=keys.includes('lane #')&&keys.includes('vendor')&&keys.includes('sf-name')&&keys.some(k=>k==='longtitude'||k==='longitude'||k==='long'||k==='lng');
   if(sheetLower.includes('backhaul')||sheetLower==='3pl'||looksBackhauls)return looksBackhauls?'backhauls':null;
 
-  const hasLocationKey=keys.some(k=>k==='locationkey'||k==='location key'||k==='locationk');
-  const hasDepotAddress=keys.some(k=>k==='shipcity'||k==='ship city'||k==='shipzipcode'||k==='ship zip code'||k==='shipzipcode'||k==='shipstate'||k==='ship state');
-  const hasGeo=keys.some(k=>k==='latitude'||k==='lat')&&keys.some(k=>k==='longitude'||k==='long'||k==='lng');
+  const hasLocationKey=keys.some(k=>k==='locationkey'||k==='location key'||k==='locationk'||k.includes('locationkey'));
+  const hasDepotAddress=keys.some(k=>k==='shipcity'||k==='ship city'||k==='shipzipcode'||k==='ship zip code'||k==='shipzipcode'||k==='shipstate'||k==='ship state'||k==='shipstreet'||k==='ship street');
+  const hasGeo=keys.some(k=>k==='latitude'||k==='lat')&&keys.some(k=>k==='longitude'||k==='longtitude'||k==='long'||k==='lng');
   const looksDepot=hasLocationKey&&(hasDepotAddress||sheetLower.includes('depot')||sheetLower.includes('location'))&&hasGeo;
 
   // Helper/reference tabs in the upload template should not show as failed imports.
@@ -3533,6 +3607,7 @@ function readFile(file){
           </div>`).join('')}
           <br/><span style="color:var(--text3);">All Templates mode imports detected route, truck, depot, and order tabs. Orders Only runs the incremental cut import/status refresh process. Backhauls mode imports vendor/customer average data as map locations.</span>
         </div>`;
+      populateBackhaulDepotFilterOptions(wb);
       document.getElementById('imp-confirm').style.display='';
     }catch(err){showToast('Error reading file: '+err.message);}
   };
@@ -3565,6 +3640,15 @@ function confirmImport(){
       const backhaulRows=[];
       backhaulSheets.forEach(x=>backhaulRows.push(...x.data));
       bhc=importBackhauls(backhaulRows);
+      const importBhDepots=document.getElementById('bh-import-depots')?.checked!==false;
+      if(importBhDepots){
+        const depotSheets=sheets.filter(x=>x.type==='depots');
+        depotSheets.forEach(x=>{
+          const filtered=x.data.filter(depotRowMatchesBackhaulFilter);
+          importDepots(filtered);
+          lc+=filtered.length;
+        });
+      }
     }else if(importMode==='stops'){
       const selectedCutIds=getSelectedCutIds();
       if(!selectedCutIds.length){
@@ -3604,8 +3688,10 @@ function confirmImport(){
     mapCleared=true;
     visibleStopIds.clear();
     visibleRouteIds.clear();
+    visibleDepotIds.clear();
     if(importMode==='backhauls'){
       stops.filter(s=>s.sourceType==='backhaul').forEach(s=>visibleStopIds.add(s.id));
+      depotLocations.forEach(d=>visibleDepotIds.add(d.id));
     }
     potColors={};
     if(typeof potRouteSuggestions!=='undefined') potRouteSuggestions={};
@@ -3621,7 +3707,7 @@ function confirmImport(){
         showIncrementalOrderImportSummary(orderImportSummary);
       }else{
         const skipText=skipped?`, ${skipped} skipped/not detected`:'';
-        if(importMode==='backhauls') showToast(`Imported: ${bhc} backhaul locations`);
+        if(importMode==='backhauls') showToast(`Imported: ${bhc} backhaul locations, ${lc} depot rows`);
         else showToast(`Imported: ${rc} route rows, ${dc} truck rows, ${sc} stop rows, ${lc} depot rows${skipText}`);
       }
       if(btn){btn.disabled=false;btn.textContent=originalText||'Import Data';}
@@ -3724,7 +3810,7 @@ function normalizeOrderStatusValue(value){
 }
 function makeOrderFromRow(row,requireGeo=true){
   const lat=parseFloat(gc(row,['Latitude','latitude','Lat','lat']));
-  const lng=parseFloat(gc(row,['Longitude','longitude','Long','long','Lng','lng']));
+  const lng=parseFloat(gcLoose(row,['Longitude','longitude','Longtitude','Long','long','Lng','lng']));
   const hasGeo=!isNaN(lat)&&!isNaN(lng);
   if(requireGeo&&!hasGeo)return null;
   return {
@@ -3862,17 +3948,21 @@ function buildConsolidatedStopFromOrders(orders, existing){
 function renderBackhaulDetailHtml(stop){
   const bh=stop.backhaul||{};
   const fields=[
-    ['Lane #',bh.laneNumber],['LAP Stage',bh.lapStage],['LAP',bh.lap],['Act Ship Via',bh.actShipVia],
-    ['Partner',bh.partner],['Notes',bh.notes],['Vendor',bh.vendor],['Vendor #',bh.vendorNumber],
-    ['SF Name',bh.sfName],['SF City',bh.sfCity],['SF State',bh.sfState],['SF Zip',bh.sfZip],
-    ['Miles',bh.miles],['TP',bh.tp],['Managed POs',bh.managedPOs],['Monthly Frequency',bh.monthlyFrequency],
-    ['Annual Cases',bh.annualCases],['Avg Cases',bh.avgCases],['Avg Cube',bh.avgCube],['Avg Weight',bh.avgWeight],
-    ['Avg Pallets',bh.avgPallets],['Avg Revenue',bh.avgRevenue]
+    ['Lane #',bh.laneNumber],['LAP Stage',bh.lapStage],['LAP',bh.lap],['ID',bh.id],['Act Ship Via',bh.actShipVia],
+    ['Partner',bh.partner],['Division',bh.division],['Reasoning',bh.reasoning],['Vendor',bh.vendor],['Vendor #',bh.vendorNumber],['Corp Vend #',bh.corpVendorNumber],
+    ['SF Name',bh.sfName],['SF Address',bh.sfAddress],['SF City',bh.sfCity],['SF State',bh.sfState],['SF Zip',bh.sfZip],['Full Address',bh.fullAddress],
+    ['Latitude',bh.latitude],['Longitude',bh.longitude],['Miles',bh.miles],['TP',bh.tp],['Monthly Frequency',bh.monthlyFrequency],
+    ['Avg Cases',bh.avgCases],['Avg Cube',bh.avgCube],['Avg Weight',bh.avgWeight],['Avg Pallets',bh.avgPallets],['Avg Revenue',bh.avgRevenue],['Avg Cost',bh.avgCost],['Status',bh.status],['Notes',bh.notes]
   ];
   const rows=fields.map(([label,value])=>`<div class="stop-detail-field"><div class="lbl">${escapeHtml(label)}</div><div class="val">${escapeHtml(value??'—')}</div></div>`).join('');
+  const rawRows=Object.keys(stop.raw||{}).map(k=>`<div class="stop-detail-field"><div class="lbl">${escapeHtml(k)}</div><div class="val">${escapeHtml(stop.raw[k]??'—')}</div></div>`).join('');
   return `<details class="order-expand" open>
     <summary>Backhaul average details <span class="order-badge">BH</span></summary>
     <div class="stop-detail-grid" style="padding:8px;">${rows}</div>
+  </details>
+  <details class="order-expand">
+    <summary>All imported 3PL Lanes columns <span class="order-badge">${Object.keys(stop.raw||{}).length}</span></summary>
+    <div class="stop-detail-grid" style="padding:8px;">${rawRows}</div>
   </details>`;
 }
 
@@ -3907,7 +3997,7 @@ function renderStopOrdersHtml(stop){
 
 function importDepots(data){
   data.forEach(row=>{
-    const locationKey=(gc(row,['LocationKey','Location Key','LocationK'])||'').toString().trim();
+    const locationKey=(gcLoose(row,['LocationKey','Location Key','LocationK','LocationKey (RP)'])||'').toString().trim();
     if(!locationKey)return;
     const lat=parseFloat(gc(row,['Latitude','latitude','Lat','lat']));
     const lng=parseFloat(gc(row,['Longitude','longitude','Long','long','Lng','lng']));
@@ -3915,21 +4005,23 @@ function importDepots(data){
     const obj={
       id:existing?existing.id:uid(),
       locationKey,
-      locationType:(gc(row,['Location Type','LocationType','Location T'])||'').toString(),
+      locationType:(gcLoose(row,['Location Type','LocationType','Location T'])||'').toString(),
+      branchDivision:(gcLoose(row,['Branch (Division)','Branch (Divison)','Branch','Division'])||'').toString(),
+      market:(gcLoose(row,['Market'])||'').toString(),
       comment:(gc(row,['Comment'])||'').toString(),
-      name:(gc(row,['Name','name'])||'').toString(),
-      shipStreet:(gc(row,['ShipStreet','ShipStreet1','Ship Street','Ship Street 1'])||'').toString(),
+      name:(gcLoose(row,['Name','name'])||'').toString(),
+      shipStreet:(gcLoose(row,['ShipStreet','ShipStreet1','Ship Street','Ship Street 1'])||'').toString(),
       shipStreet2:(gc(row,['ShipStreet2','Ship Street 2'])||'').toString(),
       shipStreet3:(gc(row,['ShipStreet3','Ship Street 3'])||'').toString(),
       shipCrossStreet:(gc(row,['ShipCrossStreet','Ship Cross Street'])||'').toString(),
-      shipCity:(gc(row,['ShipCity','Ship City'])||'').toString(),
-      shipState:(gc(row,['ShipState','Ship State'])||'').toString(),
-      shipZipCode:(gc(row,['ShipZipCode','Ship Zip Code','ShipZip','Ship Zip'])||'').toString(),
+      shipCity:(gcLoose(row,['ShipCity','Ship City'])||'').toString(),
+      shipState:(gcLoose(row,['ShipState','Ship State'])||'').toString(),
+      shipZipCode:(gcLoose(row,['ShipZipCode','Ship Zip Code','ShipZip','Ship Zip'])||'').toString(),
       lng:isNaN(lng)?null:lng,
       lat:isNaN(lat)?null:lat,
       udfNumber1:(gc(row,['UDFNumber1','UDF Number 1'])||'').toString(),
-      serviceDuration:(gc(row,['ServiceDuration','Service Duration'])||'').toString(),
-      requirements:(gc(row,['Requirements'])||'').toString(),
+      serviceDuration:(gcLoose(row,['ServiceDuration','Service Duration'])||'').toString(),
+      requirements:(gcLoose(row,['Requirements'])||'').toString(),
     };
     if(existing)Object.assign(existing,obj); else depotLocations.push(obj);
   });
@@ -4017,13 +4109,19 @@ function makeBackhaulFromRow(row){
     lap:sval(gc(row,['LAP'])),
     actShipVia:sval(gc(row,['Act Ship Via'])),
     partner:sval(gc(row,['Partner'])),
-    notes:sval(gc(row,['Notes'])),
+    division:sval(gc(row,['Division'])),
+    reasoning:sval(gc(row,['Reasoning'])),
+    id:sval(gc(row,['ID'])),
+    notes:sval(gc(row,['Notes','Reasoning'])),
     vendor,
     vendorNumber,
+    corpVendorNumber:sval(gc(row,['Corp Vend #','Corp Vendor #','Corp Vend Number'])),
     sfName,
+    sfAddress:sval(gc(row,['SF Address','SF-Address','Address'])),
     sfCity,
     sfState,
     sfZip,
+    fullAddress:sval(gc(row,['Full Address'])),
     latitude:lat,
     longitude:lng,
     miles:nval(gc(row,['Miles'])),
@@ -4035,7 +4133,9 @@ function makeBackhaulFromRow(row){
     avgCube:nval(gc(row,['Avg Cube'])),
     avgWeight:nval(gc(row,['Avg Wgt','Avg Weight'])),
     avgPallets:nval(gc(row,['Avg Plt','Avg Pallets'])),
-    avgRevenue:nval(gc(row,['Avg Rev','Avg Revenue']))
+    avgRevenue:nval(gc(row,['Avg Rev','Avg Revenue'])),
+    avgCost:nval(gc(row,['Avg Cost'])),
+    status:sval(gc(row,['Status']))
   };
   return {
     id:uid(),
@@ -4047,7 +4147,7 @@ function makeBackhaulFromRow(row){
     customerName:sfName||vendor||'Backhaul Location',
     shipToId:vendorNumber,
     customerNumber:vendorNumber,
-    address:'',
+    address:bh.sfAddress||bh.fullAddress||'',
     city:sfCity,
     state:sfState,
     zip:sfZip,
