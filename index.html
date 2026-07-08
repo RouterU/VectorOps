@@ -525,7 +525,7 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
       <div style="font-size:10px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;">Backhaul Import Filters</div>
       <div style="font-size:9px;color:var(--text3);margin-bottom:9px;">These filters only apply to Backhauls mode. Blank values import/display all matching rows.</div>
 
-      <div class="shdr" style="margin-top:0;">Vendors / 3PL Lanes</div>
+      <div class="shdr" style="margin-top:0;">Vendor Import / 3PL Lanes Filter</div>
       <div class="input-row" style="margin-bottom:8px;">
         <div class="field"><label>Vendor Import Option</label>
           <select id="bh-vendor-filter-mode"><option value="all">Display all vendors</option><option value="division">Enter Division</option></select>
@@ -535,7 +535,7 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
           <datalist id="bh-vendor-division-options"></datalist>
         </div>
       </div>
-      <div style="font-size:9px;color:var(--text3);margin-top:-4px;margin-bottom:10px;">Uses the “Division” column on the 3PL Lanes tab. Example: enter <strong>9B</strong> to import only Division 9B vendors/lanes.</div>
+      <div style="font-size:9px;color:var(--text3);margin-top:-4px;margin-bottom:10px;">Uses column G “Division” on the 3PL Lanes tab. Choose “Display all vendors” or enter one or more Division values, such as <strong>9B</strong>, to import only those vendor/lane rows.</div>
 
       <div class="shdr">Depots / Depot Locations</div>
       <div class="input-row" style="margin-bottom:0;">
@@ -3583,8 +3583,15 @@ function detectImportSheetType(name,data){
   const keys=Object.keys(data[0]).map(k=>k.toLowerCase().trim());
   const sheetLower=name.toLowerCase().trim();
 
-  const looksBackhauls=keys.includes('lane #')&&keys.includes('vendor')&&keys.includes('sf-name')&&keys.some(k=>k==='longtitude'||k==='longitude'||k==='long'||k==='lng');
-  if(sheetLower.includes('backhaul')||sheetLower==='3pl'||looksBackhauls)return looksBackhauls?'backhauls':null;
+  // Backhaul workbook: only the geocoded "3PL Lanes" tab should import as vendor/backhaul map locations.
+  // Helper tabs like "Data" and "<100 & 48 foot" may contain lane/vendor columns but do not have latitude/longitude,
+  // so they are intentionally ignored and should not appear as missing required import tabs.
+  const hasBackhaulCore=keys.includes('lane #')&&keys.includes('vendor')&&keys.includes('sf-name');
+  const hasBackhaulGeo=keys.some(k=>k==='latitude'||k==='lat')&&keys.some(k=>k==='longtitude'||k==='longitude'||k==='long'||k==='lng');
+  const looksBackhauls=hasBackhaulCore&&hasBackhaulGeo;
+  if(sheetLower==='3pl lanes'||sheetLower==='3pl'||sheetLower.includes('backhaul'))return looksBackhauls?'backhauls':'reference only';
+  if(hasBackhaulCore&&!hasBackhaulGeo)return 'reference only';
+  if(looksBackhauls)return 'backhauls';
 
   const hasLocationKey=keys.some(k=>k==='locationkey'||k==='location key'||k==='locationk'||k.includes('locationkey'));
   const hasDepotAddress=keys.some(k=>k==='shipcity'||k==='ship city'||k==='shipzipcode'||k==='ship zip code'||k==='shipzipcode'||k==='shipstate'||k==='ship state'||k==='shipstreet'||k==='ship street');
@@ -3638,18 +3645,30 @@ function readFile(file){
     try{
       const wb=XLSX.read(e.target.result,{type:'array'});
       pendingWB=wb;
-      const sheetInfo=wb.SheetNames.map(name=>{
+      let sheetInfo=wb.SheetNames.map(name=>{
         const data=XLSX.utils.sheet_to_json(wb.Sheets[name],{defval:''});
         return {name, rows:data.length, type:detectImportSheetType(name,data)||'not detected'};
       });
+      if(importMode==='backhauls'){
+        // In Backhauls mode, keep the preview focused on only the tabs this import uses.
+        // Data, Divisions, and <100 & 48 foot are helper/reference tabs and are not required for this process.
+        sheetInfo=sheetInfo.map(s=>{
+          const n=(s.name||'').toLowerCase().trim();
+          if(s.type==='backhauls')return {...s,type:'vendors / 3PL Lanes'};
+          if(s.type==='depots')return {...s,type:'depots'};
+          return {...s,type:'ignored'};
+        });
+      }
       document.getElementById('imp-preview').innerHTML=`
         <div style="margin-top:8px;font-size:11px;color:var(--text2);">
           &#10003; <strong>${file.name}</strong><br/>
           ${sheetInfo.map(s=>`<div style="display:flex;justify-content:space-between;gap:8px;border-bottom:1px solid var(--border);padding:4px 0;">
             <span>${s.name} <span style="color:var(--text3);">(${s.rows} rows)</span></span>
-            <strong style="color:${s.type==='not detected'?'var(--warn)':(s.type==='reference only'?'var(--text3)':'var(--success)')};">${s.type}</strong>
+            <strong style="color:${s.type==='not detected'?'var(--warn)':(s.type==='ignored'||s.type==='reference only'?'var(--text3)':'var(--success)')};">${s.type}</strong>
           </div>`).join('')}
-          <br/><span style="color:var(--text3);">All Templates mode imports detected route, truck, depot, and order tabs. Orders Only runs the incremental cut import/status refresh process. Backhauls mode imports vendor/customer average data as map locations.</span>
+          <br/><span style="color:var(--text3);">${importMode==='backhauls'
+            ? 'Backhauls mode only imports the 3PL Lanes vendor rows and the Depot Locations rows selected by the filters above. Helper tabs are ignored.'
+            : 'All Templates mode imports detected route, truck, depot, and order tabs. Orders Only runs the incremental cut import/status refresh process. Backhauls mode imports vendor/customer average data as map locations.'}</span>
         </div>`;
       populateBackhaulFilterOptions(wb);
       document.getElementById('imp-confirm').style.display='';
@@ -3675,7 +3694,9 @@ function confirmImport(){
     }).filter(x=>x.data.length);
 
     if(importMode==='backhauls'){
-      const backhaulSheets=sheets.filter(x=>x.type==='backhauls' || sheets.length===1);
+      let backhaulSheets=sheets.filter(x=>x.type==='backhauls' && (x.name||'').toLowerCase().trim()==='3pl lanes');
+      if(!backhaulSheets.length)backhaulSheets=sheets.filter(x=>x.type==='backhauls');
+      if(!backhaulSheets.length && sheets.length===1)backhaulSheets=sheets;
       if(!backhaulSheets.length){
         showToast('No Backhauls sheet was detected in the selected file.');
         if(btn){btn.disabled=false;btn.textContent=originalText||'Import Data';}
