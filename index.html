@@ -638,6 +638,11 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
       <div class="field"><label>DriverKey</label><input id="r-dkey"/></div>
       <div class="field"><label>TruckKey</label><input id="r-tkey"/></div>
     </div>
+    <div class="input-row">
+      <div class="field"><label>Start Depot LocationKey</label><input id="r-initial-location-key" list="r-depot-locationkey-options" placeholder="Start LocationKey"/></div>
+      <div class="field"><label>End Depot LocationKey</label><input id="r-final-location-key" list="r-depot-locationkey-options" placeholder="End LocationKey"/></div>
+      <datalist id="r-depot-locationkey-options"></datalist>
+    </div>
     <div class="shdr">Timing</div>
     <div class="input-row">
       <div class="field"><label>Earliest Start</label><input id="r-est" type="time" value="06:00"/></div>
@@ -4667,7 +4672,17 @@ function openAddStop(){
   sel.innerHTML='<option value="">— Unassigned —</option>'+routes.map(r=>`<option value="${r.id}">${r.name}</option>`).join('');
 }
 function openAddStopForRoute(rid){openAddStop();document.getElementById('s-route').value=rid;}
-function openAddRoute(){document.getElementById('add-route-modal').style.display='flex';}
+function openAddRoute(){
+  const list=document.getElementById('r-depot-locationkey-options');
+  if(list){
+    const seen=new Set();
+    list.innerHTML=depotLocations
+      .filter(d=>d&&d.locationKey&&!seen.has(String(d.locationKey))&&seen.add(String(d.locationKey)))
+      .map(d=>`<option value="${escapeHtml(d.locationKey)}">${escapeHtml((d.name||'Depot')+' — '+(d.shipCity||'')+' '+(d.shipState||''))}</option>`)
+      .join('');
+  }
+  document.getElementById('add-route-modal').style.display='flex';
+}
 
 function saveStop(){
   const name=document.getElementById('s-name').value.trim();
@@ -4712,6 +4727,8 @@ function saveRoute(){
     date:document.getElementById('route-date')?.value||new Date().toISOString().slice(0,10),
     driverKey:document.getElementById('r-dkey').value,
     truckKey:document.getElementById('r-tkey').value,
+    initialLocationKey:(document.getElementById('r-initial-location-key')?.value||'').trim(),
+    finalLocationKey:(document.getElementById('r-final-location-key')?.value||'').trim(),
     earliestStartTime:document.getElementById('r-est').value,
     latestStartTime:document.getElementById('r-lst').value,
     latestEndTime:document.getElementById('r-let').value,
@@ -4721,8 +4738,9 @@ function saveRoute(){
     windupTime:parseFloat(document.getElementById('r-wnd').value)||0,
     selected:false,
   });
+  enrichRouteDepots();
   closeModal('add-route-modal');render();showToast('Route created');
-  ['r-name','r-key','r-dkey','r-tkey'].forEach(id=>{document.getElementById(id).value='';});
+  ['r-name','r-key','r-dkey','r-tkey','r-initial-location-key','r-final-location-key'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
 }
 
 
