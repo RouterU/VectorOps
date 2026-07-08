@@ -449,6 +449,7 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
       <button class="btn" onclick="clearMapView()" title="Remove all routes and stops from the map">Clear Map</button>
       <button class="btn" onclick="displayAllRoutesOnMap()" title="Display every assigned route on the map">Display All Routes</button>
       <button class="btn" onclick="displayAllUnassignedStopsOnMap()" title="Display every unassigned stop on the map">Display All Unassigned Stops</button>
+      <button class="btn" id="depot-toggle-btn" onclick="toggleImportedDepotsOnMap()" title="Hide or show imported depot locations on the map">Hide Depots</button>
       <button class="btn" onclick="enableStreetViewPicker()" title="Click anywhere on the map to open Google Street View nearby">🚶 Street View</button>
       <button class="btn" id="lasso-stops-btn" onclick="toggleLassoMode()" title="Draw a box on the map to select multiple stops">☐ Lasso Stops</button>
       <button class="btn" id="route-line-toggle-btn" onclick="toggleRouteLines()" title="Hide or show dotted route lines on the map">☑ Route Lines</button>
@@ -814,6 +815,7 @@ let mapCleared=false;
 const visibleStopIds=new Set();
 const visibleRouteIds=new Set();
 const visibleDepotIds=new Set();
+let importedDepotsVisible=true;
 let activeManifestRouteId=null, activeDetailStopId=null, activeDetailRouteId=null, manifestDragStopId=null;
 let pendingOptimizationMode='selected';
 let appTab='routing', importMode='all', pendingWB=null;
@@ -852,13 +854,18 @@ const ORDER_STATUS_GLOSSARY={
 };
 
 // Ending Session Warning: warns users before refreshing or closing the browser while session data exists.
-window.addEventListener('beforeunload', function(e){
-  const hasSessionData = (routes&&routes.length) || (stops&&stops.length) || (trucks&&trucks.length) || (depotLocations&&depotLocations.length);
-  if(!hasSessionData)return;
+function hasActiveSessionData(){
+  return (routes&&routes.length) || (stops&&stops.length) || (trucks&&trucks.length) || (depotLocations&&depotLocations.length);
+}
+function endingSessionWarning(e){
+  if(!hasActiveSessionData())return;
   e.preventDefault();
-  e.returnValue = 'Ending Session Warning: refreshing or closing this browser will end the current routing session.';
-  return e.returnValue;
-});
+  const msg='Ending Session Warning: refreshing or closing this browser will end the current routing session.';
+  e.returnValue=msg;
+  return msg;
+}
+window.addEventListener('beforeunload', endingSessionWarning);
+window.onbeforeunload = endingSessionWarning;
 
 // ============================================================
 // INIT
@@ -1598,6 +1605,7 @@ function renderMap(){
     markers[s.id]=m;
   });
   depotLocations.forEach(d=>{
+    if(!importedDepotsVisible)return;
     if(!d.lat||!d.lng)return;
     if(mapCleared && !visibleDepotIds.has(d.id))return;
     const depotId=`standalone-depot-${d.id}`;
@@ -1669,8 +1677,22 @@ function toggleRouteLines(){
   showToast(routeLinesVisible?'Route lines shown':'Route lines hidden');
 }
 
+function updateImportedDepotToggleButton(){
+  const btn=document.getElementById('depot-toggle-btn');
+  if(!btn)return;
+  btn.textContent=importedDepotsVisible?'Hide Depots':'Show Depots';
+  btn.title=importedDepotsVisible?'Hide imported depot locations on the map':'Show imported depot locations on the map';
+}
+function toggleImportedDepotsOnMap(){
+  importedDepotsVisible=!importedDepotsVisible;
+  updateImportedDepotToggleButton();
+  renderMap();
+  showToast(importedDepotsVisible?'Imported depots shown':'Imported depots hidden');
+}
+
 function updateApplyBar(){
   updateRouteLineToggleButton();
+  updateImportedDepotToggleButton();
   const sel=routes.filter(r=>r.selected).length;
   document.getElementById('sel-count').textContent=sel?`${sel} selected`:'';
   document.getElementById('chk-all').checked=routes.length>0&&routes.every(r=>r.selected);
@@ -2542,7 +2564,7 @@ function fitMapToVisible(){
     if(!s.lat||!s.lng)return;
     if(!mapCleared || visibleStopIds.has(s.id) || (s.routeId&&visibleRouteIds.has(s.routeId)))pts.push([s.lat,s.lng]);
   });
-  depotLocations.forEach(d=>{if(d&&d.lat&&d.lng&&(!mapCleared||visibleDepotIds.has(d.id)))pts.push([d.lat,d.lng]);});
+  if(importedDepotsVisible)depotLocations.forEach(d=>{if(d&&d.lat&&d.lng&&(!mapCleared||visibleDepotIds.has(d.id)))pts.push([d.lat,d.lng]);});
   routes.forEach(r=>{
     if(mapCleared&&!visibleRouteIds.has(r.id))return;
     [routeInitialDepot(r),routeFinalDepot(r)].forEach(d=>{if(d&&d.lat&&d.lng)pts.push([d.lat,d.lng]);});
