@@ -644,6 +644,16 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
       <div class="field"><label>End Depot LocationKey</label><input id="r-final-location-key" list="r-depot-locationkey-options" placeholder="End LocationKey"/></div>
       <datalist id="r-depot-locationkey-options"></datalist>
     </div>
+    <div class="shdr">Truck Capacity Limits <span style="font-weight:400;color:var(--text3);text-transform:none;letter-spacing:0;">(optional dummy truck)</span></div>
+    <div class="input-row">
+      <div class="field"><label>Dry Cube</label><input id="r-cap-dry-cube" type="number" step="any" placeholder="Optional"/></div>
+      <div class="field"><label>Frozen Cube</label><input id="r-cap-frozen-cube" type="number" step="any" placeholder="Optional"/></div>
+    </div>
+    <div class="input-row">
+      <div class="field"><label>Total Cube</label><input id="r-cap-total-cube" type="number" step="any" placeholder="Optional"/></div>
+      <div class="field"><label>Weight</label><input id="r-cap-weight" type="number" step="any" placeholder="Optional"/></div>
+    </div>
+    <div style="font-size:9px;color:var(--text3);margin-top:-2px;margin-bottom:8px;">When any limit is entered, RouteDesk creates a dummy truck capacity for this new route and alerts in the route manifest if a limit is exceeded.</div>
     <div class="shdr">Timing</div>
     <div class="input-row">
       <div class="field"><label>Earliest Start</label><input id="r-est" type="time" value="06:00"/></div>
@@ -964,6 +974,42 @@ function routeColor(routeId){const i=routes.findIndex(r=>r.id===routeId);return 
 function tCases(s){return(s.dryCases||0)+(s.coolerCases||0)+(s.frozenCases||0)+(s.pkgCases||0);}
 function tWeight(s){return(s.dryWeight||0)+(s.coolerWeight||0)+(s.frozenWeight||0)+(s.pkgWeight||0);}
 function tCube(s){return(s.dryCube||0)+(s.coolerCube||0)+(s.frozenCube||0)+(s.pkgCube||0);}
+function routeLoadTotals(routeId){
+  const rs=stops.filter(s=>s.routeId===routeId);
+  return {
+    dryCube:rs.reduce((a,s)=>a+(parseFloat(s.dryCube)||0),0),
+    frozenCube:rs.reduce((a,s)=>a+(parseFloat(s.frozenCube)||0),0),
+    totalCube:rs.reduce((a,s)=>a+tCube(s),0),
+    weight:rs.reduce((a,s)=>a+tWeight(s),0)
+  };
+}
+function routeCapacityLimits(route){
+  if(!route)return {dryCube:0,frozenCube:0,totalCube:0,weight:0};
+  const drv=trucks.find(d=>d.truckKey===route.truckKey||d.driverKey===route.driverKey)||{};
+  const cap=route.dummyCapacity||{};
+  return {
+    dryCube:parseFloat(cap.dryCube)||parseFloat(drv.dryCubeCapacity)||0,
+    frozenCube:parseFloat(cap.frozenCube)||parseFloat(drv.frozenCubeCapacity)||0,
+    totalCube:parseFloat(cap.totalCube)||parseFloat(drv.totalCubeCapacity)||parseFloat(drv.measure3)||0,
+    weight:parseFloat(cap.weight)||parseFloat(drv.weightCapacity)||parseFloat(drv.measure2)||0
+  };
+}
+function routeCapacityWarnings(routeId){
+  const route=routes.find(r=>r.id===routeId);
+  const load=routeLoadTotals(routeId);
+  const cap=routeCapacityLimits(route);
+  const warnings=[];
+  if(cap.dryCube&&load.dryCube>cap.dryCube)warnings.push({label:'Dry Cube',load:load.dryCube,cap:cap.dryCube,unit:'cu'});
+  if(cap.frozenCube&&load.frozenCube>cap.frozenCube)warnings.push({label:'Frozen Cube',load:load.frozenCube,cap:cap.frozenCube,unit:'cu'});
+  if(cap.totalCube&&load.totalCube>cap.totalCube)warnings.push({label:'Total Cube',load:load.totalCube,cap:cap.totalCube,unit:'cu'});
+  if(cap.weight&&load.weight>cap.weight)warnings.push({label:'Weight',load:load.weight,cap:cap.weight,unit:'lbs'});
+  return warnings;
+}
+function routeCapacityWarningHtml(routeId){
+  const warnings=routeCapacityWarnings(routeId);
+  if(!warnings.length)return '';
+  return `<div class="job-result" style="margin:0 0 10px 0;border-color:var(--danger);background:rgba(239,68,68,.16);color:#fecaca;"><strong>Capacity Limit Exceeded:</strong><br/>${warnings.map(w=>`• ${w.label}: ${w.load.toLocaleString(undefined,{maximumFractionDigits:1})} / ${w.cap.toLocaleString(undefined,{maximumFractionDigits:1})} ${w.unit}`).join('<br/>')}</div>`;
+}
 function haversine(lat1,lng1,lat2,lng2){
   const R=3958.8,dLat=(lat2-lat1)*Math.PI/180,dLng=(lng2-lng1)*Math.PI/180;
   const a=Math.sin(dLat/2)**2+Math.cos(lat1*Math.PI/180)*Math.cos(lat2*Math.PI/180)*Math.sin(dLng/2)**2;
@@ -2947,6 +2993,7 @@ function renderRouteManifest(){
     <div class="manifest-stat"><div class="val">${cleanTimeValue(data.start)||'—'}</div><div class="lbl">Start Time</div></div>
     <div class="manifest-stat"><div class="val">${cleanTimeValue(data.end)||'—'}</div><div class="lbl">Stop Time</div></div>`;
 
+  const capacityWarningHtml=routeCapacityWarningHtml(activeManifestRouteId);
   const timeline=routeTimelineRows(activeManifestRouteId);
   let liveStopSeq=0;
   const rows=timeline.map((pt,idx)=>{
@@ -2991,6 +3038,7 @@ function renderRouteManifest(){
   }).join('');
 
   document.getElementById('manifest-list').innerHTML=`
+    ${capacityWarningHtml}
     <div class="manifest-row header"><div>Seq</div><div>Stop / Customer</div><div>City</div><div>Cases</div><div>Weight</div><div>Cube</div><div>Leg Mi</div><div>Drive</div><div>Service</div><div>Arrive</div><div>Depart</div><div>Wait</div><div>Window</div><div>Status</div></div>
     ${rows || '<div class="manifest-row"><div>—</div><div>No assigned stops</div><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div></div>'}`;
 }
@@ -3427,14 +3475,7 @@ function estimateArrivalForCandidate(routeId, orderedStops, current, candidate){
 function routeWithinBasicLimits(routeId){
   const route=routes.find(r=>r.id===routeId);
   if(!route)return false;
-  const rs=stops.filter(s=>s.routeId===routeId);
-  const drv=trucks.find(d=>d.truckKey===route.truckKey||d.driverKey===route.driverKey)||{};
-  const capCases=parseFloat(drv.measure1)||0;
-  const capWeight=parseFloat(drv.measure2)||0;
-  const capCube=parseFloat(drv.measure3)||0;
-  if(capCases&&rs.reduce((a,s)=>a+tCases(s),0)>capCases)return false;
-  if(capWeight&&rs.reduce((a,s)=>a+tWeight(s),0)>capWeight)return false;
-  if(capCube&&rs.reduce((a,s)=>a+tCube(s),0)>capCube)return false;
+  if(routeCapacityWarnings(routeId).length)return false;
   const latest=timeToMinutes(route.latestEndTime);
   const end=timeToMinutes(routeEndEstimate(routeId));
   if(latest!==null&&end!==null&&end>latest)return false;
@@ -4743,12 +4784,25 @@ function saveStop(){
 function saveRoute(){
   const name=document.getElementById('r-name').value.trim();
   if(!name){showToast('Route name required');return;}
-  routes.push({
-    id:uid(),name,
+
+  const capDryCube=parseFloat(document.getElementById('r-cap-dry-cube')?.value)||0;
+  const capFrozenCube=parseFloat(document.getElementById('r-cap-frozen-cube')?.value)||0;
+  const capTotalCube=parseFloat(document.getElementById('r-cap-total-cube')?.value)||0;
+  const capWeight=parseFloat(document.getElementById('r-cap-weight')?.value)||0;
+  const hasDummyCapacity=!!(capDryCube||capFrozenCube||capTotalCube||capWeight);
+
+  const routeId=uid();
+  let truckKey=(document.getElementById('r-tkey').value||'').trim();
+  if(hasDummyCapacity&&!truckKey){
+    truckKey='DUMMY-'+(document.getElementById('r-key').value||name).toString().replace(/\s+/g,'_').slice(0,24)+'-'+routeId.slice(-4);
+  }
+
+  const routeObj={
+    id:routeId,name,
     routeTemplateKey:document.getElementById('r-key').value,
     date:document.getElementById('route-date')?.value||new Date().toISOString().slice(0,10),
     driverKey:document.getElementById('r-dkey').value,
-    truckKey:document.getElementById('r-tkey').value,
+    truckKey:truckKey,
     initialLocationKey:(document.getElementById('r-initial-location-key')?.value||'').trim(),
     finalLocationKey:(document.getElementById('r-final-location-key')?.value||'').trim(),
     earliestStartTime:document.getElementById('r-est').value,
@@ -4759,10 +4813,30 @@ function saveRoute(){
     depotLng:null,
     windupTime:parseFloat(document.getElementById('r-wnd').value)||0,
     selected:false,
-  });
+    dummyCapacity:hasDummyCapacity?{dryCube:capDryCube,frozenCube:capFrozenCube,totalCube:capTotalCube,weight:capWeight}:null
+  };
+
+  routes.push(routeObj);
+
+  if(hasDummyCapacity){
+    trucks.push({
+      truckKey:truckKey,
+      truckId:truckKey,
+      name:'Dummy Capacity - '+name,
+      vehicleType:'Dummy Capacity',
+      active:'Y',
+      dryCubeCapacity:capDryCube,
+      frozenCubeCapacity:capFrozenCube,
+      totalCubeCapacity:capTotalCube,
+      weightCapacity:capWeight,
+      measure2:capWeight,
+      measure3:capTotalCube
+    });
+  }
+
   enrichRouteDepots();
-  closeModal('add-route-modal');render();showToast('Route created');
-  ['r-name','r-key','r-dkey','r-tkey','r-initial-location-key','r-final-location-key'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
+  closeModal('add-route-modal');render();showToast(hasDummyCapacity?'Route created with dummy truck capacity':'Route created');
+  ['r-name','r-key','r-dkey','r-tkey','r-initial-location-key','r-final-location-key','r-cap-dry-cube','r-cap-frozen-cube','r-cap-total-cube','r-cap-weight'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
 }
 
 
