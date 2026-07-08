@@ -521,21 +521,33 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
       </div>
       <div style="font-size:9px;color:var(--text3);margin-top:6px;">Select the new cut(s) being added. The full file is still used to remove missing orders and refresh ORDER_STATUS values for orders already in the session.</div>
     </div>
-    <div id="backhaul-depot-filter" style="display:none;margin:10px 0 8px;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg2);">
-      <div style="font-size:10px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:7px;">Backhaul Depot Import <span style="font-weight:400;color:var(--text3);text-transform:none;letter-spacing:0;">(Depot Locations tab)</span></div>
-      <label style="display:flex;align-items:center;gap:7px;font-size:11px;color:var(--text1);cursor:pointer;margin-bottom:8px;">
-        <input type="checkbox" id="bh-import-depots" checked style="accent-color:var(--accent);"> Import depot locations with Backhauls
-      </label>
-      <div class="input-row" style="margin-bottom:0;">
-        <div class="field"><label>Filter By</label>
-          <select id="bh-depot-filter-field"><option value="branch">Branch (Division)</option><option value="market">Market</option></select>
+    <div id="backhaul-filter-panel" style="display:none;margin:10px 0 8px;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg2);">
+      <div style="font-size:10px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;">Backhaul Import Filters</div>
+      <div style="font-size:9px;color:var(--text3);margin-bottom:9px;">These filters only apply to Backhauls mode. Blank values import/display all matching rows.</div>
+
+      <div class="shdr" style="margin-top:0;">Vendors / 3PL Lanes</div>
+      <div class="input-row" style="margin-bottom:8px;">
+        <div class="field"><label>Vendor Import Option</label>
+          <select id="bh-vendor-filter-mode"><option value="all">Display all vendors</option><option value="division">Enter Division</option></select>
         </div>
-        <div class="field"><label>Filter Value <span style="font-weight:400;color:var(--text3);">(comma separated; blank = all)</span></label>
-          <input id="bh-depot-filter-value" list="bh-depot-filter-options" placeholder="Example: CHICAGO, 2A, 123"/>
+        <div class="field"><label>Division <span style="font-weight:400;color:var(--text3);">(comma separated)</span></label>
+          <input id="bh-vendor-division-value" list="bh-vendor-division-options" placeholder="Example: 9B"/>
+          <datalist id="bh-vendor-division-options"></datalist>
+        </div>
+      </div>
+      <div style="font-size:9px;color:var(--text3);margin-top:-4px;margin-bottom:10px;">Uses the “Division” column on the 3PL Lanes tab. Example: enter <strong>9B</strong> to import only Division 9B vendors/lanes.</div>
+
+      <div class="shdr">Depots / Depot Locations</div>
+      <div class="input-row" style="margin-bottom:0;">
+        <div class="field"><label>Depot Import Option</label>
+          <select id="bh-depot-filter-field"><option value="all">Display all depots</option><option value="branch">Enter Branch (Division)</option><option value="market">Enter Market Code</option><option value="none">Do not import depots</option></select>
+        </div>
+        <div class="field"><label>Branch / Market Value <span style="font-weight:400;color:var(--text3);">(comma separated)</span></label>
+          <input id="bh-depot-filter-value" list="bh-depot-filter-options" placeholder="Example: 9B or 2130"/>
           <datalist id="bh-depot-filter-options"></datalist>
         </div>
       </div>
-      <div style="font-size:9px;color:var(--text3);margin-top:6px;">Uses column B “Branch (Division)” or column K “Market” from Depot Locations. Only matching depot rows are imported/displayed in the session.</div>
+      <div style="font-size:9px;color:var(--text3);margin-top:6px;">Depots use column B “Branch (Division)” or column K “Market” from Depot Locations. The vendor and depot filters are separate, so you can import Division 9B vendors and either all depots or only matching Branch/Market depots.</div>
     </div>
     <div id="route-day-filter" style="margin:10px 0 8px;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg2);">
       <div style="font-size:10px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:7px;">Route Day Filter <span style="font-weight:400;color:var(--text3);text-transform:none;letter-spacing:0;">(uses Route Templates UDFString2)</span></div>
@@ -3457,8 +3469,8 @@ function setImportMode(m){
   if(cutPanel)cutPanel.style.display=importMode==='stops'?'block':'none';
   const dayPanel=document.getElementById('route-day-filter');
   if(dayPanel)dayPanel.style.display=importMode==='all'?'block':'none';
-  const bhDepotPanel=document.getElementById('backhaul-depot-filter');
-  if(bhDepotPanel)bhDepotPanel.style.display=importMode==='backhauls'?'block':'none';
+  const bhFilterPanel=document.getElementById('backhaul-filter-panel');
+  if(bhFilterPanel)bhFilterPanel.style.display=importMode==='backhauls'?'block':'none';
   const exportInfo=document.getElementById('import-export-info');
   if(exportInfo)exportInfo.style.display=importMode==='backhauls'?'none':'block';
 }
@@ -3506,19 +3518,46 @@ function gcLoose(row,keys){
   }
   return '';
 }
-function backhaulDepotFilterValues(){
-  const raw=(document.getElementById('bh-depot-filter-value')?.value||'').toString();
+function csvUpperValues(inputId){
+  const raw=(document.getElementById(inputId)?.value||'').toString();
   return raw.split(',').map(x=>x.trim()).filter(Boolean).map(x=>x.toUpperCase());
 }
+function backhaulVendorFilterValues(){return csvUpperValues('bh-vendor-division-value');}
+function backhaulDepotFilterValues(){return csvUpperValues('bh-depot-filter-value');}
+function backhaulRowMatchesVendorFilter(row){
+  const mode=document.getElementById('bh-vendor-filter-mode')?.value||'all';
+  if(mode==='all')return true;
+  const values=backhaulVendorFilterValues();
+  if(!values.length)return true;
+  const val=sval(gcLoose(row,['Division'])).toUpperCase();
+  return values.some(v=>val===v || val.includes(v));
+}
 function depotRowMatchesBackhaulFilter(row){
+  const field=document.getElementById('bh-depot-filter-field')?.value||'all';
+  if(field==='none')return false;
+  if(field==='all')return true;
   const values=backhaulDepotFilterValues();
   if(!values.length)return true;
-  const field=document.getElementById('bh-depot-filter-field')?.value||'branch';
   const raw=field==='market'
     ? gcLoose(row,['Market'])
     : gcLoose(row,['Branch (Division)','Branch (Divison)','Branch','Division']);
   const val=sval(raw).toUpperCase();
   return values.some(v=>val===v || val.includes(v));
+}
+function populateBackhaulFilterOptions(wb){
+  populateBackhaulVendorFilterOptions(wb);
+  populateBackhaulDepotFilterOptions(wb);
+}
+function populateBackhaulVendorFilterOptions(wb){
+  const list=document.getElementById('bh-vendor-division-options');
+  if(!list||!wb)return;
+  const rows=[];
+  (wb.SheetNames||[]).forEach(name=>{
+    const data=XLSX.utils.sheet_to_json(wb.Sheets[name],{defval:'', raw:false});
+    if(detectImportSheetType(name,data)==='backhauls')rows.push(...data);
+  });
+  const vals=[...new Set(rows.map(r=>sval(gcLoose(r,['Division']))).filter(Boolean))].sort();
+  list.innerHTML=vals.map(v=>`<option value="${escapeHtml(v)}"></option>`).join('');
 }
 function populateBackhaulDepotFilterOptions(wb){
   const list=document.getElementById('bh-depot-filter-options');
@@ -3526,12 +3565,17 @@ function populateBackhaulDepotFilterOptions(wb){
   const wsName=(wb.SheetNames||[]).find(n=>n.toLowerCase().trim()==='depot locations' || n.toLowerCase().includes('depot'));
   if(!wsName){list.innerHTML='';return;}
   const rows=XLSX.utils.sheet_to_json(wb.Sheets[wsName],{defval:'', raw:false});
-  const field=document.getElementById('bh-depot-filter-field')?.value||'branch';
+  const field=document.getElementById('bh-depot-filter-field')?.value||'all';
+  if(field==='all'||field==='none'){
+    list.innerHTML='';
+    return;
+  }
   const vals=[...new Set(rows.map(r=>sval(field==='market'?gcLoose(r,['Market']):gcLoose(r,['Branch (Division)','Branch (Divison)','Branch','Division']))).filter(Boolean))].sort();
   list.innerHTML=vals.map(v=>`<option value="${escapeHtml(v)}"></option>`).join('');
 }
 document.addEventListener('change',e=>{
   if(e.target&&e.target.id==='bh-depot-filter-field'&&pendingWB)populateBackhaulDepotFilterOptions(pendingWB);
+  if(e.target&&e.target.id==='bh-vendor-filter-mode'&&pendingWB)populateBackhaulVendorFilterOptions(pendingWB);
 });
 
 function detectImportSheetType(name,data){
@@ -3607,7 +3651,7 @@ function readFile(file){
           </div>`).join('')}
           <br/><span style="color:var(--text3);">All Templates mode imports detected route, truck, depot, and order tabs. Orders Only runs the incremental cut import/status refresh process. Backhauls mode imports vendor/customer average data as map locations.</span>
         </div>`;
-      populateBackhaulDepotFilterOptions(wb);
+      populateBackhaulFilterOptions(wb);
       document.getElementById('imp-confirm').style.display='';
     }catch(err){showToast('Error reading file: '+err.message);}
   };
@@ -3639,16 +3683,14 @@ function confirmImport(){
       }
       const backhaulRows=[];
       backhaulSheets.forEach(x=>backhaulRows.push(...x.data));
-      bhc=importBackhauls(backhaulRows);
-      const importBhDepots=document.getElementById('bh-import-depots')?.checked!==false;
-      if(importBhDepots){
-        const depotSheets=sheets.filter(x=>x.type==='depots');
-        depotSheets.forEach(x=>{
-          const filtered=x.data.filter(depotRowMatchesBackhaulFilter);
-          importDepots(filtered);
-          lc+=filtered.length;
-        });
-      }
+      const filteredBackhaulRows=backhaulRows.filter(backhaulRowMatchesVendorFilter);
+      bhc=importBackhauls(filteredBackhaulRows);
+      const depotSheets=sheets.filter(x=>x.type==='depots');
+      depotSheets.forEach(x=>{
+        const filtered=x.data.filter(depotRowMatchesBackhaulFilter);
+        importDepots(filtered);
+        lc+=filtered.length;
+      });
     }else if(importMode==='stops'){
       const selectedCutIds=getSelectedCutIds();
       if(!selectedCutIds.length){
