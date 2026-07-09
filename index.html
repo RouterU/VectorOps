@@ -399,6 +399,7 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
       <div class="bhl-menu" id="bhl-extras-menu">
         <div class="bhl-menu-title">BHL Extras</div>
         <button class="bhl-menu-item" onclick="runBhlDepotDistanceAnalysis()"><span>Optimize Depot Distance</span><span>📍</span></button>
+        <button class="bhl-menu-item" onclick="openBhlBuildRoutesMenu()"><span>Build Routes</span><span>🧭</span></button>
         <button class="bhl-menu-item" id="bhl-view-analysis-item" onclick="openBhlDepotAnalysisReport()"><span>View Last Analysis</span><span>▤</span></button>
         <button class="bhl-menu-item" onclick="bhlExtrasExportPlaceholder()"><span>Export</span><span>⬇</span></button>
       </div>
@@ -832,6 +833,29 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
   </div>
 </div>
 
+
+
+<!-- BHL Build Routes Modal -->
+<div id="bhl-build-routes-modal" style="display:none" class="modal-overlay">
+  <div class="modal">
+    <h2>BHL Build Routes</h2>
+    <div class="job-result" style="margin-bottom:10px;">
+      Creates dummy BHL routes by Division/Branch. Each vendor gets a 2 hour service time. Routes use the matching DC as the start and end depot, prioritize distance, and use the fewest routes possible unless Ideal Routes is entered.
+    </div>
+    <div class="input-row">
+      <div class="field"><label>Truck Cube</label><input id="bhl-build-cube" type="number" step="any" value="2200"/></div>
+      <div class="field"><label>Truck Weight</label><input id="bhl-build-weight" type="number" step="any" value="42500"/></div>
+    </div>
+    <div class="input-row">
+      <div class="field"><label>Ideal Routes <span style="font-weight:400;color:var(--text3);">(optional)</span></label><input id="bhl-build-ideal" type="number" min="1" step="1" placeholder="Blank = minimum routes"/></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal('bhl-build-routes-modal')">Cancel</button>
+      <button class="btn primary" onclick="runBhlBuildRoutes()">Run</button>
+    </div>
+  </div>
+</div>
+
 <!-- Safety Assessment Modal -->
 <div id="safety-assessment-modal" style="display:none" class="modal-overlay">
   <div class="modal safety-modal">
@@ -870,6 +894,7 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
 const COLORS=['#4f8cff','#3ecf8e','#f59e0b','#ef4444','#a78bfa','#fb923c','#38bdf8','#f472b6','#34d399','#fbbf24','#60a5fa','#86efac'];
 let routes=[], stops=[], trucks=[], depotLocations=[], cancelledOrders=[];
 let bhlDepotAnalysisReport=null;
+let bhlBuildRoutesReport=null;
 let sessionRegionCode='';
 let mapCleared=false;
 const visibleStopIds=new Set();
@@ -6364,6 +6389,194 @@ function bhlExtrasExportPlaceholder(){
   closeBhlExtrasMenu();
   showToast('BHL Extras export is a placeholder until the final export format is agreed on.');
 }
+
+
+function openBhlBuildRoutesMenu(){
+  closeBhlExtrasMenu();
+  const cube=document.getElementById('bhl-build-cube');
+  const weight=document.getElementById('bhl-build-weight');
+  if(cube&&!cube.value)cube.value='2200';
+  if(weight&&!weight.value)weight.value='42500';
+  document.getElementById('bhl-build-routes-modal').style.display='flex';
+}
+function bhlDivisionCodeFromStop(stop){
+  return sval(stop?.backhaul?.division || stop?.division || stop?.raw?.Division || stop?.raw?.['Division'] || stop?.district).trim();
+}
+function bhlBranchCodeFromDepot(depot){
+  return sval(depot?.branchDivision || depot?.division || depot?.raw?.['Branch (Division)']).trim();
+}
+function bhlBuildRouteTravelMinutesForStops(depot,routeStops,includeRest=false){
+  if(!depot||!isFinite(parseFloat(depot.lat))||!isFinite(parseFloat(depot.lng)))return Infinity;
+  let mins=0;
+  let current={lat:parseFloat(depot.lat),lng:parseFloat(depot.lng)};
+  (routeStops||[]).forEach(stop=>{
+    mins+=driveMinutesForMiles(haversine(current.lat,current.lng,parseFloat(stop.lat),parseFloat(stop.lng)));
+    mins+=120;
+    current={lat:parseFloat(stop.lat),lng:parseFloat(stop.lng)};
+  });
+  mins+=driveMinutesForMiles(haversine(current.lat,current.lng,parseFloat(depot.lat),parseFloat(depot.lng)));
+  if(includeRest)mins+=480;
+  return mins;
+}
+function bhlSequenceStopsAsLoop(depot,routeStops){
+  const remaining=(routeStops||[]).filter(s=>isFinite(parseFloat(s.lat))&&isFinite(parseFloat(s.lng))).slice();
+  const ordered=[];
+  let current={lat:parseFloat(depot.lat),lng:parseFloat(depot.lng)};
+  while(remaining.length){
+    let bestIndex=0,best=Infinity;
+    remaining.forEach((s,i)=>{
+      const d=haversine(current.lat,current.lng,parseFloat(s.lat),parseFloat(s.lng));
+      if(d<best){best=d;bestIndex=i;}
+    });
+    const next=remaining.splice(bestIndex,1)[0];
+    ordered.push(next);
+    current={lat:parseFloat(next.lat),lng:parseFloat(next.lng)};
+  }
+  return ordered;
+}
+function bhlChooseDepotForDivision(division,divisionStops){
+  const depots=depotLocations.filter(d=>bhlBranchCodeFromDepot(d)===division&&isFinite(parseFloat(d.lat))&&isFinite(parseFloat(d.lng)));
+  if(!depots.length)return null;
+  if(depots.length===1)return depots[0];
+  const geo=divisionStops.filter(s=>isFinite(parseFloat(s.lat))&&isFinite(parseFloat(s.lng)));
+  const center=geo.length?{
+    lat:geo.reduce((a,s)=>a+parseFloat(s.lat),0)/geo.length,
+    lng:geo.reduce((a,s)=>a+parseFloat(s.lng),0)/geo.length
+  }:{lat:parseFloat(depots[0].lat),lng:parseFloat(depots[0].lng)};
+  return depots.slice().sort((a,b)=>haversine(center.lat,center.lng,parseFloat(a.lat),parseFloat(a.lng))-haversine(center.lat,center.lng,parseFloat(b.lat),parseFloat(b.lng)))[0];
+}
+function bhlClusterStopsForRouteCount(depot,divisionStops,routeCount){
+  const ordered=bhlSequenceStopsAsLoop(depot,divisionStops);
+  const clusters=Array.from({length:Math.max(1,routeCount)},()=>[]);
+  ordered.forEach((s,i)=>clusters[i%clusters.length].push(s));
+  return clusters.map(c=>bhlSequenceStopsAsLoop(depot,c)).filter(c=>c.length);
+}
+function bhlRouteClusterFits(depot,cluster,truckCube,truckWeight){
+  const cube=cluster.reduce((a,s)=>a+tCube(s),0);
+  const weight=cluster.reduce((a,s)=>a+tWeight(s),0);
+  if(truckCube&&cube>truckCube)return false;
+  if(truckWeight&&weight>truckWeight)return false;
+  const minutes12=bhlBuildRouteTravelMinutesForStops(depot,cluster,false);
+  if(minutes12<=720)return true;
+  const minutes24=bhlBuildRouteTravelMinutesForStops(depot,cluster,true);
+  return minutes24<=1440;
+}
+function bhlFindMinimumClusters(depot,divisionStops,truckCube,truckWeight,targetRoutes){
+  const maxRoutes=Math.max(1,divisionStops.length);
+  const lowerByCube=truckCube?Math.ceil(divisionStops.reduce((a,s)=>a+tCube(s),0)/truckCube):1;
+  const lowerByWeight=truckWeight?Math.ceil(divisionStops.reduce((a,s)=>a+tWeight(s),0)/truckWeight):1;
+  const lowerByService=Math.ceil((divisionStops.length*120)/1440);
+  const start=targetRoutes?Math.max(1,targetRoutes):Math.max(1,lowerByCube,lowerByWeight,lowerByService);
+  const end=targetRoutes?Math.min(maxRoutes,Math.max(1,targetRoutes)):maxRoutes;
+  for(let k=start;k<=end;k++){
+    const clusters=bhlClusterStopsForRouteCount(depot,divisionStops,k);
+    if(clusters.every(c=>bhlRouteClusterFits(depot,c,truckCube,truckWeight)))return clusters;
+  }
+  return bhlClusterStopsForRouteCount(depot,divisionStops,end);
+}
+function bhlAllocateIdealRoutes(groupedStops,totalIdeal){
+  const divs=Object.keys(groupedStops);
+  if(!totalIdeal||totalIdeal<divs.length)return {};
+  const totalStops=divs.reduce((a,d)=>a+groupedStops[d].length,0)||1;
+  const allocation={};
+  let used=0;
+  divs.forEach(d=>{allocation[d]=Math.max(1,Math.floor(totalIdeal*(groupedStops[d].length/totalStops)));used+=allocation[d];});
+  while(used<totalIdeal){
+    const d=divs.slice().sort((a,b)=>(groupedStops[b].length/allocation[b])-(groupedStops[a].length/allocation[a]))[0];
+    allocation[d]++;used++;
+  }
+  while(used>totalIdeal){
+    const d=divs.slice().filter(x=>allocation[x]>1).sort((a,b)=>(groupedStops[a].length/allocation[a])-(groupedStops[b].length/allocation[b]))[0];
+    if(!d)break;
+    allocation[d]--;used--;
+  }
+  return allocation;
+}
+function bhlMakeRestStop(depot,routeId,seq){
+  return {
+    id:uid(),sourceType:'bhl-rest-break',routeId,seq,
+    orderNumber:'BHL-REST',customerName:'Mandatory 8 Hour Rest Break',shipToId:'',customerNumber:'',
+    address:depot.shipStreet||'',city:depot.shipCity||'',state:depot.shipState||'',zip:depot.shipZipCode||'',country:'US',
+    lat:parseFloat(depot.lat),lng:parseFloat(depot.lng),
+    dryCases:0,dryCube:0,dryWeight:0,coolerCases:0,coolerCube:0,coolerWeight:0,frozenCases:0,frozenCube:0,frozenWeight:0,pkgCases:0,pkgCube:0,pkgWeight:0,
+    fixedServiceTime:28800,variableServiceTime:0,comment:'Auto-created because this BHL route required a 24 hour run-time option.',orderType:'Rest Break',orderStatus:'',district:bhlBranchCodeFromDepot(depot),
+    earliestTimeWindow:'',latestTimeWindow:'',earliestTimeWindowRaw:'',latestTimeWindowRaw:''
+  };
+}
+function runBhlBuildRoutes(){
+  const truckCube=parseFloat(document.getElementById('bhl-build-cube')?.value)||2200;
+  const truckWeight=parseFloat(document.getElementById('bhl-build-weight')?.value)||42500;
+  const idealRoutes=parseInt(document.getElementById('bhl-build-ideal')?.value,10)||0;
+  const vendorStops=stops.filter(s=>s&&s.sourceType==='backhaul'&&isFinite(parseFloat(s.lat))&&isFinite(parseFloat(s.lng))&&bhlDivisionCodeFromStop(s));
+  if(!vendorStops.length){showToast('No imported BHL vendors with Division and latitude/longitude are available.');return;}
+
+  const grouped={};
+  vendorStops.forEach(s=>{const d=bhlDivisionCodeFromStop(s);if(!grouped[d])grouped[d]=[];grouped[d].push(s);});
+  const allocation=bhlAllocateIdealRoutes(grouped,idealRoutes);
+  const createdRoutes=[];
+  const skipped=[];
+
+  Object.keys(grouped).sort().forEach(division=>{
+    const divStops=grouped[division];
+    const depot=bhlChooseDepotForDivision(division,divStops);
+    if(!depot){skipped.push(`${division}: no matching DC with Branch (Division)`);return;}
+    const clusters=bhlFindMinimumClusters(depot,divStops,truckCube,truckWeight,allocation[division]||0);
+    clusters.forEach((cluster,index)=>{
+      const routeId=uid();
+      const routeNumber=`BHL-${division}-${String(index+1).padStart(2,'0')}`;
+      const routeName=`BHL ${division} Route ${index+1}`;
+      const truckKey=`DUMMY-${routeNumber}-${routeId.slice(-4)}`;
+      const needsRest=bhlBuildRouteTravelMinutesForStops(depot,cluster,false)>720;
+      routes.push({
+        id:routeId,name:routeName,routeTemplateKey:routeNumber,date:document.getElementById('route-date')?.value||new Date().toISOString().slice(0,10),
+        scheduleKey:'',udfNumber1:routeNumber,udfString2:'BHL_BUILD',initialLocationKey:depot.locationKey||'',finalLocationKey:depot.locationKey||'',
+        depotLat:parseFloat(depot.lat),depotLng:parseFloat(depot.lng),earliestStartTime:'06:00',latestStartTime:'06:00',latestEndTime:needsRest?'06:00':'18:00',
+        startupTime:0,windupTime:0,driverKey:'',truckKey,trailerKey:'',requirements:'',work1Duration:'',routingParameterKey:'BHL_BUILD',selected:false,
+        dummyCapacity:{dryCube:0,frozenCube:0,totalCube:truckCube,weight:truckWeight},bhlBuild:true,bhlDivision:division,bhlDepotLocationKey:depot.locationKey||''
+      });
+      trucks.push({truckKey,truckId:truckKey,name:'BHL Dummy Capacity - '+routeName,vehicleType:'BHL Dummy Capacity',active:'Y',dryCubeCapacity:0,frozenCubeCapacity:0,totalCubeCapacity:truckCube,weightCapacity:truckWeight,measure2:truckWeight,measure3:truckCube});
+      let seq=1;
+      cluster.forEach(stop=>{
+        stop.routeId=routeId;
+        stop.seq=seq++;
+        stop.fixedServiceTime=7200;
+        stop.variableServiceTime=0;
+        stop.uiChecked=false;
+        visibleStopIds.add(stop.id);
+      });
+      if(needsRest){
+        const restSeq=Math.max(2,Math.ceil(seq/2));
+        cluster.forEach(stop=>{if(stop.seq>=restSeq)stop.seq++;});
+        stops.push(bhlMakeRestStop(depot,routeId,restSeq));
+      }
+      visibleRouteIds.add(routeId);
+      expanded.add(routeId);
+      const routeMinutes=routeTotalMinutes(routeId);
+      createdRoutes.push({division,routeName,stopCount:cluster.length,needsRest,minutes:routeMinutes,cube:cluster.reduce((a,s)=>a+tCube(s),0),weight:cluster.reduce((a,s)=>a+tWeight(s),0)});
+    });
+  });
+
+  enrichRouteDepots();
+  reseq();
+  mapCleared=true;
+  render();
+  closeModal('bhl-build-routes-modal');
+  bhlBuildRoutesReport={createdRoutes,skipped,createdAt:new Date().toISOString()};
+  const totalVendors=createdRoutes.reduce((a,r)=>a+r.stopCount,0);
+  showJob('BHL Build Routes Complete',`
+    <strong>${createdRoutes.length}</strong> dummy route(s) created<br/>
+    <strong>${totalVendors}</strong> vendor stop(s) routed<br/>
+    <strong>${createdRoutes.filter(r=>r.needsRest).length}</strong> route(s) used the 24 hour option with an 8 hour rest break<br/>
+    <strong>Truck Limits:</strong> ${truckCube.toLocaleString()} cube / ${truckWeight.toLocaleString()} lbs<br/>
+    ${idealRoutes?`<strong>Ideal Routes Requested:</strong> ${idealRoutes}<br/>`:'<strong>Mode:</strong> Minimum routes possible within capacity/time limits<br/>'}
+    ${skipped.length?`<br/><strong>Skipped:</strong><br/>${skipped.map(escapeHtml).join('<br/>')}`:''}
+    <br/><div style="margin-top:8px;max-height:260px;overflow:auto;border-top:1px solid var(--border);padding-top:6px;">
+      ${createdRoutes.map(r=>`• ${escapeHtml(r.routeName)} — ${r.stopCount} vendors, ${fmtMinutes(r.minutes)}, ${r.cube.toFixed(1)} cube, ${Math.round(r.weight).toLocaleString()} lbs${r.needsRest?' + rest break':''}`).join('<br/>')}
+    </div>`);
+  fitMapToVisible();
+  showToast(`BHL Build Routes created ${createdRoutes.length} route(s).`);
+}
+
 
 </script>
 </body>
