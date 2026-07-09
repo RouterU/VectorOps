@@ -17,7 +17,7 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
   --text1:#e8e6e0;--text2:#9ca3b8;--text3:#5c6480;
   --accent:#4f8cff;--success:#3ecf8e;--warn:#f59e0b;--danger:#ef4444;--purple:#a78bfa;
 }
-.topbar{display:flex;align-items:center;gap:8px;padding:0 14px;height:50px;background:var(--bg1);border-bottom:1px solid var(--border);flex-shrink:0;z-index:200;}
+.topbar{display:flex;align-items:center;gap:8px;padding:0 14px;height:50px;background:var(--bg1);border-bottom:1px solid var(--border);flex-shrink:0;z-index:3000;position:relative;}
 .logo{font-family:'DM Mono',monospace;font-size:14px;font-weight:500;color:var(--accent);letter-spacing:-.5px;white-space:nowrap;}
 .logo span{color:var(--text2);}
 .logo small{font-size:9px;color:var(--text3);margin-left:3px;}
@@ -272,7 +272,7 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
 
 /* BHL Extras Menu */
 .bhl-menu-wrap{position:relative;display:inline-flex;}
-.bhl-menu{position:absolute;right:0;top:calc(100% + 6px);z-index:2200;min-width:230px;background:var(--bg1);border:1px solid var(--border2);border-radius:10px;box-shadow:0 16px 40px rgba(0,0,0,.55);padding:6px;display:none;}
+.bhl-menu{position:absolute;right:0;top:calc(100% + 6px);z-index:3100;min-width:230px;background:var(--bg1);border:1px solid var(--border2);border-radius:10px;box-shadow:0 16px 40px rgba(0,0,0,.55);padding:6px;display:none;}
 .bhl-menu.open{display:block;}
 .bhl-menu-title{font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;padding:6px 8px 4px;border-bottom:1px solid var(--border);margin-bottom:4px;}
 .bhl-menu-item{width:100%;display:flex;align-items:center;justify-content:space-between;gap:8px;background:transparent;border:none;color:var(--text1);font-family:'Sora',sans-serif;font-size:11px;text-align:left;padding:8px;border-radius:7px;cursor:pointer;}
