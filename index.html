@@ -270,6 +270,28 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
 #ua-badge{margin-left:auto;}
 
 
+/* BHL Extras Menu */
+.bhl-menu-wrap{position:relative;display:inline-flex;}
+.bhl-menu{position:absolute;right:0;top:calc(100% + 6px);z-index:2200;min-width:230px;background:var(--bg1);border:1px solid var(--border2);border-radius:10px;box-shadow:0 16px 40px rgba(0,0,0,.55);padding:6px;display:none;}
+.bhl-menu.open{display:block;}
+.bhl-menu-title{font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;padding:6px 8px 4px;border-bottom:1px solid var(--border);margin-bottom:4px;}
+.bhl-menu-item{width:100%;display:flex;align-items:center;justify-content:space-between;gap:8px;background:transparent;border:none;color:var(--text1);font-family:'Sora',sans-serif;font-size:11px;text-align:left;padding:8px;border-radius:7px;cursor:pointer;}
+.bhl-menu-item:hover{background:var(--bg3);}
+.bhl-menu-item.disabled{opacity:.45;cursor:not-allowed;}
+.bhl-menu-item.disabled:hover{background:transparent;}
+.bhl-summary-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;margin-bottom:12px;}
+.bhl-summary-card{background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:9px;text-align:center;}
+.bhl-summary-card .val{font-family:'DM Mono',monospace;font-size:16px;font-weight:700;color:var(--text1);}
+.bhl-summary-card .lbl{font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.4px;margin-top:2px;}
+.bhl-analysis-table{border:1px solid var(--border);border-radius:10px;background:var(--bg2);max-height:58vh;overflow:auto;}
+.bhl-analysis-row{display:grid;grid-template-columns:260px 150px 230px 170px 100px 120px 260px;gap:10px;align-items:center;padding:9px 12px;border-bottom:1px solid var(--border);font-size:11px;min-width:1290px;}
+.bhl-analysis-row:last-child{border-bottom:none;}
+.bhl-analysis-row.header{background:var(--bg3);position:sticky;top:0;z-index:2;color:var(--text3);font-size:9px;text-transform:uppercase;letter-spacing:.5px;font-weight:800;}
+.bhl-analysis-main{font-weight:700;color:var(--text1);white-space:normal;line-height:1.25;}
+.bhl-analysis-sub{font-size:9px;color:var(--text3);margin-top:2px;line-height:1.25;}
+.bhl-extras-modal{width:1240px;max-width:98vw;max-height:94vh;}
+
+
 /* Safety Assessment Feature */
 .safety-summary-grid{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px;margin-bottom:12px;}
 .safety-summary-card{background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:9px;text-align:center;}
@@ -367,6 +389,19 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
       Potential Routes
     </button>
       <button class="btn" id="top-cancel-potential-btn" onclick="cancelPotentialJob()" style="display:none;background:#7f1d1d;border-color:#b91c1c;color:#fff;font-size:10px;padding:3px 6px;justify-content:center;">Cancel Potential</button>
+    </div>
+
+    <div class="bhl-menu-wrap">
+      <button class="btn" onclick="toggleBhlExtrasMenu(event)" title="Backhaul extra tools">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 7h18"/><path d="M3 12h18"/><path d="M3 17h18"/></svg>
+        BHL Extras
+      </button>
+      <div class="bhl-menu" id="bhl-extras-menu">
+        <div class="bhl-menu-title">BHL Extras</div>
+        <button class="bhl-menu-item" onclick="runBhlDepotDistanceAnalysis()"><span>Optimize Depot Distance</span><span>📍</span></button>
+        <button class="bhl-menu-item" id="bhl-view-analysis-item" onclick="openBhlDepotAnalysisReport()"><span>View Last Analysis</span><span>▤</span></button>
+        <button class="bhl-menu-item" onclick="bhlExtrasExportPlaceholder()"><span>Export</span><span>⬇</span></button>
+      </div>
     </div>
     <button class="btn success" onclick="exportExcel()">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
@@ -783,6 +818,20 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
 </div>
 
 
+
+<!-- BHL Extras Depot Analysis Modal -->
+<div id="bhl-depot-analysis-modal" style="display:none" class="modal-overlay">
+  <div class="modal bhl-extras-modal">
+    <h2>BHL Depot Distance Analysis</h2>
+    <div id="bhl-depot-analysis-summary" class="bhl-summary-grid"></div>
+    <div id="bhl-depot-analysis-table" class="bhl-analysis-table"></div>
+    <div class="modal-actions">
+      <button class="btn success" onclick="exportBhlDepotAnalysis()">Export Data</button>
+      <button class="btn" onclick="closeModal('bhl-depot-analysis-modal')">Close</button>
+    </div>
+  </div>
+</div>
+
 <!-- Safety Assessment Modal -->
 <div id="safety-assessment-modal" style="display:none" class="modal-overlay">
   <div class="modal safety-modal">
@@ -820,6 +869,7 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
 // ============================================================
 const COLORS=['#4f8cff','#3ecf8e','#f59e0b','#ef4444','#a78bfa','#fb923c','#38bdf8','#f472b6','#34d399','#fbbf24','#60a5fa','#86efac'];
 let routes=[], stops=[], trucks=[], depotLocations=[], cancelledOrders=[];
+let bhlDepotAnalysisReport=null;
 let sessionRegionCode='';
 let mapCleared=false;
 const visibleStopIds=new Set();
@@ -6158,6 +6208,163 @@ function showToast(msg){
   document.body.appendChild(t);setTimeout(()=>t.remove(),3200);
 }
 document.addEventListener('click',e=>{if(e.target.classList.contains('modal-overlay'))e.target.style.display='none';});
+
+// ============================================================
+// BHL EXTRAS
+// ============================================================
+function toggleBhlExtrasMenu(event){
+  if(event)event.stopPropagation();
+  const menu=document.getElementById('bhl-extras-menu');
+  if(!menu)return;
+  menu.classList.toggle('open');
+  updateBhlExtrasMenuState();
+}
+function closeBhlExtrasMenu(){
+  const menu=document.getElementById('bhl-extras-menu');
+  if(menu)menu.classList.remove('open');
+}
+function updateBhlExtrasMenuState(){
+  const item=document.getElementById('bhl-view-analysis-item');
+  if(item)item.classList.toggle('disabled',!(bhlDepotAnalysisReport&&bhlDepotAnalysisReport.rows&&bhlDepotAnalysisReport.rows.length));
+}
+document.addEventListener('click',e=>{
+  const menu=document.getElementById('bhl-extras-menu');
+  if(menu&&menu.classList.contains('open')&&!menu.contains(e.target)&&!e.target.closest('.bhl-menu-wrap'))closeBhlExtrasMenu();
+});
+function bhlStopVendorName(stop){
+  return stop?.vendor || stop?.backhaul?.vendor || stop?.customerName || stop?.name || stop?.shipToId || 'Vendor / Stop';
+}
+function bhlStopAddress(stop){
+  return [stop?.address,stop?.city,stop?.state,stop?.zip].map(v=>(v??'').toString().trim()).filter(Boolean).join(', ');
+}
+function bhlDepotAddress(depot){
+  return [depot?.shipStreet,depot?.shipCity,depot?.shipState,depot?.shipZipCode].map(v=>(v??'').toString().trim()).filter(Boolean).join(', ');
+}
+function runBhlDepotDistanceAnalysis(){
+  closeBhlExtrasMenu();
+  const validStops=stops.filter(s=>s&&isFinite(parseFloat(s.lat))&&isFinite(parseFloat(s.lng)));
+  const validDepots=depotLocations.filter(d=>d&&isFinite(parseFloat(d.lat))&&isFinite(parseFloat(d.lng)));
+  if(!validStops.length){showToast('No vendors/stops with latitude and longitude are available to check.');return;}
+  if(!validDepots.length){showToast('No depot locations with latitude and longitude are available to check.');return;}
+
+  const rows=validStops.map(stop=>{
+    let bestDepot=null,bestMiles=Infinity;
+    validDepots.forEach(depot=>{
+      const miles=haversine(parseFloat(stop.lat),parseFloat(stop.lng),parseFloat(depot.lat),parseFloat(depot.lng));
+      if(miles<bestMiles){bestMiles=miles;bestDepot=depot;}
+    });
+    return {
+      vendor:bhlStopVendorName(stop),
+      stopType:stop.sourceType==='backhaul'?'Backhaul':'Stop',
+      orderNumber:orderLabel(stop),
+      city:stop.city||'',
+      state:stop.state||'',
+      address:bhlStopAddress(stop),
+      latitude:parseFloat(stop.lat),
+      longitude:parseFloat(stop.lng),
+      closestDepot:bestDepot?(bestDepot.name||bestDepot.locationKey||'Depot'):'',
+      depotLocationKey:bestDepot?.locationKey||'',
+      depotBranch:bestDepot?.branchDivision||'',
+      depotMarket:bestDepot?.market||'',
+      depotCity:bestDepot?.shipCity||'',
+      depotState:bestDepot?.shipState||'',
+      depotAddress:bhlDepotAddress(bestDepot),
+      miles:bestMiles
+    };
+  }).sort((a,b)=>(a.closestDepot||'').localeCompare(b.closestDepot||'') || a.miles-b.miles || (a.vendor||'').localeCompare(b.vendor||''));
+
+  const depotCounts={};
+  rows.forEach(r=>{depotCounts[r.depotLocationKey||r.closestDepot]=(depotCounts[r.depotLocationKey||r.closestDepot]||0)+1;});
+  const depotsUsed=Object.keys(depotCounts).length;
+  bhlDepotAnalysisReport={
+    rows,
+    summary:{
+      checked:rows.length,
+      depotsUsed,
+      avgPerDepot:depotsUsed?rows.length/depotsUsed:0,
+      createdAt:new Date().toISOString()
+    }
+  };
+  openBhlDepotAnalysisReport();
+  showToast(`Checked ${rows.length} vendors/stops against ${validDepots.length} depots.`);
+}
+function openBhlDepotAnalysisReport(){
+  closeBhlExtrasMenu();
+  if(!(bhlDepotAnalysisReport&&bhlDepotAnalysisReport.rows&&bhlDepotAnalysisReport.rows.length)){
+    showToast('Run the BHL depot distance analysis first.');
+    updateBhlExtrasMenuState();
+    return;
+  }
+  const s=bhlDepotAnalysisReport.summary;
+  document.getElementById('bhl-depot-analysis-summary').innerHTML=`
+    <div class="bhl-summary-card"><div class="val">${s.checked.toLocaleString()}</div><div class="lbl">Vendors / Stops Checked</div></div>
+    <div class="bhl-summary-card"><div class="val">${s.depotsUsed.toLocaleString()}</div><div class="lbl">Depots Used</div></div>
+    <div class="bhl-summary-card"><div class="val">${s.avgPerDepot.toFixed(1)}</div><div class="lbl">Avg Count Per Depot</div></div>`;
+  const rows=bhlDepotAnalysisReport.rows.map(r=>`
+    <div class="bhl-analysis-row">
+      <div><div class="bhl-analysis-main">${escapeHtml(r.vendor)}</div><div class="bhl-analysis-sub">${escapeHtml(r.orderNumber||'')} · ${escapeHtml(r.stopType)}</div></div>
+      <div>${escapeHtml([r.city,r.state].filter(Boolean).join(', ')||'—')}</div>
+      <div>${escapeHtml(r.address||'—')}</div>
+      <div><div class="bhl-analysis-main">${escapeHtml(r.closestDepot||'—')}</div><div class="bhl-analysis-sub">${escapeHtml(r.depotLocationKey||'')}</div></div>
+      <div>${isFinite(r.miles)?r.miles.toFixed(2):'—'}</div>
+      <div>${escapeHtml([r.depotCity,r.depotState].filter(Boolean).join(', ')||'—')}</div>
+      <div>${escapeHtml(r.depotAddress||'—')}</div>
+    </div>`).join('');
+  document.getElementById('bhl-depot-analysis-table').innerHTML=`
+    <div class="bhl-analysis-row header"><div>Vendor / Stop</div><div>Stop City</div><div>Stop Address</div><div>Closest Depot</div><div>Miles</div><div>Depot City</div><div>Depot Address</div></div>
+    ${rows}`;
+  document.getElementById('bhl-depot-analysis-modal').style.display='flex';
+  updateBhlExtrasMenuState();
+}
+function exportBhlDepotAnalysis(){
+  if(!(bhlDepotAnalysisReport&&bhlDepotAnalysisReport.rows&&bhlDepotAnalysisReport.rows.length)){showToast('No BHL depot analysis to export.');return;}
+  const detailRows=bhlDepotAnalysisReport.rows.map(r=>({
+    'Vendor / Stop':r.vendor,
+    'Type':r.stopType,
+    'Order / Lane':r.orderNumber,
+    'Stop City':r.city,
+    'Stop State':r.state,
+    'Stop Address':r.address,
+    'Latitude':r.latitude,
+    'Longitude':r.longitude,
+    'Closest Depot':r.closestDepot,
+    'Depot LocationKey':r.depotLocationKey,
+    'Depot Branch':r.depotBranch,
+    'Depot Market':r.depotMarket,
+    'Depot City':r.depotCity,
+    'Depot State':r.depotState,
+    'Depot Address':r.depotAddress,
+    'Miles to Depot':Number.isFinite(r.miles)?Number(r.miles.toFixed(3)):''
+  }));
+  const depotSummary={};
+  bhlDepotAnalysisReport.rows.forEach(r=>{
+    const key=r.depotLocationKey||r.closestDepot||'Depot';
+    if(!depotSummary[key])depotSummary[key]={
+      'Depot LocationKey':r.depotLocationKey,
+      'Depot Name':r.closestDepot,
+      'Depot City':r.depotCity,
+      'Depot State':r.depotState,
+      'Vendor / Stop Count':0
+    };
+    depotSummary[key]['Vendor / Stop Count']++;
+  });
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet([{
+    'Vendors / Stops Checked':bhlDepotAnalysisReport.summary.checked,
+    'Depots Used':bhlDepotAnalysisReport.summary.depotsUsed,
+    'Average Count Per Depot':Number(bhlDepotAnalysisReport.summary.avgPerDepot.toFixed(2)),
+    'Created At':bhlDepotAnalysisReport.summary.createdAt
+  }]),'Summary');
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(Object.values(depotSummary)),'Depot Counts');
+  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(detailRows),'Vendor Depot Detail');
+  XLSX.writeFile(wb,'BHL_Depot_Distance_Analysis.xlsx');
+  showToast('BHL depot distance analysis exported.');
+}
+function bhlExtrasExportPlaceholder(){
+  closeBhlExtrasMenu();
+  showToast('BHL Extras export is a placeholder until the final export format is agreed on.');
+}
+
 </script>
 </body>
 </html>
