@@ -6607,14 +6607,20 @@ function bhlAllocateIdealRoutes(groupedStops,totalIdeal){
   }
   return allocation;
 }
-function bhlMakeRestStop(depot,routeId,seq){
+function bhlMakeRestStop(depot,lastStop,routeId,seq){
+  // Place the mandatory break at the preceding customer stop rather than sending the route back to the depot.
+  // The depot remains a safe fallback only when no usable preceding stop is available.
+  const breakLocation=(lastStop&&isFinite(parseFloat(lastStop.lat))&&isFinite(parseFloat(lastStop.lng)))?lastStop:depot;
+  const breakCity=sval(breakLocation?.city||breakLocation?.shipCity);
+  const breakState=sval(breakLocation?.state||breakLocation?.shipState);
+  const breakTown=[breakCity,breakState].filter(Boolean).join(', ');
   return {
     id:uid(),sourceType:'bhl-rest-break',routeId,seq,
-    orderNumber:'BHL-REST',customerName:'Mandatory 8 Hour Rest Break',shipToId:'',customerNumber:'',
-    address:depot.shipStreet||'',city:depot.shipCity||'',state:depot.shipState||'',zip:depot.shipZipCode||'',country:'US',
-    lat:parseFloat(depot.lat),lng:parseFloat(depot.lng),
+    orderNumber:'BHL-REST',customerName:'Mandatory 8 Hour Rest Break'+(breakTown?' - '+breakTown:''),shipToId:'',customerNumber:'',
+    address:breakLocation?.address||breakLocation?.shipStreet||'',city:breakCity,state:breakState,zip:breakLocation?.zip||breakLocation?.shipZipCode||'',country:'US',
+    lat:parseFloat(breakLocation.lat),lng:parseFloat(breakLocation.lng),
     dryCases:0,dryCube:0,dryWeight:0,coolerCases:0,coolerCube:0,coolerWeight:0,frozenCases:0,frozenCube:0,frozenWeight:0,pkgCases:0,pkgCube:0,pkgWeight:0,
-    fixedServiceTime:28800,variableServiceTime:0,comment:'Auto-created because this BHL route required a 24 hour run-time option.',orderType:'Rest Break',orderStatus:'',district:bhlBranchCodeFromDepot(depot),
+    fixedServiceTime:28800,variableServiceTime:0,comment:'Auto-created at the preceding customer stop because this BHL route required a 24 hour run-time option.',orderType:'Rest Break',orderStatus:'',district:bhlBranchCodeFromDepot(depot),
     earliestTimeWindow:'',latestTimeWindow:'',earliestTimeWindowRaw:'',latestTimeWindowRaw:''
   };
 }
@@ -6682,7 +6688,8 @@ function runBhlBuildRoutes(){
         dummyCapacity:{dryCube:0,frozenCube:0,totalCube:ignoreRestrictions?0:truckCube,weight:ignoreRestrictions?0:truckWeight},bhlBuild:true,bhlDivision:division,bhlDepotLocationKey:depot.locationKey||'',bhlIgnoreRestrictions:ignoreRestrictions
       });
       trucks.push({truckKey,truckId:truckKey,name:'BHL Dummy Capacity - '+routeName,vehicleType:'BHL Dummy Capacity',active:'Y',dryCubeCapacity:0,frozenCubeCapacity:0,totalCubeCapacity:ignoreRestrictions?0:truckCube,weightCapacity:ignoreRestrictions?0:truckWeight,measure2:ignoreRestrictions?0:truckWeight,measure3:ignoreRestrictions?0:truckCube});
-      bhlSequenceStopsAsLoop(depot,cluster).forEach((stop,seqIndex)=>{
+      const orderedRouteStops=bhlSequenceStopsAsLoop(depot,cluster);
+      orderedRouteStops.forEach((stop,seqIndex)=>{
         stop.routeId=routeId;
         stop.seq=seqIndex+1;
         stop.fixedServiceTime=7200;
@@ -6691,9 +6698,10 @@ function runBhlBuildRoutes(){
         visibleStopIds.add(stop.id);
       });
       if(needsRest){
-        const restSeq=Math.max(2,Math.ceil((cluster.length+1)/2));
-        cluster.forEach(stop=>{if(stop.seq>=restSeq)stop.seq++;});
-        stops.push(bhlMakeRestStop(depot,routeId,restSeq));
+        const restSeq=Math.max(2,Math.ceil((orderedRouteStops.length+1)/2));
+        const precedingStop=orderedRouteStops[Math.max(0,restSeq-2)]||orderedRouteStops[orderedRouteStops.length-1]||null;
+        orderedRouteStops.forEach(stop=>{if(stop.seq>=restSeq)stop.seq++;});
+        stops.push(bhlMakeRestStop(depot,precedingStop,routeId,restSeq));
       }
       visibleRouteIds.add(routeId);
       expanded.add(routeId);
