@@ -845,7 +845,7 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
   <div class="modal">
     <h2>BHL Build Routes</h2>
     <div class="job-result" style="margin-bottom:10px;">
-      Creates dummy BHL routes by Division/Branch. Each vendor gets a 2 hour service time. Routes use the matching DC as the start and end depot, prioritize distance, and use the fewest routes possible unless Ideal Routes is entered.
+      Creates dummy BHL routes by Division/Branch. Each vendor gets a 2 hour service time. Vendors are first grouped into 30-mile geographic clusters, then each cluster is packed into the fewest feasible routes. Routes use the matching DC as the start and end depot and prioritize clean distance-based loops unless Ideal Routes is entered.
     </div>
     <div class="input-row">
       <div class="field"><label>Truck Cube</label><input id="bhl-build-cube" type="number" step="any" value="2200"/></div>
@@ -6556,6 +6556,39 @@ function bhlFindMinimumClusters(depot,divisionStops,truckCube,truckWeight,target
   }
   return bhlClusterStopsForRouteCount(depot,divisionStops,end,truckCube,truckWeight,false);
 }
+function bhlBuildThirtyMileClusters(divisionStops,maxMiles=30){
+  const candidates=(divisionStops||[]).filter(s=>isFinite(parseFloat(s.lat))&&isFinite(parseFloat(s.lng)));
+  const unvisited=new Set(candidates.map(s=>s.id));
+  const byId=new Map(candidates.map(s=>[s.id,s]));
+  const clusters=[];
+
+  // Connected-component clustering: A can join C through B when A-B and B-C are each within 30 miles.
+  while(unvisited.size){
+    const seedId=unvisited.values().next().value;
+    unvisited.delete(seedId);
+    const queue=[seedId];
+    const cluster=[];
+    while(queue.length){
+      const currentId=queue.shift();
+      const current=byId.get(currentId);
+      if(!current)continue;
+      cluster.push(current);
+      Array.from(unvisited).forEach(otherId=>{
+        const other=byId.get(otherId);
+        if(!other)return;
+        const miles=haversine(parseFloat(current.lat),parseFloat(current.lng),parseFloat(other.lat),parseFloat(other.lng));
+        if(miles<=maxMiles){
+          unvisited.delete(otherId);
+          queue.push(otherId);
+        }
+      });
+    }
+    clusters.push(cluster);
+  }
+
+  return clusters.sort((a,b)=>b.length-a.length);
+}
+
 function bhlAllocateIdealRoutes(groupedStops,totalIdeal){
   const divs=Object.keys(groupedStops);
   if(!totalIdeal||totalIdeal<divs.length)return {};
@@ -6610,24 +6643,34 @@ function runBhlBuildRoutes(){
     grouped[division].stops.push(stop);
   });
 
+  // Build 30-mile connected geographic clusters inside each required Division/Branch group.
+  const clusterGroups={};
+  Object.keys(grouped).sort().forEach(groupKey=>{
+    const geoClusters=bhlBuildThirtyMileClusters(grouped[groupKey].stops,30);
+    geoClusters.forEach((cluster,clusterIndex)=>{
+      clusterGroups[`${groupKey}::${clusterIndex+1}`]={division:groupKey,clusterNumber:clusterIndex+1,stops:cluster};
+    });
+  });
+
   const allocationSource={};
-  Object.keys(grouped).forEach(key=>allocationSource[key]=grouped[key].stops);
+  Object.keys(clusterGroups).forEach(key=>allocationSource[key]=clusterGroups[key].stops);
   const allocation=bhlAllocateIdealRoutes(allocationSource,idealRoutes);
   const createdRoutes=[];
   const skipped=[];
 
-  Object.keys(grouped).sort().forEach(groupKey=>{
-    const group=grouped[groupKey];
-    const divStops=group.stops;
-    const division=groupKey;
-    const depot=group.depot||bhlChooseDepotForDivision(groupKey,divStops);
-    if(!depot){skipped.push(`${groupKey}: no matching DC with Branch (Division)`);return;}
-    const clusters=bhlFindMinimumClusters(depot,divStops,truckCube,truckWeight,allocation[groupKey]||0,ignoreRestrictions);
-    clusters.forEach((cluster,index)=>{
+  Object.keys(clusterGroups).sort().forEach(clusterKey=>{
+    const clusterGroup=clusterGroups[clusterKey];
+    const divStops=clusterGroup.stops;
+    const division=clusterGroup.division;
+    const geographicClusterNumber=clusterGroup.clusterNumber;
+    const depot=bhlChooseDepotForDivision(division,divStops);
+    if(!depot){skipped.push(`${division}: no matching DC with Branch (Division)`);return;}
+    const routeClusters=bhlFindMinimumClusters(depot,divStops,truckCube,truckWeight,allocation[clusterKey]||0,ignoreRestrictions);
+    routeClusters.forEach((cluster,index)=>{
       const routeId=uid();
       const depotCode=sval(depot.locationKey||groupKey).replace(/[^A-Za-z0-9_-]/g,'').slice(-12)||'DEPOT';
-      const routeNumber=`BHL-${division}-${String(index+1).padStart(2,'0')}`;
-      const routeName=ignoreRestrictions?`BHL ${division} Clean Loop ${index+1}`:`BHL ${division} Route ${index+1}`;
+      const routeNumber=`BHL-${division}-C${String(geographicClusterNumber).padStart(2,'0')}-${String(index+1).padStart(2,'0')}`;
+      const routeName=ignoreRestrictions?`BHL ${division} Cluster ${geographicClusterNumber} Clean Loop ${index+1}`:`BHL ${division} Cluster ${geographicClusterNumber} Route ${index+1}`;
       const truckKey=`DUMMY-${routeNumber}-${routeId.slice(-4)}`;
       const workMinutes=bhlBuildRouteTravelMinutesForStops(depot,cluster,false);
       const needsRest=!ignoreRestrictions&&workMinutes>720;
@@ -6655,7 +6698,7 @@ function runBhlBuildRoutes(){
       visibleRouteIds.add(routeId);
       expanded.add(routeId);
       const routeMinutes=routeTotalMinutes(routeId);
-      createdRoutes.push({division,routeName,stopCount:cluster.length,needsRest,minutes:routeMinutes,cube:cluster.reduce((a,s)=>a+tCube(s),0),weight:cluster.reduce((a,s)=>a+tWeight(s),0),miles:bhlLoopMiles(depot,cluster)});
+      createdRoutes.push({division,geographicClusterNumber,routeName,stopCount:cluster.length,needsRest,minutes:routeMinutes,cube:cluster.reduce((a,s)=>a+tCube(s),0),weight:cluster.reduce((a,s)=>a+tWeight(s),0),miles:bhlLoopMiles(depot,cluster)});
     });
   });
 
@@ -6669,9 +6712,10 @@ function runBhlBuildRoutes(){
   showJob('BHL Build Routes Complete',`
     <strong>${createdRoutes.length}</strong> dummy route(s) created<br/>
     <strong>${totalVendors}</strong> vendor stop(s) routed<br/>
+    <strong>${Object.keys(clusterGroups).length}</strong> geographic cluster(s) created using the 30-mile rule<br/>
     <strong>${createdRoutes.filter(r=>r.needsRest).length}</strong> route(s) used the 24 hour option with an 8 hour rest break<br/>
     ${ignoreRestrictions?'<strong>Mode:</strong> Ignore capacity/time restrictions — Division/Branch matching retained<br/>':`<strong>Truck Limits:</strong> ${truckCube.toLocaleString()} cube / ${truckWeight.toLocaleString()} lbs<br/>`}
-    ${idealRoutes?`<strong>Ideal Routes Requested:</strong> ${idealRoutes}<br/>`:'<strong>Goal:</strong> Fewest practical routes while visiting every vendor<br/>'}
+    ${idealRoutes?`<strong>Ideal Routes Requested:</strong> ${idealRoutes}<br/>`:'<strong>Goal:</strong> Fewest practical routes within each 30-mile cluster while visiting every vendor<br/>'}
     ${skipped.length?`<br/><strong>Skipped:</strong><br/>${skipped.map(escapeHtml).join('<br/>')}`:''}
     <br/><div style="margin-top:8px;max-height:260px;overflow:auto;border-top:1px solid var(--border);padding-top:6px;">
       ${createdRoutes.map(r=>`• ${escapeHtml(r.routeName)} — ${r.stopCount} vendors, ${r.miles.toFixed(1)} mi, ${fmtMinutes(r.minutes)}, ${r.cube.toFixed(1)} cube, ${Math.round(r.weight).toLocaleString()} lbs${r.needsRest?' + rest break':''}`).join('<br/>')}
