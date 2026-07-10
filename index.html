@@ -575,7 +575,7 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
       <div style="font-size:9px;color:var(--text3);margin-top:-4px;margin-bottom:10px;">Uses column G “Division” on the 3PL Lanes tab. Choose “Display all vendors” or enter one or more Division values, such as <strong>9B</strong>, to import only those vendor/lane rows.</div>
 
       <div class="shdr">Depots / Depot Locations</div>
-      <div class="input-row" style="margin-bottom:0;">
+      <div class="input-row" style="margin-bottom:7px;">
         <div class="field"><label>Depot Import Option</label>
           <select id="bh-depot-filter-field"><option value="all">Display all depots</option><option value="branch">Enter Branch (Division)</option><option value="market">Enter Market Code</option><option value="none">Do not import depots</option></select>
         </div>
@@ -584,7 +584,12 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
           <datalist id="bh-depot-filter-options"></datalist>
         </div>
       </div>
-      <div style="font-size:9px;color:var(--text3);margin-top:6px;">Depots use column B “Branch (Division)” or column K “Market” from Depot Locations. The vendor and depot filters are separate, so you can import Division 9B vendors and either all depots or only matching Branch/Market depots.</div>
+      <div class="input-row" style="margin-bottom:0;">
+        <div class="field"><label>Location Type</label>
+          <select id="bh-depot-location-type"><option value="all">All (DEPOT + DC)</option><option value="DEPOT">DEPOT only</option><option value="DC">DC only</option></select>
+        </div>
+      </div>
+      <div style="font-size:9px;color:var(--text3);margin-top:6px;">Depots use column B “Branch (Division)”, column C “Location Type”, or column K “Market” from Depot Locations. The vendor and depot filters are separate, so you can import Division 9B vendors and either all locations, DEPOT only, DC only, or matching Branch/Market locations.</div>
     </div>
     <div id="route-day-filter" style="margin:10px 0 8px;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg2);">
       <div style="font-size:10px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:7px;">Route Day Filter <span style="font-weight:400;color:var(--text3);text-transform:none;letter-spacing:0;">(uses Route Templates UDFString2)</span></div>
@@ -3830,6 +3835,11 @@ function backhaulRowMatchesVendorFilter(row){
 function depotRowMatchesBackhaulFilter(row){
   const field=document.getElementById('bh-depot-filter-field')?.value||'all';
   if(field==='none')return false;
+
+  const locationTypeFilter=(document.getElementById('bh-depot-location-type')?.value||'all').toUpperCase();
+  const rowLocationType=sval(gcLoose(row,['Location Type','LocationType','Location T'])).toUpperCase();
+  if(locationTypeFilter!=='ALL'&&rowLocationType!==locationTypeFilter)return false;
+
   if(field==='all')return true;
   const values=backhaulDepotFilterValues();
   if(!values.length)return true;
