@@ -5450,9 +5450,10 @@ function buildOutputFileRows(routeIdSet=null){
   const sessionDate=document.getElementById('route-date')?.value||new Date().toISOString().slice(0,10);
   const outputRegionCode=sessionRegionCode||'';
 
-  const outputRoutes=routeIdSet?routes.filter(r=>routeIdSet.has(r.id)):routes;
+  const normalizedRouteIds=routeIdSet?new Set(Array.from(routeIdSet).map(String)):null;
+  const outputRoutes=normalizedRouteIds?routes.filter(r=>normalizedRouteIds.has(String(r.id))):routes;
   outputRoutes.forEach(route=>{
-    const routeCustomerStops=stops.filter(s=>s.routeId===route.id);
+    const routeCustomerStops=stops.filter(s=>String(s.routeId||'')===String(route.id));
     if(!routeCustomerStops.length)return;
     const timeline=routeTimelineRows(route.id);
     timeline.forEach(pt=>{
@@ -6131,13 +6132,24 @@ function exportExcel(options={}){
   if(!stops.length&&!routes.length){showToast('No data to export');return;}
   const routeIdSet=options.routeIdSet||null;
   const selectedOnly=options.selectedOnly===true;
-  const exportRoutes=routeIdSet?routes.filter(r=>routeIdSet.has(r.id)):routes;
-  const exportStops=routeIdSet?stops.filter(s=>s.routeId&&routeIdSet.has(s.routeId)):stops;
+
+  // Build export inclusion from the stops' CURRENT route assignments. This is important for
+  // imported Route Data routes after a Backhaul location is manually added to them.
+  // Previously, mixed imported-route / backhaul routes could be omitted when the export route
+  // collection and the live stop assignments became out of sync.
+  const requestedRouteIds=routeIdSet?new Set(Array.from(routeIdSet).map(String)):null;
+  const exportStops=requestedRouteIds
+    ? stops.filter(s=>s.routeId&&requestedRouteIds.has(String(s.routeId)))
+    : stops.slice();
+  const assignedExportRouteIds=new Set(exportStops.filter(s=>s.routeId).map(s=>String(s.routeId)));
+  const exportRoutes=routes.filter(r=>
+    requestedRouteIds ? requestedRouteIds.has(String(r.id)) : assignedExportRouteIds.has(String(r.id)) || !stops.some(s=>s.routeId===r.id)
+  );
   if(selectedOnly&&!exportRoutes.length){showToast('Select one or more route checkboxes first');return;}
   const wb=XLSX.utils.book_new();
 
   // Tab 1: Totals Summary
-  const usedRoutes=exportRoutes.filter(r=>exportStops.some(s=>s.routeId===r.id));
+  const usedRoutes=exportRoutes.filter(r=>exportStops.some(s=>String(s.routeId||'')===String(r.id)));
   const routedStops=exportStops.filter(s=>s.routeId);
   const totalRunMinutes=usedRoutes.reduce((a,r)=>a+routeTotalMinutes(r.id),0);
   const totalCasesShipped=routedStops.reduce((a,s)=>a+tCases(s),0);
@@ -6155,7 +6167,7 @@ function exportExcel(options={}){
 
   // Tab 2: Route Summary
   const summary=exportRoutes.map(r=>{
-    const rs=exportStops.filter(s=>s.routeId===r.id);
+    const rs=exportStops.filter(s=>String(s.routeId||'')===String(r.id));
     const drv=trucks.find(d=>d.truckKey===r.truckKey||d.driverKey===r.driverKey);
     const dname=r.driverFirstName?(r.driverFirstName+' '+(r.driverLastName||'')).trim():(drv?drv.name:'');
     return{
