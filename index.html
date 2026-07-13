@@ -3440,6 +3440,48 @@ function runPotentialJob(){
   `);
 }
 
+function resequencePotentialRouteDeliveriesThenBackhauls(routeId){
+  const route=routes.find(r=>r.id===routeId);
+  if(!route)return {ok:false,message:'Route not found'};
+
+  const routeStops=stops.filter(s=>s.routeId===routeId&&s.lat&&s.lng);
+  if(routeStops.length<2)return {ok:false,message:'Route needs at least 2 geocoded stops to resequence'};
+
+  const start=getRouteDepotPoint(route,routeStops);
+  if(!start)return {ok:false,message:'No depot or geocoded stop found'};
+
+  const deliveryStops=routeStops.filter(s=>s.sourceType!=='backhaul');
+  const backhaulStops=routeStops.filter(s=>s.sourceType==='backhaul');
+  const ordered=[];
+  let current={lat:start.lat,lng:start.lng};
+
+  function appendNearest(group){
+    const remaining=[...group];
+    while(remaining.length){
+      let bestIndex=0;
+      let bestDistance=Infinity;
+      remaining.forEach((stop,index)=>{
+        const distance=haversine(current.lat,current.lng,stop.lat,stop.lng);
+        if(distance<bestDistance){
+          bestDistance=distance;
+          bestIndex=index;
+        }
+      });
+      const next=remaining.splice(bestIndex,1)[0];
+      ordered.push(next);
+      current={lat:next.lat,lng:next.lng};
+    }
+  }
+
+  // Complete all deliveries first. Once the truck is empty, sequence the BHL pickups.
+  appendNearest(deliveryStops);
+  appendNearest(backhaulStops);
+
+  ordered.forEach((stop,index)=>{stop.seq=index+1;});
+  expanded.add(routeId);
+  return {ok:true,count:ordered.length,deliveryCount:deliveryStops.length,backhaulCount:backhaulStops.length};
+}
+
 function assignToPotentialRoutes(){
   const suggested=stops.filter(s=>!s.routeId&&potRouteSuggestions[s.id]);
   if(!suggested.length){showToast('No potential route suggestions to assign');updateAssignPotentialButton();return;}
@@ -3461,7 +3503,7 @@ function assignToPotentialRoutes(){
   let resequencedRoutes=0;
   affectedRoutes.forEach(routeId=>{
     expanded.add(routeId);
-    const result=resequnceRouteByDistance(routeId);
+    const result=resequencePotentialRouteDeliveriesThenBackhauls(routeId);
     if(result.ok)resequencedRoutes++;
   });
 
@@ -3475,8 +3517,8 @@ function assignToPotentialRoutes(){
   const topCancelBtn=document.getElementById('top-cancel-potential-btn'); if(topCancelBtn)topCancelBtn.style.display='none';
   showJob('&#128204; Assign to Potential Routes',`
     <strong>${assigned}</strong> suggested stop(s) assigned to their potential route<br/>
-    <strong>${resequencedRoutes}</strong> route(s) resequenced using nearest-distance order<br/><br/>
-    The route sequence was rebuilt after assignment to reduce drive miles based on the available geocodes.
+    <strong>${resequencedRoutes}</strong> route(s) resequenced with deliveries first and Backhaul pickups afterward<br/><br/>
+    Delivery stops are distance-sequenced first. Backhaul pickups then begin after the last delivery and are distance-sequenced from that point.
   `);
 }
 
