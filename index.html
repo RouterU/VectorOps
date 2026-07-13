@@ -142,6 +142,10 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
 .stop-context-item:hover{background:var(--bg3);}
 .stop-context-item.disabled{opacity:.45;cursor:not-allowed;}
 .route-sort{background:var(--bg3);border:1px solid var(--border);border-radius:5px;color:var(--text1);font-size:10px;font-family:'Sora',sans-serif;padding:2px 5px;max-width:132px;}
+#q-routes .q-header{align-items:center;flex-wrap:wrap;}
+#q-routes .q-title{flex:1 1 auto;}
+.route-filter-check{display:inline-flex;align-items:center;gap:4px;font-size:9px;color:var(--text2);cursor:pointer;white-space:nowrap;}
+.route-filter-check input{width:12px;height:12px;accent-color:var(--accent);}
 .left-highlight{background:rgba(79,140,255,.18)!important;border-color:var(--accent)!important;box-shadow:inset 0 0 0 1px rgba(79,140,255,.35);}
 .leaflet-marker-icon.map-marker-highlight{filter:drop-shadow(0 0 10px #fff) brightness(1.35);transform:scale(1.35);transform-origin:center center;z-index:9999!important;}
 .depot-map-label{display:inline-flex;align-items:center;gap:6px;max-width:190px;padding:5px 9px;border-radius:10px;background:rgba(15,17,23,.96);border:2px solid currentColor;box-shadow:0 3px 12px rgba(0,0,0,.58);font-family:'Sora',sans-serif;font-size:10px;font-weight:800;color:inherit;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
@@ -445,6 +449,14 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
             <option value="time">Total Time</option>
             <option value="miles">Miles</option>
           </select>
+          <select id="route-sort-direction" class="route-sort" onchange="setRouteSortDirection(this.value)" title="Change sort direction">
+            <option value="desc">High → Low</option>
+            <option value="asc">Low → High</option>
+          </select>
+          <label class="route-filter-check" title="Show only routes containing an assigned Backhaul/BHL pickup stop">
+            <input type="checkbox" id="bhl-routes-filter" onchange="setBhlRoutesFilter(this.checked)"/>
+            BHL Routes
+          </label>
           <span id="route-badge" style="font-size:10px;color:var(--text3);"></span>
         </div>
         <div class="q-body" id="routes-list"></div>
@@ -922,6 +934,8 @@ let contextStopId=null;
 let potColors={}; // stopId -> color
 let potRouteSuggestions={}; // stopId -> suggested routeId from Potential Routes job
 let routeSort=""; // optional route sort; blank keeps import/original order
+let routeSortDirection="desc"; // high-to-low by default
+let bhlRoutesOnly=false; // routes containing at least one assigned Backhaul/BHL pickup
 let activeRouteFilterId=null;
 let activeStopFilterId=null;
 let mapRouteFilterActiveId=null;
@@ -1362,8 +1376,15 @@ function toggleStopFilter(stopId){
   renderRoutes();
   renderUA();
 }
+function isBackhaulPickupStop(stop){
+  return !!stop && (stop.sourceType==='backhaul' || !!stop.backhaul);
+}
+function routeHasBackhaulPickup(routeId){
+  return stops.some(stop=>stop.routeId===routeId && isBackhaulPickupStop(stop));
+}
 function routeMatchesFilter(route){
-  if(activeRouteFilterId)return route.id===activeRouteFilterId;
+  if(activeRouteFilterId&&route.id!==activeRouteFilterId)return false;
+  if(bhlRoutesOnly&&!routeHasBackhaulPickup(route.id))return false;
   return true;
 }
 function stopMatchesFilter(stop){
@@ -1425,6 +1446,7 @@ function filterMapToRoute(routeId){
 function clearAllFilters(){
   activeRouteFilterId=null;
   activeStopFilterId=null;
+  bhlRoutesOnly=false;
   if(mapRouteFilterActiveId){
     restoreMapRouteFilter();
   }else{
@@ -1577,21 +1599,51 @@ function renderStats(){
 function sortedRoutesForDisplay(){
   const list=[...routes];
   if(!routeSort)return list;
+  const direction=routeSortDirection==='asc'?1:-1;
   list.sort((a,b)=>{
-    if(routeSort==='stops')return stops.filter(s=>s.routeId===b.id).length-stops.filter(s=>s.routeId===a.id).length || (a.name||'').localeCompare(b.name||'');
-    if(routeSort==='time')return routeTotalMinutes(b.id)-routeTotalMinutes(a.id) || (a.name||'').localeCompare(b.name||'');
-    if(routeSort==='miles')return routeDistanceMiles(b.id)-routeDistanceMiles(a.id) || (a.name||'').localeCompare(b.name||'');
-    if(routeSort==='name')return (a.name||'').localeCompare(b.name||'');
-    return 0;
+    let comparison=0;
+    if(routeSort==='stops')comparison=stops.filter(s=>s.routeId===a.id).length-stops.filter(s=>s.routeId===b.id).length;
+    else if(routeSort==='time')comparison=routeTotalMinutes(a.id)-routeTotalMinutes(b.id);
+    else if(routeSort==='miles')comparison=routeDistanceMiles(a.id)-routeDistanceMiles(b.id);
+    else if(routeSort==='name')comparison=(a.name||'').localeCompare(b.name||'');
+    if(comparison===0)return (a.name||'').localeCompare(b.name||'');
+    return comparison*direction;
   });
   return list;
 }
-function setRouteSort(value){routeSort=value;renderRoutes();}
+function updateRouteSortDirectionLabels(){
+  const directionSelect=document.getElementById('route-sort-direction');
+  if(!directionSelect)return;
+  const isName=routeSort==='name';
+  const desc=directionSelect.querySelector('option[value="desc"]');
+  const asc=directionSelect.querySelector('option[value="asc"]');
+  if(desc)desc.textContent=isName?'Z → A':'High → Low';
+  if(asc)asc.textContent=isName?'A → Z':'Low → High';
+}
+function setRouteSort(value){
+  routeSort=value;
+  updateRouteSortDirectionLabels();
+  renderRoutes();
+}
+function setRouteSortDirection(value){
+  routeSortDirection=value==='asc'?'asc':'desc';
+  renderRoutes();
+}
+function setBhlRoutesFilter(checked){
+  bhlRoutesOnly=!!checked;
+  renderRoutes();
+}
 function renderRoutes(){
   const el=document.getElementById('routes-list');
   const sortSelect=document.getElementById('route-sort');
   if(sortSelect)sortSelect.value=routeSort;
-  document.getElementById('route-badge').innerHTML=activeRouteFilterId?`<span class="filter-pill" onclick="activeRouteFilterId=null;renderRoutes()">Route Filter ×</span>`:routes.length+' routes';
+  const directionSelect=document.getElementById('route-sort-direction');
+  if(directionSelect)directionSelect.value=routeSortDirection;
+  updateRouteSortDirectionLabels();
+  const bhlFilter=document.getElementById('bhl-routes-filter');
+  if(bhlFilter)bhlFilter.checked=bhlRoutesOnly;
+  const visibleRouteCount=routes.filter(routeMatchesFilter).length;
+  document.getElementById('route-badge').innerHTML=activeRouteFilterId?`<span class="filter-pill" onclick="activeRouteFilterId=null;renderRoutes()">Route Filter ×</span>`:(bhlRoutesOnly?`${visibleRouteCount} BHL routes`:routes.length+' routes');
   if(!routes.length){
     el.innerHTML='<div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M9 20l-5.447-2.724A1 1 0 013 16.382V5.618a1 1 0 011.447-.894L9 7m0 13l6-3m-6 3V7m6 13l4.553 2.276A1 1 0 0021 21.382V10.618a1 1 0 00-.553-.894L15 7m0 13V7m0 0L9 4"/></svg><p>No routes yet — import or create one</p></div>';
     return;
@@ -1917,7 +1969,16 @@ function reseq(){
 }
 
 // Drag & drop
-function onRouteDragStart(e,routeId){dragState={routeId};if(e.dataTransfer)e.dataTransfer.setData('text/plain','route:'+routeId);}
+function onRouteDragStart(e,routeId){
+  const draggedRoute=routes.find(r=>r.id===routeId);
+  const selectedRouteIds=routes.filter(r=>r.selected).map(r=>r.id);
+  const routeIds=(draggedRoute?.selected&&selectedRouteIds.length>1)?selectedRouteIds:[routeId];
+  dragState={routeId,routeIds};
+  if(e.dataTransfer){
+    e.dataTransfer.setData('text/plain',routeIds.length>1?'routes:'+routeIds.join(','):'route:'+routeId);
+    e.dataTransfer.effectAllowed='copy';
+  }
+}
 function onDragStart(e,sid,fromRoute){dragState={sid,fromRoute};document.getElementById('srow-'+sid)?.classList.add('dragging');document.getElementById('urow-'+sid)?.classList.add('dragging');}
 function onDragEnd(){dragState=null;document.querySelectorAll('.stop-row,.ua-row').forEach(el=>el.classList.remove('dragging','drag-over'));}
 function onDragOver(e,tid){e.preventDefault();if(!dragState||dragState.sid===tid)return;document.getElementById('srow-'+tid)?.classList.add('drag-over');}
@@ -1933,7 +1994,7 @@ function onDropStop(e,tid,tRoute){
 }
 function dropOnRoute(e,rid){
   e.preventDefault();
-  if(!dragState||dragState.routeId)return;
+  if(!dragState||dragState.routeId||dragState.routeIds)return;
   const s=stops.find(x=>x.id===dragState.sid);if(!s)return;
   s.routeId=rid;
   s.seq=Math.max(0,...stops.filter(x=>x.routeId===rid&&x.id!==s.id).map(x=>x.seq))+1;
@@ -1944,11 +2005,19 @@ function dropOnMap(e){
   if(!dragState)return;
   mapCleared=true;
   if(dragState.routeId){
-    visibleRouteIds.add(dragState.routeId);
-    stops.filter(s=>s.routeId===dragState.routeId).forEach(s=>visibleStopIds.add(s.id));
+    const routeIds=(Array.isArray(dragState.routeIds)&&dragState.routeIds.length)?dragState.routeIds:[dragState.routeId];
+    routeIds.forEach(routeId=>{
+      visibleRouteIds.add(routeId);
+      stops.filter(s=>s.routeId===routeId).forEach(s=>visibleStopIds.add(s.id));
+    });
     renderMap();
-    fitRouteToMap(dragState.routeId);
-    showToast('Route displayed on map');
+    if(routeIds.length>1){
+      fitRoutesToMap(routeIds);
+      showToast(`${routeIds.length} selected routes displayed on map`);
+    }else{
+      fitRouteToMap(dragState.routeId);
+      showToast('Route displayed on map');
+    }
     return;
   }
   if(dragState.sid){
