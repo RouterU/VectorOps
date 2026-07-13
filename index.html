@@ -521,6 +521,7 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
       <div class="imp-tab active" id="itab-all" onclick="setImportMode('all')">All Templates</div>
       <div class="imp-tab" id="itab-stops" onclick="setImportMode('stops')">Orders Only</div>
       <div class="imp-tab" id="itab-backhauls" onclick="setImportMode('backhauls')">Backhauls</div>
+      <div class="imp-tab" id="itab-bhlroutes" onclick="setImportMode('bhlroutes')">Import Route Data</div>
     </div>
     <div id="imp-drop" class="file-drop"
       onclick="document.getElementById('file-in').click()"
@@ -2018,7 +2019,7 @@ function openStopDetail(stopId){
     ${detailInput('ed-s-district','District',s.district)}
     ${detailInput('ed-s-willCallIndicator','Will Call',s.willCallIndicator)}
     ${detailTextArea('ed-s-comment','Comment',s.comment)}
-    ${s.sourceType==='backhaul'?renderBackhaulDetailHtml(s):renderStopOrdersHtml(s)}
+    ${s.sourceType==='backhaul'?renderBackhaulDetailHtml(s):(s.sourceType==='bhl-route-data'?renderBhlRouteDataDetailHtml(s):renderStopOrdersHtml(s))}
   </div>`;
   document.getElementById('stop-detail-modal').style.display='flex';
 }
@@ -3755,19 +3756,20 @@ function openImport(){
   if(importRouteDateEl) importRouteDateEl.value=document.getElementById('route-date')?.value||new Date().toISOString().slice(0,10);
   const importRegionCodeEl=document.getElementById('import-region-code');
   if(importRegionCodeEl) importRegionCodeEl.value=sessionRegionCode||importRegionCodeEl.value||'';
-  setImportMode(importMode==='stops'||importMode==='backhauls'?importMode:'all');
+  setImportMode(['stops','backhauls','bhlroutes'].includes(importMode)?importMode:'all');
 }
 
 function setImportMode(m){
-  importMode=(m==='stops'||m==='backhauls')?m:'all';
-  ['all','stops','backhauls'].forEach(x=>{
+  importMode=['stops','backhauls','bhlroutes'].includes(m)?m:'all';
+  ['all','stops','backhauls','bhlroutes'].forEach(x=>{
     const tab=document.getElementById('itab-'+x);
     if(tab)tab.className='imp-tab'+(importMode===x?' active':'');
   });
   const hints={
     all:'Upload one file with sheets named "Routes", "Trucks", "Orders", and "Depot Locations".',
     stops:'Upload your Orders file. Select the CUTID(s) that are being added to the session.',
-    backhauls:'Upload the Backhauls workbook. 3PL Lanes imports as map locations, and Depot Locations can be filtered by Branch (Division) or Market.'
+    backhauls:'Upload the Backhauls workbook. 3PL Lanes imports as map locations, and Depot Locations can be filtered by Branch (Division) or Market.',
+    bhlroutes:'Upload the Route Planner stop-level CSV or Excel export. Routes are rebuilt by ResourceKey and GeoStopNumber, and duplicate customer orders are consolidated.'
   };
   const hint=document.getElementById('imp-hint');
   if(hint)hint.textContent=hints[importMode];
@@ -3778,7 +3780,7 @@ function setImportMode(m){
   const bhFilterPanel=document.getElementById('backhaul-filter-panel');
   if(bhFilterPanel)bhFilterPanel.style.display=importMode==='backhauls'?'block':'none';
   const exportInfo=document.getElementById('import-export-info');
-  if(exportInfo)exportInfo.style.display=importMode==='backhauls'?'none':'block';
+  if(exportInfo)exportInfo.style.display=(importMode==='backhauls'||importMode==='bhlroutes')?'none':'block';
 }
 
 function toggleAllCutIds(checked){
@@ -3937,6 +3939,9 @@ function detectImportSheetType(name,data){
     k==='standardroute'
   );
 
+  const looksBhlRouteData=['resourcekey','routestart','routeend','geostopnumber','plannedarriveddate','locationkey','company','geocodelatitude','geocodelongitude'].every(k=>keys.includes(k));
+  if(looksBhlRouteData)return 'bhl route data';
+
   // Strong sheet-name support for the provided master template.
   if(sheetLower.includes('depot')||sheetLower==='depot locations')return looksDepot?'depots':null;
   if(sheetLower.includes('route')&&!sheetLower.includes('stop'))return looksRoutes?'routes':null;
@@ -3960,7 +3965,9 @@ function readFile(file){
         const data=XLSX.utils.sheet_to_json(wb.Sheets[name],{defval:''});
         return {name, rows:data.length, type:detectImportSheetType(name,data)||'not detected'};
       });
-      if(importMode==='backhauls'){
+      if(importMode==='bhlroutes'){
+        sheetInfo=sheetInfo.filter(s=>s.type==='bhl route data').map(s=>({...s,type:'BHL route history'}));
+      }else if(importMode==='backhauls'){
         // In Backhauls mode, keep the preview focused only on the tabs this import actually uses.
         // Helper/reference tabs such as Data, Divisions, and <100 & 48 foot are hidden from the preview.
         sheetInfo=sheetInfo
@@ -3974,7 +3981,9 @@ function readFile(file){
             <span>${s.name} <span style="color:var(--text3);">(${s.rows} rows)</span></span>
             <strong style="color:${s.type==='not detected'?'var(--warn)':(s.type==='ignored'||s.type==='reference only'?'var(--text3)':'var(--success)')};">${s.type}</strong>
           </div>`).join('')}
-          <br/><span style="color:var(--text3);">${importMode==='backhauls'
+          <br/><span style="color:var(--text3);">${importMode==='bhlroutes'
+            ? 'Route Data mode rebuilds each route instance by ResourceKey, uses GeoStopNumber for clean sequencing, and consolidates repeated customer/order lines on the same route and date.'
+            : importMode==='backhauls'
             ? 'Backhauls mode only imports the 3PL Lanes vendor rows and the Depot Locations rows selected by the filters above. Helper tabs are ignored.'
             : 'All Templates mode imports detected route, truck, depot, and order tabs. Orders Only runs the incremental cut import/status refresh process. Backhauls mode imports vendor/customer average data as map locations.'}</span>
         </div>`;
@@ -4001,7 +4010,22 @@ function confirmImport(){
       return {name,data,type:detectImportSheetType(name,data)};
     }).filter(x=>x.data.length);
 
-    if(importMode==='backhauls'){
+    if(importMode==='bhlroutes'){
+      let routeDataSheets=sheets.filter(x=>x.type==='bhl route data');
+      if(!routeDataSheets.length && sheets.length===1)routeDataSheets=sheets;
+      if(!routeDataSheets.length){
+        showToast('No BHL route data sheet was detected in the selected file.');
+        if(btn){btn.disabled=false;btn.textContent=originalText||'Import Data';}
+        return;
+      }
+      const routeRows=[];
+      routeDataSheets.forEach(x=>routeRows.push(...x.data));
+      const summary=importBhlRouteData(routeRows);
+      rc=summary.routes;
+      sc=summary.stops;
+      lc=summary.depots;
+      window.lastBhlRouteImportSummary=summary;
+    }else if(importMode==='backhauls'){
       let backhaulSheets=sheets.filter(x=>x.type==='backhauls' && (x.name||'').toLowerCase().trim()==='3pl lanes');
       if(!backhaulSheets.length)backhaulSheets=sheets.filter(x=>x.type==='backhauls');
       if(!backhaulSheets.length && sheets.length===1)backhaulSheets=sheets;
@@ -4060,7 +4084,10 @@ function confirmImport(){
     visibleStopIds.clear();
     visibleRouteIds.clear();
     visibleDepotIds.clear();
-    if(importMode==='backhauls'){
+    if(importMode==='bhlroutes'){
+      routes.filter(r=>r.sourceType==='bhl-route-data').forEach(r=>visibleRouteIds.add(r.id));
+      stops.filter(s=>s.sourceType==='bhl-route-data').forEach(s=>visibleStopIds.add(s.id));
+    }else if(importMode==='backhauls'){
       stops.filter(s=>s.sourceType==='backhaul').forEach(s=>visibleStopIds.add(s.id));
       depotLocations.forEach(d=>visibleDepotIds.add(d.id));
     }
@@ -4078,7 +4105,10 @@ function confirmImport(){
         showIncrementalOrderImportSummary(orderImportSummary);
       }else{
         const skipText=skipped?`, ${skipped} skipped/not detected`:'';
-        if(importMode==='backhauls') showToast(`Imported: ${bhc} backhaul locations, ${lc} depot rows`);
+        if(importMode==='bhlroutes'){
+          const sum=window.lastBhlRouteImportSummary||{};
+          showToast(`Imported ${sum.routes||0} routes and ${sum.stops||0} consolidated stops from ${sum.rows||0} route-data rows`);
+        }else if(importMode==='backhauls') showToast(`Imported: ${bhc} backhaul locations, ${lc} depot rows`);
         else showToast(`Imported: ${rc} route rows, ${dc} truck rows, ${sc} stop rows, ${lc} depot rows${skipText}`);
       }
       if(btn){btn.disabled=false;btn.textContent=originalText||'Import Data';}
@@ -4560,6 +4590,137 @@ function importBackhauls(data){
   });
   if(skippedNoGeo)console.warn(`Skipped ${skippedNoGeo} backhaul row(s) without valid Latitude/Longtitude`);
   return imported;
+}
+
+
+function cleanFormulaNumber(value){
+  const raw=sval(value).replace(/^="?/, '').replace(/"?$/, '').trim();
+  const n=parseFloat(raw);
+  return isFinite(n)?n:0;
+}
+function routeDataDate(value){
+  const d=new Date(value);
+  if(!isNaN(d))return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+  const m=sval(value).match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  return m?`${m[3]}-${String(m[1]).padStart(2,'0')}-${String(m[2]).padStart(2,'0')}`:'';
+}
+function routeDataTime(value){return excelTimeToHHMM(value);}
+function routeDataDepotFromRow(row){
+  const locationKey=sval(gcLoose(row,['LocationKey','Location Key']));
+  const lat=parseFloat(gcLoose(row,['GeocodeLatitude','Latitude']));
+  const lng=parseFloat(gcLoose(row,['GeocodeLongitude','Longitude']));
+  return {
+    id:uid(),locationKey,
+    name:sval(gcLoose(row,['Company','Name']))||locationKey||'Depot',
+    locationType:'DEPOT',branchDivision:'',market:'',comment:'Imported from BHL Route Data',
+    shipStreet:sval(gcLoose(row,['ShipStreetName','Ship Street Name','ShipStreet'])),
+    shipCity:sval(gcLoose(row,['ShipCity','Ship City'])),shipState:sval(gcLoose(row,['ShipState','Ship State'])),
+    shipZipCode:sval(gcLoose(row,['ShipZipcode','Ship Zipcode','ShipZipCode'])),
+    lat:isFinite(lat)?lat:null,lng:isFinite(lng)?lng:null,raw:{...row}
+  };
+}
+function upsertRouteDataDepot(row){
+  const d=routeDataDepotFromRow(row);
+  if(!d.locationKey)return null;
+  let existing=depotLocations.find(x=>normalizeKey(x.locationKey)===normalizeKey(d.locationKey));
+  if(existing){Object.assign(existing,d,{id:existing.id});return existing;}
+  depotLocations.push(d);return d;
+}
+function importBhlRouteData(data){
+  const valid=(data||[]).filter(r=>sval(gcLoose(r,['ResourceKey'])));
+  const byRoute=new Map();
+  valid.forEach(row=>{
+    const resourceKey=sval(gcLoose(row,['ResourceKey']));
+    const routeDate=routeDataDate(gcLoose(row,['RouteStart','PlannedArrivedDate']))||'NO_DATE';
+    const key=resourceKey+'|'+routeDate;
+    if(!byRoute.has(key))byRoute.set(key,[]);
+    byRoute.get(key).push(row);
+  });
+  let routeCount=0,stopCount=0,depotCount=0,consolidatedOrders=0;
+  byRoute.forEach((rows,routeGroupKey)=>{
+    rows.sort((a,b)=>cleanFormulaNumber(gcLoose(a,['GeoStopNumber']))-cleanFormulaNumber(gcLoose(b,['GeoStopNumber'])));
+    const first=rows[0], last=rows[rows.length-1];
+    const resourceKey=sval(gcLoose(first,['ResourceKey']));
+    const routeDate=routeDataDate(gcLoose(first,['RouteStart','PlannedArrivedDate']));
+    const routeIdentity='BHLROUTE|'+resourceKey+'|'+routeDate;
+    let route=routes.find(r=>r.importIdentity===routeIdentity);
+    const initialDepot=upsertRouteDataDepot(first); if(initialDepot)depotCount++;
+    const finalDepot=upsertRouteDataDepot(last); if(finalDepot)depotCount++;
+    const routeObj={
+      id:route?route.id:uid(),sourceType:'bhl-route-data',importIdentity:routeIdentity,
+      name:resourceKey,routeTemplateKey:resourceKey,date:routeDate,scheduleKey:sval(gcLoose(first,['ScheduleKey'])),
+      udfNumber1:first4Digits(resourceKey),udfString2:sval(gcLoose(first,['UDFString2'])),
+      initialLocationKey:initialDepot?.locationKey||'',finalLocationKey:finalDepot?.locationKey||'',
+      earliestStartTime:routeDataTime(gcLoose(first,['RouteStart'])),latestStartTime:routeDataTime(gcLoose(first,['RouteStart'])),
+      latestEndTime:routeDataTime(gcLoose(first,['RouteEnd'])),startupTime:0,windupTime:0,
+      driverKey:sval(gcLoose(first,['DriverKey'])),truckKey:'',trailerKey:'',requirements:'',work1Duration:'',routingParameterKey:'',
+      selected:false,routeData:{routeStart:sval(gcLoose(first,['RouteStart'])),routeEnd:sval(gcLoose(first,['RouteEnd'])),totalDistanceMile:nval(gcLoose(first,['TotalDistanceMile'])),totalTime:nval(gcLoose(first,['TotalTime'])),rawRows:rows.map(r=>({...r}))}
+    };
+    if(route)Object.assign(route,routeObj);else{routes.push(routeObj);route=routeObj;}
+    routeCount++;
+    stops=stops.filter(s=>!(s.sourceType==='bhl-route-data'&&s.routeImportIdentity===routeIdentity));
+
+    const endpointRows=new Set([first,last]);
+    const customerRows=rows.filter(r=>!endpointRows.has(r));
+    const grouped=new Map();
+    customerRows.forEach(row=>{
+      const loc=sval(gcLoose(row,['LocationKey']));
+      const customer=sval(gcLoose(row,['Company']));
+      const key=(loc||customer).toUpperCase();
+      if(!grouped.has(key))grouped.set(key,[]);
+      grouped.get(key).push(row);
+    });
+    grouped.forEach(group=>{
+      group.sort((a,b)=>cleanFormulaNumber(gcLoose(a,['GeoStopNumber']))-cleanFormulaNumber(gcLoose(b,['GeoStopNumber'])));
+      const base=group[0];
+      const lat=parseFloat(gcLoose(base,['GeocodeLatitude','Latitude']));
+      const lng=parseFloat(gcLoose(base,['GeocodeLongitude','Longitude']));
+      const minSeq=Math.min(...group.map(r=>cleanFormulaNumber(gcLoose(r,['GeoStopNumber']))).filter(n=>isFinite(n)));
+      const totalCases=group.reduce((a,r)=>a+nval(gcLoose(r,['Measure1'])),0);
+      const totalCube=group.reduce((a,r)=>a+nval(gcLoose(r,['Measure2'])),0);
+      const totalWeight=group.reduce((a,r)=>a+nval(gcLoose(r,['Measure3'])),0);
+      const serviceSecs=Math.max(0,...group.map(r=>nval(gcLoose(r,['StopServiceTime']))));
+      const arrivalValues=group.map(r=>sval(gcLoose(r,['PlannedArrivedDate']))).filter(Boolean);
+      const completeValues=group.map(r=>sval(gcLoose(r,['PlannedCompletedDate']))).filter(Boolean);
+      const stop={
+        id:uid(),sourceType:'bhl-route-data',routeImportIdentity:routeIdentity,routeId:route.id,seq:minSeq||1,
+        orderNumber:group.map(r=>sval(gcLoose(r,['LocationKey']))).filter(Boolean).join(', '),
+        orderNumbers:group.map((r,i)=>sval(gcLoose(r,['LocationKey']))+'-'+(i+1)),
+        customerName:sval(gcLoose(base,['Company']))||sval(gcLoose(base,['LocationKey']))||'Route Stop',
+        shipToId:sval(gcLoose(base,['LocationKey'])),customerNumber:sval(gcLoose(base,['LocationKey'])),
+        address:sval(gcLoose(base,['ShipStreetName','Ship Street Name'])),city:sval(gcLoose(base,['ShipCity'])),state:sval(gcLoose(base,['ShipState'])),zip:sval(gcLoose(base,['ShipZipcode','ShipZipCode'])),country:'US',
+        lat:isFinite(lat)?lat:null,lng:isFinite(lng)?lng:null,
+        dryCases:totalCases,dryCube:totalCube,dryWeight:totalWeight,coolerCases:0,coolerCube:0,coolerWeight:0,frozenCases:0,frozenCube:0,frozenWeight:0,pkgCases:0,pkgCube:0,pkgWeight:0,
+        fixedServiceTime:serviceSecs,variableServiceTime:0,earliestTimeWindow:routeDataTime(arrivalValues[0]||''),latestTimeWindow:routeDataTime(completeValues[completeValues.length-1]||''),
+        earliestTimeWindowRaw:arrivalValues[0]||'',latestTimeWindowRaw:completeValues[completeValues.length-1]||'',
+        orderType:'Imported Route History',orderStatus:'',district:sval(gcLoose(base,['ScheduleKey'])),willCallIndicator:'',comment:sval(gcLoose(base,['ViolationDescription'])),
+        routeData:{resourceKey,routeDate,geoSequences:group.map(r=>cleanFormulaNumber(gcLoose(r,['GeoStopNumber']))),orderLineCount:group.length,plannedArrived:arrivalValues[0]||'',plannedCompleted:completeValues[completeValues.length-1]||'',stopServiceTime:serviceSecs,distanceMile:group.reduce((a,r)=>a+nval(gcLoose(r,['DistanceMile'])),0),driveTime:group.reduce((a,r)=>a+nval(gcLoose(r,['DriveTime'])),0),violations:[...new Set(group.map(r=>sval(gcLoose(r,['ViolationDescription']))).filter(Boolean))],rawRows:group.map(r=>({...r}))},
+        raw:{...base},lockStart:false,lockFinal:false
+      };
+      stops.push(stop);stopCount++;consolidatedOrders+=group.length;
+    });
+  });
+  enrichRouteDepots();reseq();
+  return {routes:routeCount,stops:stopCount,depots:new Set(depotLocations.filter(d=>d.comment==='Imported from BHL Route Data').map(d=>d.locationKey)).size,rows:valid.length,orderLines:consolidatedOrders};
+}
+function renderBhlRouteDataDetailHtml(stop){
+  const rd=stop.routeData||{};
+  const rawRows=Array.isArray(rd.rawRows)?rd.rawRows:[];
+  const columns=rawRows.length?Object.keys(rawRows[0]):[];
+  return `<div class="order-expand"><summary>Imported Route Data (${rawRows.length} original line${rawRows.length===1?'':'s'})</summary>
+    <div style="padding:9px 10px;border-top:1px solid var(--border);font-size:10px;color:var(--text2);line-height:1.6;">
+      <strong>ResourceKey:</strong> ${escapeHtml(rd.resourceKey||'—')} &nbsp; · &nbsp; <strong>Route Date:</strong> ${escapeHtml(rd.routeDate||'—')} &nbsp; · &nbsp; <strong>Geo Sequence(s):</strong> ${escapeHtml((rd.geoSequences||[]).join(', ')||'—')}<br/>
+      <strong>Planned Arrival:</strong> ${escapeHtml(rd.plannedArrived||'—')} &nbsp; · &nbsp; <strong>Planned Complete:</strong> ${escapeHtml(rd.plannedCompleted||'—')} &nbsp; · &nbsp; <strong>Service:</strong> ${fmtMinutes((rd.stopServiceTime||0)/60)}<br/>
+      <strong>Imported Distance:</strong> ${(rd.distanceMile||0).toFixed(2)} mi &nbsp; · &nbsp; <strong>Imported Drive Time:</strong> ${fmtMinutes((rd.driveTime||0)/60)}
+      ${(rd.violations||[]).length?`<br/><strong>Violations:</strong> ${escapeHtml(rd.violations.join(' | '))}`:''}
+    </div>
+    <div class="order-table" style="overflow:auto;max-height:320px;">
+      <div style="display:grid;grid-template-columns:repeat(${Math.max(columns.length,1)},minmax(130px,1fr));min-width:${Math.max(columns.length*140,500)}px;">
+        ${columns.map(c=>`<div style="position:sticky;top:0;background:var(--bg2);padding:7px;border-top:1px solid var(--border);border-right:1px solid var(--border);font-size:9px;color:var(--text3);font-weight:800;text-transform:uppercase;">${escapeHtml(c)}</div>`).join('')}
+        ${rawRows.map(row=>columns.map(c=>`<div style="padding:7px;border-top:1px solid var(--border);border-right:1px solid var(--border);font-size:10px;color:var(--text1);word-break:break-word;">${escapeHtml(row[c]??'')}</div>`).join('')).join('')}
+      </div>
+    </div>
+  </div>`;
 }
 
 function importStops(data){
