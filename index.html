@@ -453,7 +453,7 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
             <option value="desc">High → Low</option>
             <option value="asc">Low → High</option>
           </select>
-          <label class="route-filter-check" title="Show only routes containing an assigned Backhaul/BHL pickup stop">
+          <label class="route-filter-check" title="Show only routes containing an assigned Backhaul/BHL pickup stop or a stop with BHL in UDFString4">
             <input type="checkbox" id="bhl-routes-filter" onchange="setBhlRoutesFilter(this.checked)"/>
             BHL Routes
           </label>
@@ -935,7 +935,7 @@ let potColors={}; // stopId -> color
 let potRouteSuggestions={}; // stopId -> suggested routeId from Potential Routes job
 let routeSort=""; // optional route sort; blank keeps import/original order
 let routeSortDirection="desc"; // high-to-low by default
-let bhlRoutesOnly=false; // routes containing at least one assigned Backhaul/BHL pickup
+let bhlRoutesOnly=false; // routes containing a Backhaul/BHL pickup or BHL in UDFString4
 let activeRouteFilterId=null;
 let activeStopFilterId=null;
 let mapRouteFilterActiveId=null;
@@ -1376,8 +1376,33 @@ function toggleStopFilter(stopId){
   renderRoutes();
   renderUA();
 }
+function stopUdfString4ContainsBhl(stop){
+  if(!stop)return false;
+  const values=[
+    stop.udfString4,
+    stop.UDFString4,
+    stop.raw?.udfString4,
+    stop.raw?.UDFString4,
+    stop.raw?.['UDFString4'],
+    stop.raw?.['UDF String 4'],
+    ...(Array.isArray(stop.orders)?stop.orders.flatMap(order=>[
+      order?.udfString4,
+      order?.UDFString4,
+      order?.orderCodes,
+      order?.raw?.udfString4,
+      order?.raw?.UDFString4,
+      order?.raw?.['UDFString4'],
+      order?.raw?.['UDF String 4']
+    ]):[])
+  ];
+  return values.some(value=>String(value??'').toUpperCase().includes('BHL'));
+}
 function isBackhaulPickupStop(stop){
-  return !!stop && (stop.sourceType==='backhaul' || !!stop.backhaul);
+  return !!stop && (
+    stop.sourceType==='backhaul' ||
+    !!stop.backhaul ||
+    stopUdfString4ContainsBhl(stop)
+  );
 }
 function routeHasBackhaulPickup(routeId){
   return stops.some(stop=>stop.routeId===routeId && isBackhaulPickupStop(stop));
@@ -1447,6 +1472,8 @@ function clearAllFilters(){
   activeRouteFilterId=null;
   activeStopFilterId=null;
   bhlRoutesOnly=false;
+  const bhlFilter=document.getElementById('bhl-routes-filter');
+  if(bhlFilter)bhlFilter.checked=false;
   if(mapRouteFilterActiveId){
     restoreMapRouteFilter();
   }else{
