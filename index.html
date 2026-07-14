@@ -4702,7 +4702,8 @@ function makeBackhaulFromRow(row){
     frozenCases:0,frozenCube:0,frozenWeight:0,
     pkgCases:0,pkgCube:0,pkgWeight:0,
     comment:bh.notes,
-    orderType:'Backhaul Average',
+    orderType:'Backhaul Vendor',
+    stopType:'Added BHL',
     fixedServiceTime:7200,
     variableServiceTime:0,
     orderStatus:bh.lapStage,
@@ -5779,6 +5780,19 @@ function exportSelectedRoutes(){
   if(!ids.size){showToast('Select one or more route checkboxes first');return;}
   exportExcel({routeIdSet:ids, selectedOnly:true, markPublished:true});
 }
+function applyRowHighlight(ws,rows,predicate,fillRgb='FFF2CC'){
+  if(!ws||!Array.isArray(rows)||typeof predicate!=='function')return;
+  const range=ws['!ref']?XLSX.utils.decode_range(ws['!ref']):null;
+  if(!range)return;
+  rows.forEach((row,rowIndex)=>{
+    if(!predicate(row,rowIndex))return;
+    for(let colIndex=range.s.c;colIndex<=range.e.c;colIndex++){
+      const addr=XLSX.utils.encode_cell({r:rowIndex+1,c:colIndex});
+      if(ws[addr])ws[addr].s={fill:{fgColor:{rgb:fillRgb}},font:{bold:true}};
+    }
+  });
+}
+
 function applyPublishedHighlight(ws,headers,rows){
   if(!ws||!headers||!rows)return;
   rows.forEach((row,rowIndex)=>{
@@ -6292,10 +6306,12 @@ function exportExcel(options={}){
   const totalRunMinutes=usedRoutes.reduce((a,r)=>a+routeTotalMinutes(r.id),0);
   const totalCasesShipped=routedStops.reduce((a,s)=>a+tCases(s),0);
   const totalMiles=usedRoutes.reduce((a,r)=>a+routeDistanceMiles(r.id),0);
+  const totalAddedBhl=stops.filter(s=>String(s.stopType||'').trim().toUpperCase()==='ADDED BHL').length;
   const totalsSummary=[{
     'Export Date':document.getElementById('route-date').value||new Date().toISOString().slice(0,10),
     'Number of Routes Used':usedRoutes.length,
     'Stops Routed':routedStops.length,
+    "Added BHL's":totalAddedBhl,
     'Total Run Time of Routes':fmtMinutes(totalRunMinutes),
     'Total Run Time Minutes':parseFloat(totalRunMinutes.toFixed(2)),
     'Total Cases Shipped':totalCasesShipped,
@@ -6338,7 +6354,17 @@ function exportExcel(options={}){
       'UDFString2':r.udfString2||'',
     };
   });
-  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(summary.length?summary:[{Note:'No routes'}]),'Route Summary');
+  const summaryRows=summary.length?summary:[{Note:'No routes'}];
+  const summaryWs=XLSX.utils.json_to_sheet(summaryRows);
+  applyRowHighlight(summaryWs,summaryRows,(row)=>{
+    const routeNumber=String(row['Route Number']||'');
+    const routeName=String(row['Route Name']||'');
+    const route=exportRoutes.find(r=>String(r.routeTemplateKey||'')===routeNumber&&String(r.name||'')===routeName)
+      || exportRoutes.find(r=>String(r.routeTemplateKey||'')===routeNumber)
+      || exportRoutes.find(r=>String(r.name||'')===routeName);
+    return !!route && exportStops.some(stop=>String(stop.routeId||'')===String(route.id) && String(stop.stopType||'').trim().toUpperCase()==='ADDED BHL');
+  });
+  XLSX.utils.book_append_sheet(wb,summaryWs,'Route Summary');
 
   // Tab 3: Route Manifest
   const manifest=[];
@@ -6358,7 +6384,7 @@ function exportExcel(options={}){
         'Driver Key':r.driverKey||'',
         'Truck Key':r.truckKey||'',
         'Stop Sequence':isStop?s.seq:(pt.label||''),
-        'Stop Type':isStop?'Order':(pt.type==='depot-start'?'Initial Depot':'Final Depot'),
+        'Stop Type':isStop?(s.stopType||'Order'):(pt.type==='depot-start'?'Initial Depot':'Final Depot'),
         'Customer Name':pt.name||'',
         'ORDER_NUMBER':isStop?(s.orderNumber||''):'',
         'CUTID':isStop?(s.cutId||''):'',
@@ -6411,7 +6437,10 @@ function exportExcel(options={}){
       });
     });
   });
-  XLSX.utils.book_append_sheet(wb,XLSX.utils.json_to_sheet(manifest.length?manifest:[{Note:'No assigned stops'}]),'Route Manifest');
+  const manifestRows=manifest.length?manifest:[{Note:'No assigned stops'}];
+  const manifestWs=XLSX.utils.json_to_sheet(manifestRows);
+  applyRowHighlight(manifestWs,manifestRows,row=>String(row['Stop Type']||'').trim().toUpperCase()==='ADDED BHL');
+  XLSX.utils.book_append_sheet(wb,manifestWs,'Route Manifest');
 
   // Tab 4: Unassigned
   const ua=(routeIdSet?[]:stops.filter(s=>!s.routeId)).map(s=>({
