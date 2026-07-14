@@ -6,7 +6,7 @@
 <title>RouteDesk v2 - Live Route Sequence Manifest</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Sora:wght@400;500;600&display=swap" rel="stylesheet"/>
 <style>
 *{box-sizing:border-box;margin:0;padding:0;}
@@ -883,12 +883,12 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
   <div class="modal safety-modal">
     <h2>Delivery Safety Assessment</h2>
     <div class="job-result" style="margin-bottom:10px;">
-      Uses the currently imported Orders/stops and their latitude/longitude to create a remote safety screen. Image links open Google aerial and Street View views where coverage exists. This is a pre-site-review screen and should be field verified before final approval.
+      Uses imported customer coordinates, Esri aerial imagery, Mapillary street imagery when available, and Workers AI vision to strengthen the existing remote safety screen. This remains a pre-site-review assessment and should be field verified before final approval.
     </div>
     <div id="safety-summary" class="safety-summary-grid"></div>
     <div style="display:flex;gap:7px;align-items:center;margin-bottom:10px;flex-wrap:wrap;">
       <button class="btn primary" onclick="runSafetyAssessment()">Run / Refresh Assessment</button>
-      <button class="btn purple" id="safety-ai-btn" onclick="runSafetyImageryAssessment()">Run Imagery Check</button>
+      <button class="btn purple" id="safety-ai-btn" onclick="runSafetyImageryAssessment()">Run AI Imagery Assessment</button>
       <button class="btn success" onclick="exportSafetyAssessment()">Export Safety Workbook</button>
       <button class="btn" onclick="showHighRiskSafetyStopsOnMap()">Show High Risk on Map</button>
       <button class="btn" onclick="closeModal('safety-assessment-modal')">Close</button>
@@ -5788,7 +5788,7 @@ function applyRowHighlight(ws,rows,predicate,fillRgb='FFF2CC'){
     if(!predicate(row,rowIndex))return;
     for(let colIndex=range.s.c;colIndex<=range.e.c;colIndex++){
       const addr=XLSX.utils.encode_cell({r:rowIndex+1,c:colIndex});
-      if(ws[addr])ws[addr].s={fill:{patternType:'solid',fgColor:{rgb:fillRgb}},font:{bold:true}};
+      if(ws[addr])ws[addr].s={fill:{fgColor:{rgb:fillRgb}},font:{bold:true}};
     }
   });
 }
@@ -5803,7 +5803,7 @@ function applyPublishedHighlight(ws,headers,rows){
     headers.forEach((h,colIndex)=>{
       const addr=XLSX.utils.encode_cell({r:rowIndex+1,c:colIndex});
       if(ws[addr]){
-        ws[addr].s={fill:{patternType:'solid',fgColor:{rgb:'FFF2CC'}}};
+        ws[addr].s={fill:{fgColor:{rgb:'FFF2CC'}}};
       }
     });
   });
@@ -5927,6 +5927,8 @@ function classifySafetyStop(stop){
     shipToId:stop.shipToId||'',
     customerName:stop.customerName||'Customer',
     address:[stop.address,stop.city,stop.state,stop.zip].filter(Boolean).join(', '),
+    city:stop.city||'',
+    state:stop.state||'',
     lat:stop.lat,lng:stop.lng,
     routeName:(routes.find(r=>r.id===stop.routeId)||{}).name||'',
     orderCount:Array.isArray(stop.orders)?stop.orders.length:1,
@@ -5967,18 +5969,21 @@ function safetyImageryStatusHtml(r){
   const mCount=Number(r.mapillaryImageCount||0);
   const esri=(r.esriStatus||'Not checked');
   if(r.imageryStatus==='Checking'){
-    return `<div class="safety-note"><strong>Imagery:</strong> Checking...</div>`;
+    return `<div class="safety-note"><strong>Imagery / AI:</strong> Checking...</div>`;
   }
   if(r.imageryStatus==='Error'){
-    return `<div class="safety-note"><strong>Imagery:</strong> Error<br/><span style="color:var(--text3);">${escapeHtml(r.mapillaryError||'Lookup failed')}</span></div>`;
+    return `<div class="safety-note"><strong>Imagery / AI:</strong> Error<br/><span style="color:var(--text3);">${escapeHtml(r.mapillaryError||'Assessment failed')}</span></div>`;
   }
   if(r.imageryStatus==='Checked'){
     const mText=mCount>0
       ? `Mapillary: ${mCount} image${mCount===1?'':'s'}${r.mapillaryClosestDistance!==null&&r.mapillaryClosestDistance!==undefined?' · '+r.mapillaryClosestDistance+'m':''}`
       : 'Mapillary: none within 50m';
-    return `<div class="safety-note"><strong>Imagery:</strong> Checked<br/>Esri aerial: ${escapeHtml(esri)}<br/>${escapeHtml(mText)}</div>`;
+    const aiText=r.aiStatus==='Available'
+      ? `AI: ${r.aiConfidence||0}% confidence · score ${Number(r.aiScoreAdjustment||0)>=0?'+':''}${Number(r.aiScoreAdjustment||0)}`
+      : `AI: ${r.aiStatus||'Unavailable'}`;
+    return `<div class="safety-note"><strong>Imagery / AI:</strong> Checked<br/>Esri aerial: ${escapeHtml(esri)}<br/>${escapeHtml(mText)}<br/>${escapeHtml(aiText)}</div>`;
   }
-  return `<div class="safety-note"><strong>Imagery:</strong> Not checked<br/><span style="color:var(--text3);">Run Imagery Check</span></div>`;
+  return `<div class="safety-note"><strong>Imagery / AI:</strong> Not checked<br/><span style="color:var(--text3);">Run AI Imagery Assessment</span></div>`;
 }
 
 function safetyFormatMapillaryDate(value){
@@ -5991,10 +5996,12 @@ function safetyFormatMapillaryDate(value){
 function safetyMergeImageryResult(row,result){
   const mapillary=result&&result.mapillary?result.mapillary:null;
   const esri=result&&result.esri?result.esri:null;
+  const ai=result&&result.aiVision?result.aiVision:null;
+  const parsed=ai&&ai.parsed&&typeof ai.parsed==='object'?ai.parsed:null;
 
   row.imageryStatus='Checked';
   row.esriStatus=esri?.ok?'Available':'Unavailable';
-  row.esriImageUrl=esri?.aerialImageUrl||row.esriAerialUrl||'';
+  row.esriImageUrl=esri?.aerialImageUrl||result?.aerial?.imageUrl||row.esriAerialUrl||'';
   row.esriAerialUrl=row.esriImageUrl||row.esriAerialUrl||'';
 
   if(mapillary&&mapillary.ok===true){
@@ -6008,33 +6015,83 @@ function safetyMergeImageryResult(row,result){
     row.mapillaryBestUrl=best?.mapillaryUrl||row.mapillaryUrl;
     row.mapillaryError='';
   }else{
-    row.mapillaryStatus='Error';
-    row.mapillaryError=mapillary?.error||result?.error||'Mapillary lookup failed';
+    row.mapillaryStatus=mapillary?'Error':'Unavailable';
+    row.mapillaryError=mapillary?.error||'No Mapillary result returned';
   }
 
-  if(row.esriStatus==='Available' && row.mapillaryImageCount>0){
-    row.imageryConfidence='Higher - Esri aerial plus nearby Mapillary street-level imagery';
-    if(!row.hazards.some(h=>/Esri aerial imagery/i.test(h))){
-      row.hazards=[...row.hazards,'Esri aerial imagery available for remote review of parking lot, driveway, building layout, and approach path'];
+  row.aiParser=ai?.parser||'';
+  row.aiRawResponse=ai?.rawResponse||'';
+
+  if(ai?.ok===true&&parsed){
+    row.aiStatus='Available';
+    row.aiSummary=parsed.summary||'';
+    row.aiRiskSignals=Array.isArray(parsed.riskSignals)?parsed.riskSignals.filter(Boolean):[];
+    row.aiUnknowns=Array.isArray(parsed.unknowns)?parsed.unknowns.filter(Boolean):[];
+    row.aiTruckAccess=parsed.truckAccess||'unknown';
+    row.aiTurnaroundSpace=parsed.turnaroundSpace||'unknown';
+    row.aiParkingLotSize=parsed.parkingLotSize||'unknown';
+    row.aiRoadExposure=parsed.roadExposure||'unknown';
+    row.aiLoadingDockVisible=parsed.loadingDockVisible||'unknown';
+    row.aiBackingRisk=parsed.backingRisk||'unknown';
+    row.aiPedestrianConflictRisk=parsed.pedestrianConflictRisk||'unknown';
+    row.aiRecommendedVehicle=parsed.recommendedVehicle||'unknown';
+    row.aiConfidence=Math.max(0,Math.min(100,Number(parsed.confidence)||0));
+    row.aiScoreAdjustment=Math.max(-2,Math.min(2,Number(parsed.scoreAdjustment)||0));
+    row.aiFieldVerify=Array.isArray(parsed.fieldVerify)?parsed.fieldVerify.filter(Boolean):[];
+
+    row.riskScore=Math.max(0,Math.min(10,Number(row.riskScore||0)+row.aiScoreAdjustment));
+    const band=safetyBand(row.riskScore);
+    row.riskBand=band.label;
+    row.riskClass=band.cls;
+
+    if(row.aiRiskSignals.length)row.hazards=Array.from(new Set([...row.aiRiskSignals,...row.hazards]));
+    if(row.aiFieldVerify.length)row.fieldVerify=Array.from(new Set([...row.aiFieldVerify,...row.fieldVerify]));
+
+    if(row.aiTruckAccess==='limited'){
+      row.truck36='Caution - AI indicates limited access';
+      row.truck48='Avoid unless field verified';
+    }else if(row.aiTruckAccess==='moderate'){
+      row.truck36='Possible - Verify';
+      if(!/avoid/i.test(row.truck48))row.truck48='Caution - Verify';
+    }else if(row.aiTruckAccess==='good'){
+      row.truck36='Likely';
     }
-    if(!row.hazards.some(h=>/Mapillary street-level imagery/i.test(h))){
-      row.hazards=[...row.hazards,`Mapillary street-level imagery available near delivery point (${row.mapillaryImageCount} image${row.mapillaryImageCount===1?'':'s'}; closest ${row.mapillaryClosestDistance!==null?row.mapillaryClosestDistance+'m':'unknown distance'})`];
+
+    if(row.aiRecommendedVehicle==='28ft'){
+      row.truck28='Recommended by AI';
+      row.truck36='Caution - 28ft preferred';
+      row.truck48='Avoid unless verified';
+    }else if(row.aiRecommendedVehicle==='36ft'){
+      row.truck28='Likely';
+      row.truck36='Recommended by AI';
+      row.truck48='Caution - Verify';
+    }else if(row.aiRecommendedVehicle==='48ft'){
+      row.truck28='Likely';
+      row.truck36='Likely';
+      row.truck48='Recommended by AI - Verify';
     }
-  }else if(row.esriStatus==='Available'){
-    row.imageryConfidence='Medium - Esri aerial available, no nearby Mapillary street-level imagery';
-    if(!row.hazards.some(h=>/Esri aerial imagery/i.test(h))){
-      row.hazards=[...row.hazards,'Esri aerial imagery available for remote review of site layout'];
-    }
-    if(!row.fieldVerify.some(h=>/street-level image/i.test(h))){
-      row.fieldVerify=[...row.fieldVerify,'No Mapillary street-level image was found within 50m; field photo verification is more important'];
-    }
+
+    if(row.aiParkingLotSize!=='unknown')row.parking=`AI aerial assessment: ${row.aiParkingLotSize} parking area`;
+    if(row.aiBackingRisk!=='unknown')row.backing=`AI assessed ${row.aiBackingRisk} backing risk`;
+    if(row.aiLoadingDockVisible==='yes')row.dock='Loading dock visible in aerial imagery';
+    else if(row.aiLoadingDockVisible==='no')row.dock='No loading dock visible in aerial imagery - verify';
   }else{
-    row.imageryConfidence='Limited - imagery lookup failed or unavailable';
-    if(!row.fieldVerify.some(h=>/imagery coverage/i.test(h))){
-      row.fieldVerify=[...row.fieldVerify,'Imagery coverage was unavailable or failed; field verification required'];
-    }
+    row.aiStatus=ai?.ok===false?'Error':'Unavailable';
+    if(ai?.message||ai?.error)row.mapillaryError=[row.mapillaryError,ai.message||ai.error].filter(Boolean).join(' | ');
   }
-  row.confidence=row.imageryConfidence;
+
+  if(row.esriStatus==='Available'&&row.mapillaryImageCount>0&&row.aiStatus==='Available'){
+    row.imageryConfidence=`Higher - AI vision plus Esri aerial and ${row.mapillaryImageCount} nearby Mapillary image${row.mapillaryImageCount===1?'':'s'}`;
+  }else if(row.esriStatus==='Available'&&row.aiStatus==='Available'){
+    row.imageryConfidence='Medium - AI vision and Esri aerial available; no nearby Mapillary image';
+    if(!row.fieldVerify.some(h=>/Mapillary/i.test(h)))row.fieldVerify=[...row.fieldVerify,'No Mapillary street-level image was found within 50m; verify the entrance and receiving area in person'];
+  }else if(row.esriStatus==='Available'){
+    row.imageryConfidence='Limited - Esri aerial available but AI assessment was unavailable';
+  }else{
+    row.imageryConfidence='Limited - imagery or AI assessment unavailable';
+  }
+
+  row.confidence=row.aiStatus==='Available'?`${row.aiConfidence}% AI confidence`:row.imageryConfidence;
   return row;
 }
 
@@ -6045,6 +6102,8 @@ async function getSafetyImageryAssessment(row){
     body:JSON.stringify({
       customerName:row.customerName,
       address:row.address,
+      city:row.city||'',
+      state:row.state||'',
       lat:Number(row.lat),
       lng:Number(row.lng),
       cases:row.cases,
@@ -6057,13 +6116,13 @@ async function getSafetyImageryAssessment(row){
 }
 
 async function runSafetyImageryAssessment(){
-  if(safetyImageryRunning){showToast('Imagery check is already running');return;}
+  if(safetyImageryRunning){showToast('AI imagery assessment is already running');return;}
   if(!safetyAssessmentRows.length)runSafetyAssessment(false);
   if(!safetyAssessmentRows.length){showToast('Import Orders with Latitude/Longitude first');return;}
 
   safetyImageryRunning=true;
   const btn=document.getElementById('safety-ai-btn');
-  if(btn){btn.disabled=true;btn.textContent='Checking Imagery...';}
+  if(btn){btn.disabled=true;btn.textContent='Running AI Assessment...';}
 
   let checked=0,withMapillary=0,errors=0;
   for(const row of safetyAssessmentRows){
@@ -6085,14 +6144,14 @@ async function runSafetyImageryAssessment(){
       errors++;
     }
     checked++;
-    if(checked%3===0)showToast(`Imagery checked ${checked}/${safetyAssessmentRows.length} location(s)`);
+    if(checked%3===0)showToast(`AI imagery assessed ${checked}/${safetyAssessmentRows.length} location(s)`);
   }
 
   safetyAssessmentRows.sort((a,b)=>b.riskScore-a.riskScore||a.customerName.localeCompare(b.customerName));
   renderSafetyAssessment();
   safetyImageryRunning=false;
-  if(btn){btn.disabled=false;btn.textContent='Run Imagery Check';}
-  showToast(`Imagery check complete: ${withMapillary} with Mapillary imagery, ${errors} error(s)`);
+  if(btn){btn.disabled=false;btn.textContent='Run AI Imagery Assessment';}
+  showToast(`AI imagery assessment complete: ${withMapillary} with Mapillary imagery, ${errors} error(s)`);
 }
 
 
@@ -6133,7 +6192,7 @@ function renderSafetyAssessment(){
         <div><span class="safety-pill ${safetyTextBand(r.truck48)}">${escapeHtml(r.truck48)}</span></div>
         <div style="font-family:'DM Mono',monospace;font-weight:800;">${r.riskScore}/10</div>
         <div>${safetyImageryStatusHtml(r)}</div>
-        <div class="safety-note">${escapeHtml(r.hazards.slice(0,2).join(' | '))}</div>
+        <div class="safety-note">${escapeHtml(r.aiSummary||r.hazards.slice(0,2).join(' | '))}</div>
         <div class="safety-actions">
           <button class="btn" style="padding:3px 7px;font-size:9px;" onclick="openSafetyDetail('${r.stopId}')">Details</button>
           <a class="safety-link" href="${r.esriImageUrl||r.esriAerialUrl||r.aerialUrl}" target="_blank" rel="noopener noreferrer">Esri Aerial</a>
@@ -6165,9 +6224,30 @@ function openSafetyDetail(stopId){
         <a class="safety-link" href="${r.streetSouthUrl}" target="_blank" rel="noopener noreferrer">S</a>
         <a class="safety-link" href="${r.streetWestUrl}" target="_blank" rel="noopener noreferrer">W</a>
       </div></div>
+      <div class="safety-detail-card" style="grid-column:1/-1;"><div class="lbl">AI Vision Summary</div><div class="val">${escapeHtml(r.aiSummary||'AI imagery assessment has not been run.')}</div></div>
+      <div class="safety-detail-card"><div class="lbl">AI Site Findings</div><div class="val">
+        Truck access: ${escapeHtml(r.aiTruckAccess||'unknown')}<br/>
+        Turnaround space: ${escapeHtml(r.aiTurnaroundSpace||'unknown')}<br/>
+        Parking lot size: ${escapeHtml(r.aiParkingLotSize||'unknown')}<br/>
+        Road exposure: ${escapeHtml(r.aiRoadExposure||'unknown')}
+      </div></div>
+      <div class="safety-detail-card"><div class="lbl">AI Delivery Risks</div><div class="val">
+        Loading dock visible: ${escapeHtml(r.aiLoadingDockVisible||'unknown')}<br/>
+        Backing risk: ${escapeHtml(r.aiBackingRisk||'unknown')}<br/>
+        Pedestrian conflict: ${escapeHtml(r.aiPedestrianConflictRisk||'unknown')}<br/>
+        Recommended vehicle: ${escapeHtml(r.aiRecommendedVehicle||'unknown')}
+      </div></div>
+      <div class="safety-detail-card" style="grid-column:1/-1;"><div class="lbl">AI Risk Signals / Unknowns</div><div class="val">
+        <strong>Risk signals:</strong><br/>${(r.aiRiskSignals&&r.aiRiskSignals.length)?r.aiRiskSignals.map(h=>'&bull; '+escapeHtml(h)).join('<br/>'):'&bull; None returned'}<br/><br/>
+        <strong>Unknowns:</strong><br/>${(r.aiUnknowns&&r.aiUnknowns.length)?r.aiUnknowns.map(h=>'&bull; '+escapeHtml(h)).join('<br/>'):'&bull; None returned'}
+      </div></div>
       <div class="safety-detail-card" style="grid-column:1/-1;"><div class="lbl">Imagery Coverage</div><div class="val">
         Imagery status: ${escapeHtml(r.imageryStatus||'Not checked')}<br/>
         Imagery confidence: ${escapeHtml(r.imageryConfidence||r.confidence||'')}<br/>
+        AI status: ${escapeHtml(r.aiStatus||'Not checked')}<br/>
+        AI confidence: ${escapeHtml((r.aiConfidence||0)+'%')}<br/>
+        AI score adjustment: ${Number(r.aiScoreAdjustment||0)>=0?'+':''}${escapeHtml(r.aiScoreAdjustment||0)}<br/>
+        AI parser: ${escapeHtml(r.aiParser||'—')}<br/>
         Esri aerial: ${escapeHtml(r.esriStatus||'Not checked')}<br/>
         Mapillary status: ${escapeHtml(r.mapillaryStatus||'Not checked')}<br/>
         Mapillary images found: ${r.mapillaryImageCount||0}<br/>
@@ -6227,6 +6307,22 @@ function exportSafetyAssessment(){
     'Confidence':r.confidence,
     'Imagery Confidence':r.imageryConfidence||'',
     'Imagery Status':r.imageryStatus||'',
+    'AI Status':r.aiStatus||'',
+    'AI Summary':r.aiSummary||'',
+    'AI Risk Signals':(r.aiRiskSignals||[]).join(' | '),
+    'AI Unknowns':(r.aiUnknowns||[]).join(' | '),
+    'AI Truck Access':r.aiTruckAccess||'',
+    'AI Turnaround Space':r.aiTurnaroundSpace||'',
+    'AI Parking Lot Size':r.aiParkingLotSize||'',
+    'AI Road Exposure':r.aiRoadExposure||'',
+    'AI Loading Dock Visible':r.aiLoadingDockVisible||'',
+    'AI Backing Risk':r.aiBackingRisk||'',
+    'AI Pedestrian Conflict Risk':r.aiPedestrianConflictRisk||'',
+    'AI Recommended Vehicle':r.aiRecommendedVehicle||'',
+    'AI Confidence':r.aiConfidence||0,
+    'AI Score Adjustment':r.aiScoreAdjustment||0,
+    'AI Field Verification':(r.aiFieldVerify||[]).join(' | '),
+    'AI Parser':r.aiParser||'',
     'Esri Aerial Status':r.esriStatus||'',
     'Mapillary Status':r.mapillaryStatus||'',
     'Mapillary Image Count':r.mapillaryImageCount||0,
