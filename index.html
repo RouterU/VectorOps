@@ -6,7 +6,7 @@
 <title>RouteDesk v2 - Live Route Sequence Manifest</title>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Sora:wght@400;500;600&display=swap" rel="stylesheet"/>
 <style>
 *{box-sizing:border-box;margin:0;padding:0;}
@@ -5788,7 +5788,7 @@ function applyRowHighlight(ws,rows,predicate,fillRgb='FFF2CC'){
     if(!predicate(row,rowIndex))return;
     for(let colIndex=range.s.c;colIndex<=range.e.c;colIndex++){
       const addr=XLSX.utils.encode_cell({r:rowIndex+1,c:colIndex});
-      if(ws[addr])ws[addr].s={fill:{fgColor:{rgb:fillRgb}},font:{bold:true}};
+      if(ws[addr])ws[addr].s={fill:{patternType:'solid',fgColor:{rgb:fillRgb}},font:{bold:true}};
     }
   });
 }
@@ -5803,7 +5803,7 @@ function applyPublishedHighlight(ws,headers,rows){
     headers.forEach((h,colIndex)=>{
       const addr=XLSX.utils.encode_cell({r:rowIndex+1,c:colIndex});
       if(ws[addr]){
-        ws[addr].s={fill:{fgColor:{rgb:'FFF2CC'}}};
+        ws[addr].s={fill:{patternType:'solid',fgColor:{rgb:'FFF2CC'}}};
       }
     });
   });
