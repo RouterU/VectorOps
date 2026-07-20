@@ -1106,27 +1106,41 @@ function projectedRevenueClass(value){
   if(n>=49.99)return 'projected-revenue-warning';
   return 'projected-revenue-negative';
 }
-function routeBhlStops(routeId){
-  return stops.filter(s=>String(s.routeId||'')===String(routeId)&&isBackhaulPickupStop(s));
+function isAddedBhlStop(stop){
+  return !!stop && String(stop.stopType||'').trim().toUpperCase()==='ADDED BHL';
 }
-function routeProjectedRevenue(routeId){
-  const bhlStops=routeBhlStops(routeId);
-  if(!bhlStops.length)return {hasBhl:false,cases:0,grossRevenue:0,cost:0,net:0,miles:0};
+function routeBhlStops(routeId,stopList=stops){
+  // Cost analysis applies only to newly added BHL opportunities, never regular route stops
+  // or historical/imported BHL route data.
+  return (stopList||[]).filter(s=>String(s.routeId||'')===String(routeId)&&isAddedBhlStop(s));
+}
+function routeDistanceMilesForStops(routeId,routeStops){
+  const route=routes.find(r=>String(r.id)===String(routeId));
+  if(!route)return 0;
+  const pts=[];
+  const init=routeInitialDepot(route), fin=routeFinalDepot(route);
+  if(init&&init.lat&&init.lng)pts.push({lat:init.lat,lng:init.lng});
+  (routeStops||[]).filter(s=>s.lat&&s.lng).sort((a,b)=>(a.seq||0)-(b.seq||0)).forEach(s=>pts.push({lat:s.lat,lng:s.lng}));
+  if(fin&&fin.lat&&fin.lng)pts.push({lat:fin.lat,lng:fin.lng});
+  let miles=0;
+  for(let i=1;i<pts.length;i++)miles+=haversine(pts[i-1].lat,pts[i-1].lng,pts[i].lat,pts[i].lng);
+  return miles;
+}
+function routeProjectedRevenue(routeId,stopList=stops){
+  const routeStops=(stopList||[]).filter(s=>String(s.routeId||'')===String(routeId));
+  const bhlStops=routeBhlStops(routeId,stopList);
+  if(!bhlStops.length)return {hasBhl:false,cases:0,grossRevenue:0,cost:0,net:0,miles:0,incrementalMiles:0};
+
   const cases=bhlStops.reduce((a,s)=>a+tCases(s),0);
-  const miles=routeDistanceMiles(routeId);
+  const fullMiles=routeDistanceMilesForStops(routeId,routeStops);
+  const baseMiles=routeDistanceMilesForStops(routeId,routeStops.filter(s=>!isAddedBhlStop(s)));
+  const incrementalMiles=Math.max(0,fullMiles-baseMiles);
   const grossRevenue=cases*bhlRevenuePerCase;
-  const cost=miles*bhlCostPerMile;
-  return {hasBhl:true,cases,grossRevenue,cost,net:grossRevenue-cost,miles};
+  const cost=incrementalMiles*bhlCostPerMile;
+  return {hasBhl:true,cases,grossRevenue,cost,net:grossRevenue-cost,miles:incrementalMiles,incrementalMiles};
 }
 function sessionBhlProjectedRevenue(routeList=routes,stopList=stops){
-  const allowedRouteIds=new Set((routeList||[]).map(r=>String(r.id)));
-  return (routeList||[]).reduce((total,r)=>{
-    if(!allowedRouteIds.has(String(r.id)))return total;
-    const bhlStops=(stopList||[]).filter(s=>String(s.routeId||'')===String(r.id)&&isBackhaulPickupStop(s));
-    if(!bhlStops.length)return total;
-    const cases=bhlStops.reduce((a,s)=>a+tCases(s),0);
-    return total+(cases*bhlRevenuePerCase-routeDistanceMiles(r.id)*bhlCostPerMile);
-  },0);
+  return (routeList||[]).reduce((total,r)=>total+routeProjectedRevenue(r.id,stopList).net,0);
 }
 function routeLoadTotals(routeId){
   const rs=stops.filter(s=>s.routeId===routeId);
@@ -3283,7 +3297,7 @@ function renderRouteManifest(){
     <div class="manifest-stat"><div class="val">${data.miles.toFixed(1)}</div><div class="lbl">Miles</div></div>
     <div class="manifest-stat"><div class="val">${cleanTimeValue(data.start)||'—'}</div><div class="lbl">Start Time</div></div>
     <div class="manifest-stat"><div class="val">${cleanTimeValue(data.end)||'—'}</div><div class="lbl">Stop Time</div></div>
-    <div class="manifest-stat ${projectedRevenueClass(data.projectedRevenue.net)}" title="BHL revenue ${formatCurrency(data.projectedRevenue.grossRevenue)} minus route cost ${formatCurrency(data.projectedRevenue.cost)}"><div class="val">${data.projectedRevenue.hasBhl?formatCurrency(data.projectedRevenue.net):'—'}</div><div class="lbl">Projected Revenue</div></div>`;
+    <div class="manifest-stat ${projectedRevenueClass(data.projectedRevenue.net)}" title="Added BHL revenue ${formatCurrency(data.projectedRevenue.grossRevenue)} minus incremental BHL mileage cost ${formatCurrency(data.projectedRevenue.cost)} (${data.projectedRevenue.incrementalMiles.toFixed(1)} added miles)"><div class="val">${formatCurrency(data.projectedRevenue.net)}</div><div class="lbl">Projected Revenue</div></div>`;
 
   const capacityWarningHtml=routeCapacityWarningHtml(activeManifestRouteId);
   const timeline=routeTimelineRows(activeManifestRouteId);
@@ -6504,9 +6518,9 @@ function exportExcel(options={}){
       'Windup Time (min)':parseFloat(durationToMinutes(r.windupTime).toFixed(2))||0,
       'Estimated Route Time':fmtMinutes(routeTotalMinutes(r.id)),
       'Estimated Miles':parseFloat(routeDistanceMiles(r.id).toFixed(2)),
-      'BHL Projected Revenue':routeProjectedRevenue(r.id).hasBhl?parseFloat(routeProjectedRevenue(r.id).net.toFixed(2)):'',
-      'BHL Gross Revenue':routeProjectedRevenue(r.id).hasBhl?parseFloat(routeProjectedRevenue(r.id).grossRevenue.toFixed(2)):'',
-      'BHL Route Cost':routeProjectedRevenue(r.id).hasBhl?parseFloat(routeProjectedRevenue(r.id).cost.toFixed(2)):'',
+      'BHL Projected Revenue':parseFloat(routeProjectedRevenue(r.id,exportStops).net.toFixed(2)),
+      'BHL Gross Revenue':parseFloat(routeProjectedRevenue(r.id,exportStops).grossRevenue.toFixed(2)),
+      'BHL Incremental Cost':parseFloat(routeProjectedRevenue(r.id,exportStops).cost.toFixed(2)),
       'Number of Stops':rs.length,
       'Total Cases':rs.reduce((a,s)=>a+tCases(s),0),
       'Total Weight':parseFloat(rs.reduce((a,s)=>a+tWeight(s),0).toFixed(2)),
@@ -6551,11 +6565,11 @@ function exportExcel(options={}){
         'Route Number':r.routeTemplateKey||'',
         'Route Name':r.name||'',
         'Route Date':r.date||document.getElementById('route-date')?.value||'',
-        'BHL Projected Revenue':routeProjectedRevenue(r.id).hasBhl?parseFloat(routeProjectedRevenue(r.id).net.toFixed(2)):'',
-        'BHL Gross Revenue':routeProjectedRevenue(r.id).hasBhl?parseFloat(routeProjectedRevenue(r.id).grossRevenue.toFixed(2)):'',
-        'BHL Route Cost':routeProjectedRevenue(r.id).hasBhl?parseFloat(routeProjectedRevenue(r.id).cost.toFixed(2)):'',
-        'BHL Cost Per Mile':routeProjectedRevenue(r.id).hasBhl?parseFloat(bhlCostPerMile.toFixed(2)):'',
-        'BHL Revenue Per Case':routeProjectedRevenue(r.id).hasBhl?parseFloat(bhlRevenuePerCase.toFixed(2)):'',
+        'BHL Projected Revenue':parseFloat(routeProjectedRevenue(r.id,exportStops).net.toFixed(2)),
+        'BHL Gross Revenue':parseFloat(routeProjectedRevenue(r.id,exportStops).grossRevenue.toFixed(2)),
+        'BHL Incremental Cost':parseFloat(routeProjectedRevenue(r.id,exportStops).cost.toFixed(2)),
+        'BHL Cost Per Mile':routeProjectedRevenue(r.id,exportStops).hasBhl?parseFloat(bhlCostPerMile.toFixed(2)):'',
+        'BHL Revenue Per Case':routeProjectedRevenue(r.id,exportStops).hasBhl?parseFloat(bhlRevenuePerCase.toFixed(2)):'',
         'Driver Name':dname,
         'Driver Key':r.driverKey||'',
         'Truck Key':r.truckKey||'',
