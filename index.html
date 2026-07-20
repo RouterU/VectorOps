@@ -184,6 +184,12 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
 .manifest-stat{background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:8px;text-align:center;}
 .manifest-stat .val{font-family:'DM Mono',monospace;font-size:15px;color:var(--text1);font-weight:600;}
 .manifest-stat .lbl{font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.4px;margin-top:2px;}
+.projected-revenue-positive{background:rgba(62,207,142,.18)!important;border-color:var(--success)!important;box-shadow:inset 0 0 0 1px rgba(62,207,142,.22);}
+.projected-revenue-positive .val{color:var(--success)!important;}
+.projected-revenue-warning{background:rgba(245,158,11,.18)!important;border-color:var(--warn)!important;box-shadow:inset 0 0 0 1px rgba(245,158,11,.22);}
+.projected-revenue-warning .val{color:var(--warn)!important;}
+.projected-revenue-negative{background:rgba(239,68,68,.20)!important;border-color:var(--danger)!important;box-shadow:inset 0 0 0 1px rgba(239,68,68,.25);}
+.projected-revenue-negative .val{color:#fecaca!important;}
 .manifest-route-list{border:1px solid var(--border);border-radius:10px;background:var(--bg2);max-height:62vh;overflow:auto;}
 .manifest-row{display:grid;grid-template-columns:60px 420px 150px 90px 110px 90px 95px 95px 90px 95px 95px 80px 220px 120px;gap:10px;align-items:center;padding:9px 12px;border-bottom:1px solid var(--border);font-size:11px;min-width:2050px;}
 .manifest-row:last-child{border-bottom:none;}
@@ -575,6 +581,13 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
       <div style="font-size:10px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;">Backhaul Import Filters</div>
       <div style="font-size:9px;color:var(--text3);margin-bottom:9px;">These filters only apply to Backhauls mode. Blank values import/display all matching rows.</div>
 
+      <div class="shdr" style="margin-top:0;">BHL Cost Analysis</div>
+      <div class="input-row" style="margin-bottom:8px;">
+        <div class="field"><label>Cost Per Mile</label><input id="bh-cost-per-mile" inputmode="decimal" placeholder="Example: $2.15 or 215¢"/></div>
+        <div class="field"><label>Revenue Per Case</label><input id="bh-revenue-per-case" inputmode="decimal" placeholder="Example: $.75 or 75¢"/></div>
+      </div>
+      <div style="font-size:9px;color:var(--text3);margin-top:-4px;margin-bottom:10px;">Used for projected net revenue: routed BHL cases × revenue per case − route miles × cost per mile. Dollar signs, decimals, cents symbols, and the word “cents” are accepted.</div>
+
       <div class="shdr" style="margin-top:0;">Vendor Import / 3PL Lanes Filter</div>
       <div class="input-row" style="margin-bottom:8px;">
         <div class="field"><label>Vendor Import Option</label>
@@ -918,6 +931,8 @@ let routes=[], stops=[], trucks=[], depotLocations=[], cancelledOrders=[];
 let bhlDepotAnalysisReport=null;
 let bhlBuildRoutesReport=null;
 let sessionRegionCode='';
+let bhlCostPerMile=0;
+let bhlRevenuePerCase=0;
 let mapCleared=false;
 const visibleStopIds=new Set();
 const visibleRouteIds=new Set();
@@ -1073,6 +1088,46 @@ function routeColor(routeId){const i=routes.findIndex(r=>r.id===routeId);return 
 function tCases(s){return(s.dryCases||0)+(s.coolerCases||0)+(s.frozenCases||0)+(s.pkgCases||0);}
 function tWeight(s){return(s.dryWeight||0)+(s.coolerWeight||0)+(s.frozenWeight||0)+(s.pkgWeight||0);}
 function tCube(s){return(s.dryCube||0)+(s.coolerCube||0)+(s.frozenCube||0)+(s.pkgCube||0);}
+function parseMoneyInput(value){
+  const raw=String(value??'').trim().toLowerCase();
+  if(!raw)return 0;
+  const isCents=raw.includes('¢')||raw.includes('cent');
+  const n=parseFloat(raw.replace(/[$,¢]/g,'').replace(/cents?/g,'').trim());
+  if(!isFinite(n)||n<0)return 0;
+  return isCents?n/100:n;
+}
+function formatCurrency(value){
+  const n=parseFloat(value)||0;
+  return n.toLocaleString(undefined,{style:'currency',currency:'USD',minimumFractionDigits:2,maximumFractionDigits:2});
+}
+function projectedRevenueClass(value){
+  const n=parseFloat(value)||0;
+  if(n>=149.99)return 'projected-revenue-positive';
+  if(n>=49.99)return 'projected-revenue-warning';
+  return 'projected-revenue-negative';
+}
+function routeBhlStops(routeId){
+  return stops.filter(s=>String(s.routeId||'')===String(routeId)&&isBackhaulPickupStop(s));
+}
+function routeProjectedRevenue(routeId){
+  const bhlStops=routeBhlStops(routeId);
+  if(!bhlStops.length)return {hasBhl:false,cases:0,grossRevenue:0,cost:0,net:0,miles:0};
+  const cases=bhlStops.reduce((a,s)=>a+tCases(s),0);
+  const miles=routeDistanceMiles(routeId);
+  const grossRevenue=cases*bhlRevenuePerCase;
+  const cost=miles*bhlCostPerMile;
+  return {hasBhl:true,cases,grossRevenue,cost,net:grossRevenue-cost,miles};
+}
+function sessionBhlProjectedRevenue(routeList=routes,stopList=stops){
+  const allowedRouteIds=new Set((routeList||[]).map(r=>String(r.id)));
+  return (routeList||[]).reduce((total,r)=>{
+    if(!allowedRouteIds.has(String(r.id)))return total;
+    const bhlStops=(stopList||[]).filter(s=>String(s.routeId||'')===String(r.id)&&isBackhaulPickupStop(s));
+    if(!bhlStops.length)return total;
+    const cases=bhlStops.reduce((a,s)=>a+tCases(s),0);
+    return total+(cases*bhlRevenuePerCase-routeDistanceMiles(r.id)*bhlCostPerMile);
+  },0);
+}
 function routeLoadTotals(routeId){
   const rs=stops.filter(s=>s.routeId===routeId);
   return {
@@ -1614,6 +1669,7 @@ function renderStats(){
     <div class="stat"><div class="stat-val">${tc.toLocaleString()}</div><div class="stat-lbl">Cases</div></div>
     <div class="stat"><div class="stat-val">${Math.round(tw).toLocaleString()}</div><div class="stat-lbl">Weight</div></div>
     <div class="stat"><div class="stat-val">${tcu.toFixed(1)}</div><div class="stat-lbl">Cube</div></div>
+    <div class="stat ${projectedRevenueClass(sessionBhlProjectedRevenue())}"><div class="stat-val">${formatCurrency(sessionBhlProjectedRevenue())}</div><div class="stat-lbl">BHL Projected Revenue</div></div>
     <div class="stat" style="display:flex;align-items:center;justify-content:center;"><button class="btn" style="padding:3px 8px;font-size:10px;" onclick="clearAllFilters()">Clear Filters</button></div>
     <div class="stat" style="margin-left:auto;display:flex;align-items:center;justify-content:center;gap:6px;min-width:250px;">
       <button class="btn" style="padding:3px 8px;font-size:10px;" onclick="saveWorkSession()" title="Download the current routing session as a local JSON backup file">Save Work</button>
@@ -3209,7 +3265,8 @@ function routeManifestStats(routeId){
     time:routeTotalMinutes(routeId),
     miles:routeDistanceMiles(routeId),
     start:route?routeStartTime(route):'',
-    end:route?routeEndEstimate(routeId):''
+    end:route?routeEndEstimate(routeId):'',
+    projectedRevenue:routeProjectedRevenue(routeId)
   };
 }
 function renderRouteManifest(){
@@ -3225,7 +3282,8 @@ function renderRouteManifest(){
     <div class="manifest-stat"><div class="val">${fmtMinutes(data.time)}</div><div class="lbl">Time</div></div>
     <div class="manifest-stat"><div class="val">${data.miles.toFixed(1)}</div><div class="lbl">Miles</div></div>
     <div class="manifest-stat"><div class="val">${cleanTimeValue(data.start)||'—'}</div><div class="lbl">Start Time</div></div>
-    <div class="manifest-stat"><div class="val">${cleanTimeValue(data.end)||'—'}</div><div class="lbl">Stop Time</div></div>`;
+    <div class="manifest-stat"><div class="val">${cleanTimeValue(data.end)||'—'}</div><div class="lbl">Stop Time</div></div>
+    <div class="manifest-stat ${projectedRevenueClass(data.projectedRevenue.net)}" title="BHL revenue ${formatCurrency(data.projectedRevenue.grossRevenue)} minus route cost ${formatCurrency(data.projectedRevenue.cost)}"><div class="val">${data.projectedRevenue.hasBhl?formatCurrency(data.projectedRevenue.net):'—'}</div><div class="lbl">Projected Revenue</div></div>`;
 
   const capacityWarningHtml=routeCapacityWarningHtml(activeManifestRouteId);
   const timeline=routeTimelineRows(activeManifestRouteId);
@@ -3894,6 +3952,10 @@ function openImport(){
   if(importRouteDateEl) importRouteDateEl.value=document.getElementById('route-date')?.value||new Date().toISOString().slice(0,10);
   const importRegionCodeEl=document.getElementById('import-region-code');
   if(importRegionCodeEl) importRegionCodeEl.value=sessionRegionCode||importRegionCodeEl.value||'';
+  const bhCostEl=document.getElementById('bh-cost-per-mile');
+  if(bhCostEl)bhCostEl.value=bhlCostPerMile?String(bhlCostPerMile):'';
+  const bhRevenueEl=document.getElementById('bh-revenue-per-case');
+  if(bhRevenueEl)bhRevenueEl.value=bhlRevenuePerCase?String(bhlRevenuePerCase):'';
   setImportMode(['stops','backhauls','bhlroutes'].includes(importMode)?importMode:'all');
 }
 
@@ -4164,6 +4226,8 @@ function confirmImport(){
       lc=summary.depots;
       window.lastBhlRouteImportSummary=summary;
     }else if(importMode==='backhauls'){
+      bhlCostPerMile=parseMoneyInput(document.getElementById('bh-cost-per-mile')?.value);
+      bhlRevenuePerCase=parseMoneyInput(document.getElementById('bh-revenue-per-case')?.value);
       let backhaulSheets=sheets.filter(x=>x.type==='backhauls' && (x.name||'').toLowerCase().trim()==='3pl lanes');
       if(!backhaulSheets.length)backhaulSheets=sheets.filter(x=>x.type==='backhauls');
       if(!backhaulSheets.length && sheets.length===1)backhaulSheets=sheets;
@@ -5319,6 +5383,8 @@ function buildWorkSessionPayload(){
       depotLocations:cleanSessionObjectForSave(depotLocations),
       cancelledOrders:cleanSessionObjectForSave(cancelledOrders),
       sessionRegionCode,
+      bhlCostPerMile,
+      bhlRevenuePerCase,
       potColors:cleanSessionObjectForSave(potColors),
       potRouteSuggestions:cleanSessionObjectForSave(potRouteSuggestions)
     },
@@ -5389,6 +5455,8 @@ function restoreWorkSessionPayload(payload){
   depotLocations=Array.isArray(payload.data.depotLocations)?payload.data.depotLocations:[];
   cancelledOrders=Array.isArray(payload.data.cancelledOrders)?payload.data.cancelledOrders:[];
   sessionRegionCode=payload.data.sessionRegionCode||'';
+  bhlCostPerMile=parseFloat(payload.data.bhlCostPerMile)||0;
+  bhlRevenuePerCase=parseFloat(payload.data.bhlRevenuePerCase)||0;
   potColors=payload.data.potColors||{};
   potRouteSuggestions=payload.data.potRouteSuggestions||{};
 
@@ -6402,12 +6470,16 @@ function exportExcel(options={}){
   const totalRunMinutes=usedRoutes.reduce((a,r)=>a+routeTotalMinutes(r.id),0);
   const totalCasesShipped=routedStops.reduce((a,s)=>a+tCases(s),0);
   const totalMiles=usedRoutes.reduce((a,r)=>a+routeDistanceMiles(r.id),0);
-  const totalAddedBhl=stops.filter(s=>String(s.stopType||'').trim().toUpperCase()==='ADDED BHL').length;
+  const totalAddedBhl=exportStops.filter(s=>String(s.stopType||'').trim().toUpperCase()==='ADDED BHL').length;
+  const totalBhlProjectedRevenue=sessionBhlProjectedRevenue(usedRoutes,exportStops);
   const totalsSummary=[{
     'Export Date':document.getElementById('route-date').value||new Date().toISOString().slice(0,10),
     'Number of Routes Used':usedRoutes.length,
     'Stops Routed':routedStops.length,
     "Added BHL's":totalAddedBhl,
+    'BHL Projected Revenue':parseFloat(totalBhlProjectedRevenue.toFixed(2)),
+    'BHL Cost Per Mile':parseFloat(bhlCostPerMile.toFixed(2)),
+    'BHL Revenue Per Case':parseFloat(bhlRevenuePerCase.toFixed(2)),
     'Total Run Time of Routes':fmtMinutes(totalRunMinutes),
     'Total Run Time Minutes':parseFloat(totalRunMinutes.toFixed(2)),
     'Total Cases Shipped':totalCasesShipped,
@@ -6432,6 +6504,9 @@ function exportExcel(options={}){
       'Windup Time (min)':parseFloat(durationToMinutes(r.windupTime).toFixed(2))||0,
       'Estimated Route Time':fmtMinutes(routeTotalMinutes(r.id)),
       'Estimated Miles':parseFloat(routeDistanceMiles(r.id).toFixed(2)),
+      'BHL Projected Revenue':routeProjectedRevenue(r.id).hasBhl?parseFloat(routeProjectedRevenue(r.id).net.toFixed(2)):'',
+      'BHL Gross Revenue':routeProjectedRevenue(r.id).hasBhl?parseFloat(routeProjectedRevenue(r.id).grossRevenue.toFixed(2)):'',
+      'BHL Route Cost':routeProjectedRevenue(r.id).hasBhl?parseFloat(routeProjectedRevenue(r.id).cost.toFixed(2)):'',
       'Number of Stops':rs.length,
       'Total Cases':rs.reduce((a,s)=>a+tCases(s),0),
       'Total Weight':parseFloat(rs.reduce((a,s)=>a+tWeight(s),0).toFixed(2)),
@@ -6476,6 +6551,11 @@ function exportExcel(options={}){
         'Route Number':r.routeTemplateKey||'',
         'Route Name':r.name||'',
         'Route Date':r.date||document.getElementById('route-date')?.value||'',
+        'BHL Projected Revenue':routeProjectedRevenue(r.id).hasBhl?parseFloat(routeProjectedRevenue(r.id).net.toFixed(2)):'',
+        'BHL Gross Revenue':routeProjectedRevenue(r.id).hasBhl?parseFloat(routeProjectedRevenue(r.id).grossRevenue.toFixed(2)):'',
+        'BHL Route Cost':routeProjectedRevenue(r.id).hasBhl?parseFloat(routeProjectedRevenue(r.id).cost.toFixed(2)):'',
+        'BHL Cost Per Mile':routeProjectedRevenue(r.id).hasBhl?parseFloat(bhlCostPerMile.toFixed(2)):'',
+        'BHL Revenue Per Case':routeProjectedRevenue(r.id).hasBhl?parseFloat(bhlRevenuePerCase.toFixed(2)):'',
         'Driver Name':dname,
         'Driver Key':r.driverKey||'',
         'Truck Key':r.truckKey||'',
