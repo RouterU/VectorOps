@@ -128,7 +128,7 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
 /* Map */
 .map-area{flex:1;position:relative;}
 #map{width:100%;height:100%;}
-.map-legend{position:absolute;top:10px;right:10px;background:rgba(23,27,37,.93);border:1px solid var(--border);border-radius:8px;padding:8px 12px;z-index:500;min-width:130px;max-height:260px;overflow-y:auto;}
+.map-legend{position:absolute;top:58px;right:10px;background:rgba(23,27,37,.93);border:1px solid var(--border);border-radius:8px;padding:8px 12px;z-index:500;min-width:130px;max-height:260px;overflow-y:auto;}
 .map-legend-title{font-size:10px;font-weight:600;color:var(--text2);margin-bottom:5px;text-transform:uppercase;letter-spacing:.5px;}
 .legend-item{display:flex;align-items:center;gap:6px;margin-bottom:3px;}
 .legend-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0;}
@@ -554,7 +554,7 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
       <div style="font-size:10px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:7px;">Export Info</div>
       <div class="input-row" style="margin-bottom:0;">
         <div class="field"><label>Route Date <span style="font-weight:400;color:var(--text3);">(re-dates routes only)</span></label><input type="date" id="import-route-date"/></div>
-        <div class="field"><label>Region Code</label><input type="text" id="import-region-code" placeholder="Enter Region Code"/></div>
+        <div class="field"><label>Region Code</label><input type="text" id="import-region-code" placeholder="Example: 9V or 2Z"/></div>
       </div>
       <div style="font-size:9px;color:var(--text3);margin-top:6px;">Route Date changes imported routes only. Orders keep their imported Earliest/Latest Time Window dates. Region Code exports to the Output File worksheet in column B: Region Code.</div>
     </div>
@@ -2341,18 +2341,40 @@ function removeStopFromSession(){
 function removeRouteFromSession(){
   const route=routes.find(r=>r.id===activeDetailRouteId);
   if(!route){showToast('Route not found');return;}
-  const assignedCount=stops.filter(s=>s.routeId===route.id).length;
-  const msg=assignedCount
-    ? `Remove ${route.name||'this route'} from this routing session?\n\n${assignedCount} assigned stop(s) will become unassigned.`
-    : `Remove ${route.name||'this route'} from this routing session?`;
-  if(!confirm(msg))return;
 
-  stops.forEach(s=>{
-    if(s.routeId===route.id){
+  const routeStops=stops.filter(s=>s.routeId===route.id);
+  let removeAssignedStops=false;
+
+  if(routeStops.length){
+    removeAssignedStops=confirm(
+      `There are ${routeStops.length} order stop(s) on ${route.name||'this route'}.\n\n`+
+      `Would you like those removed from the session as well?\n\n`+
+      `Select OK for Yes. Select Cancel for No; the orders will be moved to Unassigned Stops.`
+    );
+  }else if(!confirm(`Remove ${route.name||'this route'} from this routing session?`)){
+    return;
+  }
+
+  if(removeAssignedStops){
+    const removedStopIds=new Set(routeStops.map(s=>s.id));
+    stops=stops.filter(s=>!removedStopIds.has(s.id));
+    routeStops.forEach(s=>{
+      visibleStopIds.delete(s.id);
+      delete potColors[s.id];
+      delete potRouteSuggestions[s.id];
+      lassoSelectedStopIds.delete(s.id);
+      if(markers[s.id]){
+        try{map.removeLayer(markers[s.id]);}catch(e){}
+        delete markers[s.id];
+      }
+    });
+  }else{
+    routeStops.forEach(s=>{
       s.routeId=null;
       s.seq=0;
-    }
-  });
+      s.uiChecked=false;
+    });
+  }
 
   routes=routes.filter(r=>r.id!==route.id);
   expanded.delete(route.id);
@@ -2380,7 +2402,14 @@ function removeRouteFromSession(){
   closeModal('route-manifest-modal');
   reseq();
   render();
-  showToast('Route removed from session');
+
+  if(routeStops.length){
+    showToast(removeAssignedStops
+      ? `Route and ${routeStops.length} order stop(s) removed from session`
+      : `Route removed; ${routeStops.length} order stop(s) moved to Unassigned Stops`);
+  }else{
+    showToast('Route removed from session');
+  }
 }
 
 function pointSegmentDistancePx(p,a,b){
