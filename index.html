@@ -4075,6 +4075,22 @@ function csvUpperValues(inputId){
 }
 function backhaulVendorFilterValues(){return csvUpperValues('bh-vendor-division-value');}
 function backhaulDepotFilterValues(){return csvUpperValues('bh-depot-filter-value');}
+function getDepotBranchFilterValue(row){
+  // Use an exact normalized header match first. The previous loose prefix match could
+  // select another Branch/Division-related column instead of column B "Branch (Division)".
+  const keys=Object.keys(row||{});
+  const exactAliases=['branchdivision','branchdivison','branchdivisioncode'];
+  for(const alias of exactAliases){
+    const key=keys.find(k=>normHeaderKey(k)===alias);
+    if(key!==undefined)return row[key];
+  }
+  // Backward-compatible fallbacks for templates that use a shorter header.
+  for(const alias of ['branch','division']){
+    const key=keys.find(k=>normHeaderKey(k)===alias);
+    if(key!==undefined)return row[key];
+  }
+  return '';
+}
 function backhaulRowMatchesVendorFilter(row){
   const mode=document.getElementById('bh-vendor-filter-mode')?.value||'all';
   if(mode==='all')return true;
@@ -4096,9 +4112,9 @@ function depotRowMatchesBackhaulFilter(row){
   if(!values.length)return true;
   const raw=field==='market'
     ? gcLoose(row,['Market'])
-    : gcLoose(row,['Branch (Division)','Branch (Divison)','Branch','Division']);
-  const val=sval(raw).toUpperCase();
-  return values.some(v=>val===v || val.includes(v));
+    : getDepotBranchFilterValue(row);
+  const val=sval(raw).trim().toUpperCase();
+  return values.some(v=>val===v);
 }
 function populateBackhaulFilterOptions(wb){
   populateBackhaulVendorFilterOptions(wb);
@@ -4126,7 +4142,7 @@ function populateBackhaulDepotFilterOptions(wb){
     list.innerHTML='';
     return;
   }
-  const vals=[...new Set(rows.map(r=>sval(field==='market'?gcLoose(r,['Market']):gcLoose(r,['Branch (Division)','Branch (Divison)','Branch','Division']))).filter(Boolean))].sort();
+  const vals=[...new Set(rows.map(r=>sval(field==='market'?gcLoose(r,['Market']):getDepotBranchFilterValue(r)).trim()).filter(Boolean))].sort();
   list.innerHTML=vals.map(v=>`<option value="${escapeHtml(v)}"></option>`).join('');
 }
 document.addEventListener('change',e=>{
@@ -4653,7 +4669,7 @@ function importDepots(data){
       id:existing?existing.id:uid(),
       locationKey,
       locationType:(gcLoose(row,['Location Type','LocationType','Location T'])||'').toString(),
-      branchDivision:(gcLoose(row,['Branch (Division)','Branch (Divison)','Branch','Division'])||'').toString(),
+      branchDivision:(getDepotBranchFilterValue(row)||'').toString(),
       market:(gcLoose(row,['Market'])||'').toString(),
       comment:(gc(row,['Comment'])||'').toString(),
       name:(gcLoose(row,['Name','name'])||'').toString(),
