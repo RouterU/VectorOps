@@ -3007,8 +3007,40 @@ function contextStreetViewStop(stopId){
   if(!stop||!stop.lat||!stop.lng){showToast('This stop does not have a valid latitude/longitude');return;}
   openStreetViewAt(stop.lat,stop.lng);
 }
-function openStreetViewAt(lat,lng){
-  const url=`https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${encodeURIComponent(lat)},${encodeURIComponent(lng)}`;
+async function openStreetViewAt(lat,lng){
+  const originalLat=parseFloat(lat);
+  const originalLng=parseFloat(lng);
+  if(!isFinite(originalLat)||!isFinite(originalLng)){
+    showToast('Street View needs a valid latitude/longitude');
+    return;
+  }
+
+  // Customer coordinates can land on a building footprint. Before opening
+  // Google Street View, snap the point to the nearest drivable road using
+  // OSRM's nearest-road service. If that lookup is unavailable, fall back
+  // to the original coordinates so Street View still behaves as it did before.
+  let streetLat=originalLat;
+  let streetLng=originalLng;
+  try{
+    const nearestUrl=`https://router.project-osrm.org/nearest/v1/driving/${encodeURIComponent(originalLng)},${encodeURIComponent(originalLat)}?number=1`;
+    const response=await fetch(nearestUrl,{method:'GET'});
+    if(response.ok){
+      const data=await response.json();
+      const location=data?.waypoints?.[0]?.location;
+      if(Array.isArray(location)&&location.length>=2){
+        const snappedLng=parseFloat(location[0]);
+        const snappedLat=parseFloat(location[1]);
+        if(isFinite(snappedLat)&&isFinite(snappedLng)){
+          streetLat=snappedLat;
+          streetLng=snappedLng;
+        }
+      }
+    }
+  }catch(err){
+    console.warn('Nearest-road Street View snap unavailable; using original coordinates.',err);
+  }
+
+  const url=`https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${encodeURIComponent(streetLat)},${encodeURIComponent(streetLng)}`;
   window.open(url,'_blank','noopener,noreferrer');
 }
 function enableStreetViewPicker(){
