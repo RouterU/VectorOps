@@ -1,0 +1,261 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<meta name="theme-color" content="#b91c1c" />
+<title>VectorOps Driver - Phase 1</title>
+<style>
+:root{
+  --red:#b91c1c;--red2:#991b1b;--bg:#0f1117;--panel:#171b25;--panel2:#202636;
+  --border:#343b51;--text:#f3f4f6;--muted:#a3abc0;--green:#22c55e;--amber:#f59e0b;--blue:#3b82f6;
+}
+*{box-sizing:border-box}
+body{
+  margin:0;background:var(--bg);color:var(--text);font-family:Arial,Helvetica,sans-serif;
+  min-height:100vh;-webkit-font-smoothing:antialiased;
+}
+.app{max-width:560px;margin:0 auto;min-height:100vh;background:var(--bg);padding-bottom:92px}
+header{
+  position:sticky;top:0;z-index:20;background:rgba(15,17,23,.97);border-bottom:1px solid var(--border);
+  padding:14px 16px 12px;
+}
+.brand{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.logo{font-weight:900;font-size:20px;letter-spacing:-.5px}.logo span{color:#ef4444}
+.status-pill{font-size:11px;font-weight:800;border-radius:999px;padding:6px 9px;background:#30384c;color:#dbe2f1}
+.status-pill.active{background:rgba(34,197,94,.18);color:#86efac}
+.status-pill.complete{background:rgba(59,130,246,.18);color:#93c5fd}
+.content{padding:14px}
+.card{background:var(--panel);border:1px solid var(--border);border-radius:15px;padding:14px;margin-bottom:12px}
+.route-title{font-size:22px;font-weight:900;margin:0 0 4px}
+.sub{color:var(--muted);font-size:13px}
+.metrics{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:13px}
+.metric{background:var(--panel2);border-radius:11px;padding:10px;text-align:center}
+.metric b{display:block;font-size:16px}.metric span{display:block;color:var(--muted);font-size:10px;margin-top:3px;text-transform:uppercase}
+.progress-wrap{margin-top:13px}.progress-label{display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-bottom:6px}
+.progress{height:8px;background:#2a3040;border-radius:999px;overflow:hidden}.bar{height:100%;width:0;background:var(--red);transition:width .2s}
+.current-tag{font-size:11px;color:#fca5a5;font-weight:900;text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px}
+.customer{font-size:24px;font-weight:900;line-height:1.08}.address{color:var(--muted);margin:7px 0 12px;line-height:1.35}
+.info-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.info{background:var(--panel2);padding:10px;border-radius:10px}.info label{display:block;color:var(--muted);font-size:10px;text-transform:uppercase;margin-bottom:4px}.info b{font-size:14px}
+.actions{display:grid;grid-template-columns:1fr 1fr;gap:9px;margin-top:13px}
+button,.file-label{
+  min-height:49px;border:0;border-radius:11px;font-size:15px;font-weight:900;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;text-align:center;padding:10px;
+}
+button:disabled{opacity:.4;cursor:not-allowed}
+.primary{background:var(--red);color:#fff}.primary:active{background:var(--red2)}
+.secondary{background:#30384c;color:#fff}.success{background:var(--green);color:#07120a}.amber{background:var(--amber);color:#191000}
+.full{grid-column:1/-1}
+.stop-list{display:flex;flex-direction:column;gap:7px}
+.stop-row{display:grid;grid-template-columns:36px 1fr auto;gap:9px;align-items:center;background:var(--panel2);padding:10px;border-radius:10px}
+.seq{width:32px;height:32px;border-radius:50%;background:#343b51;display:flex;align-items:center;justify-content:center;font-weight:900}
+.stop-row.current{outline:2px solid var(--red)}.stop-row.done{opacity:.6}
+.stop-name{font-weight:800;font-size:13px}.stop-meta{font-size:11px;color:var(--muted);margin-top:2px}.stop-state{font-size:10px;font-weight:900}
+.dev{font-size:11px;color:#737c94;margin-top:10px;line-height:1.35}
+.bottom{
+  position:fixed;left:50%;bottom:0;transform:translateX(-50%);width:min(560px,100%);
+  background:rgba(15,17,23,.98);border-top:1px solid var(--border);padding:10px 14px calc(10px + env(safe-area-inset-bottom));
+  display:grid;grid-template-columns:1fr 1fr;gap:9px;z-index:30;
+}
+input[type=file]{display:none}
+.file-label{background:#30384c;color:#fff}
+.empty{text-align:center;color:var(--muted);padding:30px 10px}
+.toast{position:fixed;left:50%;bottom:92px;transform:translateX(-50%);background:#111827;border:1px solid #4b5563;color:white;border-radius:9px;padding:10px 13px;z-index:99;font-size:12px;display:none;max-width:90vw}
+@media(max-width:390px){.metrics{grid-template-columns:1fr 1fr}.metric:last-child{grid-column:1/-1}.actions{grid-template-columns:1fr}.full{grid-column:auto}}
+</style>
+</head>
+<body>
+<div class="app">
+<header>
+  <div class="brand">
+    <div class="logo"><span>Vector</span>Ops Driver</div>
+    <div id="routeStatus" class="status-pill">NO ROUTE</div>
+  </div>
+</header>
+
+<div class="content">
+  <section class="card">
+    <div id="routeTitle" class="route-title">No route loaded</div>
+    <div id="routeSub" class="sub">Load the sample route JSON or use the built-in demo.</div>
+    <div class="metrics">
+      <div class="metric"><b id="stopCount">0</b><span>Stops</span></div>
+      <div class="metric"><b id="caseCount">0</b><span>Cases</span></div>
+      <div class="metric"><b id="mileCount">0</b><span>Miles</span></div>
+    </div>
+    <div class="progress-wrap">
+      <div class="progress-label"><span>Route Progress</span><span id="progressText">0 / 0</span></div>
+      <div class="progress"><div id="progressBar" class="bar"></div></div>
+    </div>
+  </section>
+
+  <section id="currentCard" class="card">
+    <div class="empty">Load a route to begin.</div>
+  </section>
+
+  <section class="card">
+    <div style="font-size:13px;font-weight:900;margin-bottom:9px">Route Stops</div>
+    <div id="stopList" class="stop-list"><div class="empty">No route loaded.</div></div>
+  </section>
+
+  <section class="card">
+    <div style="font-size:13px;font-weight:900;margin-bottom:8px">Phase 1 Test Controls</div>
+    <label class="file-label" for="routeFile">Load Route JSON</label>
+    <input id="routeFile" type="file" accept=".json,application/json" />
+    <button id="loadDemo" class="secondary" style="width:100%;margin-top:8px">Load Built-in Demo Route</button>
+    <button id="resetRoute" class="secondary" style="width:100%;margin-top:8px">Reset Local Driver Session</button>
+    <div class="dev">
+      This Phase 1 prototype deliberately stores route execution locally on the phone/browser. The next integration step is replacing local storage with a shared API/database so the dispatcher sees these same updates live.
+    </div>
+  </section>
+</div>
+
+<div class="bottom">
+  <button id="mainAction" class="primary" disabled>START ROUTE</button>
+  <button id="navAction" class="secondary" disabled>NAVIGATE</button>
+</div>
+<div id="toast" class="toast"></div>
+</div>
+
+<script>
+const DEMO_ROUTE = {"routeId": "demo-3325", "routeNumber": "3325", "routeName": "HOL Louisville", "routeDate": "2026-08-12", "driver": "Demo Driver", "status": "ASSIGNED", "plannedStart": "07:00", "plannedFinish": "12:45", "totalMiles": 142.4, "totalCases": 287, "stops": [{"id": "stop-1", "sequence": 1, "customer": "ABC Restaurant", "locationKey": "10010001", "address": "123 Main St, Lockport, IL", "cases": 37, "window": "08:00 - 10:00", "plannedArrival": "08:15", "plannedServiceMinutes": 22, "lat": 41.5895, "lng": -88.0578, "status": "PENDING", "actualArrival": null, "actualDeparture": null}, {"id": "stop-2", "sequence": 2, "customer": "XYZ Grill", "locationKey": "10010002", "address": "15900 W 159th St, Homer Glen, IL", "cases": 54, "window": "09:00 - 11:30", "plannedArrival": "09:10", "plannedServiceMinutes": 28, "lat": 41.6039, "lng": -87.9975, "status": "PENDING", "actualArrival": null, "actualDeparture": null}, {"id": "stop-3", "sequence": 3, "customer": "Northside Market", "locationKey": "10010003", "address": "Orland Park, IL", "cases": 62, "window": "10:00 - 13:00", "plannedArrival": "10:35", "plannedServiceMinutes": 31, "lat": 41.6303, "lng": -87.8539, "status": "PENDING", "actualArrival": null, "actualDeparture": null}]};
+const STORE_KEY='vectorops_driver_phase1';
+let route=null;
+
+function nowStamp(){ return new Date().toISOString(); }
+function esc(v){ return String(v??'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
+function save(){ if(route)localStorage.setItem(STORE_KEY,JSON.stringify(route)); }
+function toast(msg){ const el=document.getElementById('toast'); el.textContent=msg; el.style.display='block'; clearTimeout(window.__tt); window.__tt=setTimeout(()=>el.style.display='none',2200); }
+
+function currentIndex(){
+  if(!route)return -1;
+  let idx=route.stops.findIndex(s=>s.status==='ARRIVED');
+  if(idx>=0)return idx;
+  idx=route.stops.findIndex(s=>s.status!=='COMPLETE');
+  return idx;
+}
+function completedCount(){ return route?route.stops.filter(s=>s.status==='COMPLETE').length:0; }
+
+function normalizeRoute(r){
+  r=JSON.parse(JSON.stringify(r));
+  r.status=r.status||'ASSIGNED';
+  r.stops=(r.stops||[]).map((s,i)=>({
+    ...s,sequence:s.sequence??i+1,status:s.status||'PENDING',
+    actualArrival:s.actualArrival||null,actualDeparture:s.actualDeparture||null
+  }));
+  return r;
+}
+
+function loadRoute(r){
+  route=normalizeRoute(r);
+  save(); render(); toast('Route loaded');
+}
+
+function render(){
+  const status=document.getElementById('routeStatus');
+  const main=document.getElementById('mainAction');
+  const nav=document.getElementById('navAction');
+
+  if(!route){
+    status.textContent='NO ROUTE'; status.className='status-pill';
+    main.disabled=true;nav.disabled=true;
+    return;
+  }
+
+  document.getElementById('routeTitle').textContent=`${route.routeName||'Route'} - ${route.routeNumber||route.routeId||''}`;
+  document.getElementById('routeSub').textContent=`${route.routeDate||''} • ${route.driver||'Unassigned Driver'} • Planned ${route.plannedStart||'--'} - ${route.plannedFinish||'--'}`;
+  document.getElementById('stopCount').textContent=route.stops.length;
+  document.getElementById('caseCount').textContent=route.totalCases ?? route.stops.reduce((a,s)=>a+(Number(s.cases)||0),0);
+  document.getElementById('mileCount').textContent=Number(route.totalMiles||0).toFixed(1);
+
+  const done=completedCount(), total=route.stops.length;
+  document.getElementById('progressText').textContent=`${done} / ${total}`;
+  document.getElementById('progressBar').style.width=(total?done/total*100:0)+'%';
+
+  status.textContent=route.status.replaceAll('_',' ');
+  status.className='status-pill '+(route.status==='IN_PROGRESS'?'active':route.status==='COMPLETE'?'complete':'');
+
+  const idx=currentIndex(), stop=idx>=0?route.stops[idx]:null;
+  const current=document.getElementById('currentCard');
+
+  if(route.status==='ASSIGNED'){
+    current.innerHTML=`<div class="current-tag">Assigned Route</div><div class="customer">Ready to begin</div><div class="address">Start the route when the driver is ready to depart.</div>`;
+    main.textContent='START ROUTE'; main.className='primary'; main.disabled=false; nav.disabled=true;
+  } else if(route.status==='COMPLETE' || !stop){
+    current.innerHTML=`<div class="current-tag">Route Complete</div><div class="customer">All stops completed</div><div class="address">Route execution has been recorded in this browser session.</div>`;
+    main.textContent='ROUTE COMPLETE';main.disabled=true;nav.disabled=true;
+  } else {
+    const arrived=stop.status==='ARRIVED';
+    current.innerHTML=`
+      <div class="current-tag">Stop ${esc(stop.sequence)} of ${total}</div>
+      <div class="customer">${esc(stop.customer)}</div>
+      <div class="address">${esc(stop.address)}</div>
+      <div class="info-grid">
+        <div class="info"><label>Cases</label><b>${esc(stop.cases||0)}</b></div>
+        <div class="info"><label>Window</label><b>${esc(stop.window||'—')}</b></div>
+        <div class="info"><label>Planned Arrival</label><b>${esc(stop.plannedArrival||'—')}</b></div>
+        <div class="info"><label>Service</label><b>${esc(stop.plannedServiceMinutes||0)} min</b></div>
+      </div>
+      ${stop.actualArrival?`<div class="dev">Actual arrival: ${new Date(stop.actualArrival).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'})}</div>`:''}
+    `;
+    main.textContent=arrived?'COMPLETE STOP':'ARRIVED';
+    main.className=arrived?'success':'amber';
+    main.disabled=false;nav.disabled=false;
+  }
+
+  const list=document.getElementById('stopList');
+  list.innerHTML=route.stops.map((s,i)=>{
+    const isCurrent=i===idx && route.status==='IN_PROGRESS';
+    const state=s.status==='COMPLETE'?'COMPLETE':s.status==='ARRIVED'?'AT STOP':'PENDING';
+    return `<div class="stop-row ${isCurrent?'current':''} ${s.status==='COMPLETE'?'done':''}">
+      <div class="seq">${esc(s.sequence)}</div>
+      <div><div class="stop-name">${esc(s.customer)}</div><div class="stop-meta">${esc(s.cases||0)} cases • ${esc(s.window||'No window')}</div></div>
+      <div class="stop-state">${state}</div>
+    </div>`;
+  }).join('');
+}
+
+document.getElementById('mainAction').addEventListener('click',()=>{
+  if(!route)return;
+  if(route.status==='ASSIGNED'){
+    route.status='IN_PROGRESS'; route.actualStart=nowStamp(); save();render();toast('Route started');return;
+  }
+  const idx=currentIndex(); if(idx<0)return;
+  const s=route.stops[idx];
+  if(s.status!=='ARRIVED'){
+    s.status='ARRIVED';s.actualArrival=nowStamp();save();render();toast(`Arrived at stop ${s.sequence}`);
+  } else {
+    s.status='COMPLETE';s.actualDeparture=nowStamp();
+    if(completedCount()===route.stops.length){route.status='COMPLETE';route.actualFinish=nowStamp();}
+    save();render();toast(`Stop ${s.sequence} completed`);
+  }
+});
+
+document.getElementById('navAction').addEventListener('click',()=>{
+  if(!route)return;
+  const idx=currentIndex(); if(idx<0)return;
+  const s=route.stops[idx];
+  let q='';
+  if(Number.isFinite(Number(s.lat))&&Number.isFinite(Number(s.lng))) q=`${s.lat},${s.lng}`;
+  else q=s.address||s.customer||'';
+  window.open(`https://www.google.com/maps/dir/?api=1&destination=${encodeURIComponent(q)}`,'_blank','noopener,noreferrer');
+});
+
+document.getElementById('routeFile').addEventListener('change',async e=>{
+  const f=e.target.files?.[0]; if(!f)return;
+  try{ loadRoute(JSON.parse(await f.text())); }catch(err){ toast('Could not read route JSON'); }
+  e.target.value='';
+});
+document.getElementById('loadDemo').addEventListener('click',()=>loadRoute(DEMO_ROUTE));
+document.getElementById('resetRoute').addEventListener('click',()=>{
+  localStorage.removeItem(STORE_KEY);route=null;location.reload();
+});
+
+try{
+  const stored=localStorage.getItem(STORE_KEY);
+  if(stored){route=normalizeRoute(JSON.parse(stored));render();}
+}catch(e){}
+render();
+</script>
+</body>
+</html>
