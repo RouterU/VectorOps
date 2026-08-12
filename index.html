@@ -785,9 +785,28 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
     <div id="route-detail-body"></div>
     <div class="modal-actions">
       <button class="btn" style="margin-right:auto;background:#ef4444;border-color:#ef4444;color:#fff;" onclick="removeRouteFromSession()">Remove From Session</button>
+      <button class="btn primary" onclick="openDriverAssignmentFromDetail()">Assign to Driver</button>
       <button class="btn" onclick="openRouteManifestFromDetail()">Open Manifest</button>
       <button class="btn" onclick="closeModal('route-detail-modal')">Close</button>
       <button class="btn primary" onclick="saveRouteDetail()">Save Changes</button>
+    </div>
+  </div>
+</div>
+
+<!-- Driver Assignment Modal -->
+<div id="driver-assignment-modal" style="display:none" class="modal-overlay">
+  <div class="modal">
+    <h2 id="driver-assignment-title">Assign Route to Driver</h2>
+    <div class="job-result" style="margin-bottom:10px;">
+      Creates a Driver Mode route package from the current VectorOps route. In this phase, download the JSON file and load it from the Driver page. A shared database/API will replace this manual handoff in the next phase.
+    </div>
+    <div class="input-row">
+      <div class="field"><label>Driver Name *</label><input id="driver-assignment-name" placeholder="Driver name"/></div>
+    </div>
+    <div id="driver-assignment-summary" class="job-result"></div>
+    <div class="modal-actions">
+      <button class="btn" onclick="closeModal('driver-assignment-modal')">Cancel</button>
+      <button class="btn success" onclick="downloadDriverRoutePackage()">Assign &amp; Download Route</button>
     </div>
   </div>
 </div>
@@ -939,6 +958,7 @@ const visibleRouteIds=new Set();
 const visibleDepotIds=new Set();
 let importedDepotsVisible=true;
 let activeManifestRouteId=null, activeDetailStopId=null, activeDetailRouteId=null, manifestDragStopId=null;
+let activeDriverAssignmentRouteId=null;
 let pendingOptimizationMode='selected';
 let appTab='routing', importMode='all', pendingWB=null;
 let dragState=null, map, markers={}, polylines={}, roadPolylines={}, expanded=new Set();
@@ -1760,7 +1780,7 @@ function renderRoutes(){
       <div class="r-header" onclick="openRouteDetail('${r.id}')">
         <div class="r-colorbar" style="background:${color}"></div>
         <div class="r-info">
-          <div class="r-name">${r.name}${r.published?'<span style="display:inline-block;margin-left:6px;padding:1px 6px;border-radius:6px;background:rgba(62,207,142,.16);border:1px solid rgba(62,207,142,.45);color:var(--success);font-size:9px;font-weight:800;box-shadow:0 3px 10px rgba(0,0,0,.35);vertical-align:middle;">Published</span>':''}</div>
+          <div class="r-name">${r.name}${r.published?'<span style="display:inline-block;margin-left:6px;padding:1px 6px;border-radius:6px;background:rgba(62,207,142,.16);border:1px solid rgba(62,207,142,.45);color:var(--success);font-size:9px;font-weight:800;box-shadow:0 3px 10px rgba(0,0,0,.35);vertical-align:middle;">Published</span>':''}${r.driverAssignmentName?`<span style="display:inline-block;margin-left:6px;padding:1px 6px;border-radius:6px;background:rgba(79,140,255,.16);border:1px solid rgba(79,140,255,.45);color:var(--accent);font-size:9px;font-weight:800;vertical-align:middle;">Driver: ${escapeHtml(r.driverAssignmentName)}</span>`:''}</div>
           <div class="r-meta">${rStops.length} stops &middot; ${cs}cs &middot; ${Math.round(wt)}lbs &middot; ${cu.toFixed(1)}cu &middot; ${routeDistanceMiles(r.id).toFixed(1)}mi &middot; ${fmtMinutes(routeTotalMinutes(r.id))} &middot; ${dname}</div>
           <div class="r-timing">${fmtTiming(r)}${r.udfNumber1?' · UDF#1:'+r.udfNumber1:''}${r.initialLocationKey||r.finalLocationKey?' · Depot '+(r.initialLocationKey||'—')+' → '+(r.finalLocationKey||'—'):''}</div>
         </div>
@@ -2314,6 +2334,116 @@ function openRouteManifestFromDetail(){
   const routeId=activeDetailRouteId;
   closeModal('route-detail-modal');
   if(routeId)openRouteManifest(routeId);
+}
+
+// ============================================================
+// DRIVER MODE ASSIGNMENT / ROUTE PACKAGE
+// ============================================================
+function routeDefaultDriverName(route){
+  if(!route)return '';
+  if(route.driverAssignmentName)return route.driverAssignmentName;
+  const direct=[route.driverFirstName,route.driverLastName].filter(Boolean).join(' ').trim();
+  if(direct)return direct;
+  const truck=trucks.find(d=>d.truckKey===route.truckKey||d.driverKey===route.driverKey);
+  return (truck?.name||'').toString().trim();
+}
+function openDriverAssignmentFromDetail(){
+  const routeId=activeDetailRouteId;
+  if(!routeId){showToast('Route not found');return;}
+  closeModal('route-detail-modal');
+  openDriverAssignment(routeId);
+}
+function openDriverAssignment(routeId){
+  const route=routes.find(r=>r.id===routeId);
+  if(!route){showToast('Route not found');return;}
+  const routeStops=stops.filter(s=>s.routeId===routeId).sort((a,b)=>(a.seq||0)-(b.seq||0));
+  if(!routeStops.length){showToast('Add at least one stop before assigning this route to a driver');return;}
+  activeDriverAssignmentRouteId=routeId;
+  const driverName=routeDefaultDriverName(route);
+  const title=document.getElementById('driver-assignment-title');
+  const nameInput=document.getElementById('driver-assignment-name');
+  const summary=document.getElementById('driver-assignment-summary');
+  if(title)title.textContent=`Assign to Driver: ${route.name||route.udfNumber1||'Route'}`;
+  if(nameInput)nameInput.value=driverName;
+  const cases=routeStops.reduce((a,s)=>a+tCases(s),0);
+  if(summary)summary.innerHTML=`<strong>Route:</strong> ${escapeHtml(route.name||'Route')}${route.udfNumber1?` (${escapeHtml(route.udfNumber1)})`:''}<br/><strong>Stops:</strong> ${routeStops.length}<br/><strong>Cases:</strong> ${cases.toLocaleString()}<br/><strong>Planned Miles:</strong> ${routeDistanceMiles(routeId).toFixed(1)}<br/><strong>Planned Start:</strong> ${escapeHtml(routeStartTime(route)||'—')}<br/><strong>Estimated Finish:</strong> ${escapeHtml(routeEndEstimate(routeId)||'—')}`;
+  document.getElementById('driver-assignment-modal').style.display='flex';
+  setTimeout(()=>nameInput?.focus(),50);
+}
+function buildDriverRoutePackage(routeId,driverName){
+  const route=routes.find(r=>r.id===routeId);
+  if(!route)return null;
+  const routeStops=stops.filter(s=>s.routeId===routeId).sort((a,b)=>(a.seq||0)-(b.seq||0));
+  const timeline=routeTimelineRows(routeId);
+  const timelineByStopId=new Map();
+  timeline.forEach(row=>{if(row.type==='stop'&&row.stop?.id)timelineByStopId.set(row.stop.id,row);});
+  const totalCases=routeStops.reduce((a,s)=>a+tCases(s),0);
+  const routeDate=route.date||document.getElementById('route-date')?.value||new Date().toISOString().slice(0,10);
+  return {
+    routeId:String(route.id||route.udfNumber1||route.routeTemplateKey||uid()),
+    routeNumber:String(route.udfNumber1||route.routeTemplateKey||route.name||''),
+    routeName:route.name||'Route',
+    routeDate,
+    driver:driverName,
+    status:'ASSIGNED',
+    plannedStart:routeStartTime(route)||'',
+    plannedFinish:routeEndEstimate(routeId)||'',
+    totalMiles:Number(routeDistanceMiles(routeId).toFixed(1)),
+    totalCases,
+    source:'VectorOps',
+    assignedAt:new Date().toISOString(),
+    stops:routeStops.map((s,index)=>{
+      const tl=timelineByStopId.get(s.id);
+      const address=[s.address,s.city,s.state,s.zip].filter(Boolean).join(', ');
+      const early=cleanTimeValue(s.earliestTimeWindow)||'';
+      const late=cleanTimeValue(s.latestTimeWindow)||'';
+      return {
+        id:String(s.id),
+        sequence:s.seq||index+1,
+        customer:s.customerName||s.shipToId||s.orderNumber||'Stop',
+        locationKey:s.shipToId||s.customerNumber||'',
+        orderNumber:s.orderNumber||'',
+        address,
+        cases:tCases(s),
+        window:early||late?`${early||'—'} - ${late||'—'}`:'No Window',
+        plannedArrival:tl?minutesToHHMM(tl.arrive):'',
+        plannedServiceMinutes:Math.round(stopServiceMinutes(s)),
+        lat:Number(s.lat),
+        lng:Number(s.lng),
+        status:'PENDING',
+        actualArrival:null,
+        actualDeparture:null
+      };
+    })
+  };
+}
+function safeDriverRouteFilePart(value){
+  return String(value??'').trim().replace(/[^a-zA-Z0-9_-]+/g,'_').replace(/^_+|_+$/g,'')||'Route';
+}
+function downloadDriverRoutePackage(){
+  const route=routes.find(r=>r.id===activeDriverAssignmentRouteId);
+  if(!route){showToast('Route not found');return;}
+  const driverName=(document.getElementById('driver-assignment-name')?.value||'').trim();
+  if(!driverName){showToast('Enter a driver name first');return;}
+  const payload=buildDriverRoutePackage(route.id,driverName);
+  if(!payload){showToast('Could not build Driver Mode route');return;}
+  route.driverAssignmentName=driverName;
+  route.driverPublishedAt=payload.assignedAt;
+  const json=JSON.stringify(payload,null,2);
+  const blob=new Blob([json],{type:'application/json'});
+  const url=URL.createObjectURL(blob);
+  const datePart=(payload.routeDate||new Date().toISOString().slice(0,10)).replace(/-/g,'');
+  const routePart=safeDriverRouteFilePart(payload.routeNumber||payload.routeName);
+  const a=document.createElement('a');
+  a.href=url;
+  a.download=`VectorOps_Driver_${routePart}_${datePart}.json`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(()=>URL.revokeObjectURL(url),1000);
+  closeModal('driver-assignment-modal');
+  renderRoutes();
+  showToast(`Route assigned to ${driverName}. Driver JSON downloaded.`);
 }
 
 
