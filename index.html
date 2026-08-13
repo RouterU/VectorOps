@@ -388,6 +388,13 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
 .driver-progress-popup{font-family:Sora,sans-serif;min-width:220px;font-size:12px;}
 .driver-progress-popup .estimate-note{font-size:10px;color:#777;margin-top:6px;}
 
+
+/* Phase 6: clearer per-stop execution status */
+.s-name .stop-live-status{vertical-align:middle;margin-left:8px;}
+.stop-live-inroute{background:rgba(56,189,248,.16);border-color:rgba(56,189,248,.50);color:#7dd3fc;}
+.stop-live-onsite{background:rgba(245,158,11,.18);border-color:rgba(245,158,11,.52);color:#fbbf24;}
+.stop-live-completed{background:rgba(62,207,142,.18);border-color:rgba(62,207,142,.52);color:#6ee7b7;}
+
 </style>
 </head>
 <body>
@@ -1622,6 +1629,21 @@ function filterMapToRoute(routeId){
   fitRouteToMap(routeId);
   showToast(`Map filtered to ${route.name||'selected route'}. Click the map to clear.`);
 }
+function openRouteDetailAndFilterMap(routeId){
+  const route=routes.find(r=>String(r.id)===String(routeId));
+  if(!route)return;
+
+  // Clicking a route in the left route window should make that route the
+  // active map view. If it is already filtered, keep it filtered and simply
+  // re-fit the map rather than toggling the filter off.
+  if(mapRouteFilterActiveId!==routeId){
+    filterMapToRoute(routeId);
+  }else{
+    fitRouteToMap(routeId);
+  }
+  openRouteDetail(routeId);
+}
+
 function clearAllFilters(){
   activeRouteFilterId=null;
   activeStopFilterId=null;
@@ -1756,7 +1778,21 @@ function driverLiveStatus(routeId){
 function driverStopLiveStatus(routeId,stopId){
   const live=driverLiveStatus(routeId);
   if(!live||!Array.isArray(live.stops))return null;
-  return live.stops.find(s=>String(s.id)===String(stopId))||null;
+
+  // Preferred match: exact published stop ID.
+  let match=live.stops.find(s=>String(s.id)===String(stopId));
+  if(match)return match;
+
+  // Fallback: the local session can reconstruct stop IDs differently after
+  // re-import/load. Sequence is stable for the published route, so use it
+  // when the exact ID is unavailable.
+  const localStop=stops.find(s=>String(s.id)===String(stopId)&&String(s.routeId)===String(routeId));
+  const localSeq=Number(localStop?.seq);
+  if(isFinite(localSeq)){
+    match=live.stops.find(s=>Number(s.sequence)===localSeq);
+    if(match)return match;
+  }
+  return null;
 }
 function driverStopStatusBadgeHtml(routeId,stopId){
   const live=driverLiveStatus(routeId);
@@ -2036,7 +2072,7 @@ function renderRoutes(){
     const dname=r.driverFirstName?(r.driverFirstName+' '+(r.driverLastName||'')).trim():(drv?drv.name:'—');
     const isOpen=expanded.has(r.id);
     return`<div class="route-card" id="rc-${r.id}" draggable="true" ondragstart="onRouteDragStart(event,'${r.id}')" ondragend="onDragEnd()" onmouseenter="highlightRoute('${r.id}')" onmouseleave="clearMapHighlight()">
-      <div class="r-header" onclick="openRouteDetail('${r.id}')">
+      <div class="r-header" onclick="openRouteDetailAndFilterMap('${r.id}')">
         <div class="r-colorbar" style="background:${color}"></div>
         <div class="r-info">
           <div class="r-name">${r.name}${r.published?'<span style="display:inline-block;margin-left:6px;padding:1px 6px;border-radius:6px;background:rgba(62,207,142,.16);border:1px solid rgba(62,207,142,.45);color:var(--success);font-size:9px;font-weight:800;box-shadow:0 3px 10px rgba(0,0,0,.35);vertical-align:middle;">Published</span>':''}${r.driverAssignmentName?`<span style="display:inline-block;margin-left:6px;padding:1px 6px;border-radius:6px;background:rgba(79,140,255,.16);border:1px solid rgba(79,140,255,.45);color:var(--accent);font-size:9px;font-weight:800;vertical-align:middle;">Driver: ${escapeHtml(r.driverAssignmentName)}</span>`:''}${driverLiveBadgeHtml(r.id)}</div>
