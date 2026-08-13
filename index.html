@@ -1884,20 +1884,27 @@ function driverProgressMapPosition(routeId){
     };
   }
 
-  const routeStops=stops.filter(s=>String(s.routeId)===String(routeId)).sort((a,b)=>(a.seq||0)-(b.seq||0));
-  const completedLive=(live.stops||[])
-    .filter(s=>String(s.status||'').toUpperCase()==='COMPLETE')
-    .sort((a,b)=>(Number(a.sequence)||0)-(Number(b.sequence)||0));
-  const lastCompletedLive=completedLive.length?completedLive[completedLive.length-1]:null;
-  const lastCompleted=localStopForLive(routeId,lastCompletedLive);
+  const routeStops=stops
+    .filter(s=>String(s.routeId)===String(routeId))
+    .sort((a,b)=>(Number(a.seq)||0)-(Number(b.seq)||0));
   const startDepot=routeInitialDepot(route);
 
+  // Use the current/next stop sequence as the source of truth for estimated
+  // progress. If heading to Stop N, draw the truck between Stop N-1 and N.
+  // This is more reliable than depending on a separate completed-stop array.
+  const currentSeq=Number(current.seq||currentLive?.sequence);
+  const previousStop=isFinite(currentSeq)&&currentSeq>1
+    ? routeStops.find(s=>Number(s.seq)===currentSeq-1)
+    : null;
+
   let fromLat=null,fromLng=null,fromLabel='Start Depot';
-  if(lastCompleted&&lastCompleted.lat&&lastCompleted.lng){
-    fromLat=Number(lastCompleted.lat);fromLng=Number(lastCompleted.lng);
-    fromLabel=lastCompleted.customerName||`Stop ${lastCompleted.seq||''}`;
-  }else if(startDepot&&startDepot.lat&&startDepot.lng){
-    fromLat=Number(startDepot.lat);fromLng=Number(startDepot.lng);
+  if(previousStop&&isFinite(Number(previousStop.lat))&&isFinite(Number(previousStop.lng))){
+    fromLat=Number(previousStop.lat);
+    fromLng=Number(previousStop.lng);
+    fromLabel=previousStop.customerName||`Stop ${previousStop.seq||currentSeq-1}`;
+  }else if(startDepot&&isFinite(Number(startDepot.lat))&&isFinite(Number(startDepot.lng))){
+    fromLat=Number(startDepot.lat);
+    fromLng=Number(startDepot.lng);
     fromLabel=depotLabel(startDepot,'Start Depot');
   }
 
