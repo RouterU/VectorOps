@@ -191,7 +191,7 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
 .projected-revenue-negative{background:rgba(239,68,68,.20)!important;border-color:var(--danger)!important;box-shadow:inset 0 0 0 1px rgba(239,68,68,.25);}
 .projected-revenue-negative .val{color:#fecaca!important;}
 .manifest-route-list{border:1px solid var(--border);border-radius:10px;background:var(--bg2);max-height:62vh;overflow:auto;}
-.manifest-row{display:grid;grid-template-columns:60px 420px 150px 90px 110px 90px 95px 95px 90px 95px 95px 80px 220px 120px;gap:10px;align-items:center;padding:9px 12px;border-bottom:1px solid var(--border);font-size:11px;min-width:2050px;}
+.manifest-row{display:grid;grid-template-columns:60px 420px 150px 90px 110px 90px 95px 95px 90px 95px 95px 80px 220px 120px 125px;gap:10px;align-items:center;padding:9px 12px;border-bottom:1px solid var(--border);font-size:11px;min-width:2185px;}
 .manifest-row:last-child{border-bottom:none;}
 .manifest-row.header{background:var(--bg3);color:var(--text3);font-size:9px;text-transform:uppercase;letter-spacing:.5px;font-weight:700;position:sticky;top:0;z-index:2;}
 .manifest-row.stop{cursor:grab;}
@@ -394,6 +394,9 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
 .stop-live-inroute{background:rgba(56,189,248,.16);border-color:rgba(56,189,248,.50);color:#7dd3fc;}
 .stop-live-onsite{background:rgba(245,158,11,.18);border-color:rgba(245,158,11,.52);color:#fbbf24;}
 .stop-live-completed{background:rgba(62,207,142,.18);border-color:rgba(62,207,142,.52);color:#6ee7b7;}
+
+
+.stop-live-notstarted{background:rgba(156,163,184,.12);border-color:rgba(156,163,184,.30);color:var(--text2);}
 
 </style>
 </head>
@@ -644,16 +647,20 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
       </div>
       <div style="font-size:9px;color:var(--text3);margin-top:6px;">Select the new cut(s) being added. The full file is still used to remove missing orders and refresh ORDER_STATUS values for orders already in the session.</div>
     </div>
-    <div id="backhaul-filter-panel" style="display:none;margin:10px 0 8px;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg2);">
-      <div style="font-size:10px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;">Backhaul Import Filters</div>
-      <div style="font-size:9px;color:var(--text3);margin-bottom:9px;">These filters only apply to Backhauls mode. Blank values import/display all matching rows.</div>
-
-      <div class="shdr" style="margin-top:0;">BHL Cost Analysis</div>
+    <div id="route-cost-analysis-panel" style="display:none;margin:10px 0 8px;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg2);">
+      <div style="font-size:10px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:7px;">Route Cost Analysis</div>
       <div class="input-row" style="margin-bottom:8px;">
         <div class="field"><label>Cost Per Mile</label><input id="bh-cost-per-mile" inputmode="decimal" placeholder="Example: $2.15 or 215¢"/></div>
         <div class="field"><label>Revenue Per Case</label><input id="bh-revenue-per-case" inputmode="decimal" placeholder="Example: $.75 or 75¢"/></div>
       </div>
-      <div style="font-size:9px;color:var(--text3);margin-top:-4px;margin-bottom:10px;">Used for projected net revenue: routed BHL cases × revenue per case − route miles × cost per mile. Dollar signs, decimals, cents symbols, and the word “cents” are accepted.</div>
+      <div id="route-cost-analysis-help" style="font-size:9px;color:var(--text3);margin-top:-4px;">
+        Used for projected net revenue. Dollar signs, decimals, cents symbols, and the word “cents” are accepted.
+      </div>
+    </div>
+
+    <div id="backhaul-filter-panel" style="display:none;margin:10px 0 8px;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg2);">
+      <div style="font-size:10px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;">Backhaul Import Filters</div>
+      <div style="font-size:9px;color:var(--text3);margin-bottom:9px;">These filters only apply to Backhauls mode. Blank values import/display all matching rows.</div>
 
       <div class="shdr" style="margin-top:0;">Vendor Import / 3PL Lanes Filter</div>
       <div class="input-row" style="margin-bottom:8px;">
@@ -1231,6 +1238,25 @@ function routeProjectedRevenue(routeId,stopList=stops){
   const cost=incrementalMiles*bhlCostPerMile;
   return {hasBhl:true,cases,grossRevenue,cost,net:grossRevenue-cost,miles:incrementalMiles,incrementalMiles};
 }
+function routeDataProjectedRevenue(routeId,stopList=stops){
+  const route=routes.find(r=>String(r.id)===String(routeId));
+  if(!route||route.sourceType!=='bhl-route-data'){
+    return {hasBhl:false,isRouteData:false,cases:0,grossRevenue:0,cost:0,net:0,miles:0,incrementalMiles:0};
+  }
+  const routeStops=(stopList||[]).filter(s=>String(s.routeId)===String(routeId));
+  const cases=routeStops.reduce((a,s)=>a+tCases(s),0);
+  const importedMiles=parseFloat(route.routeData?.totalDistanceMile);
+  const miles=isFinite(importedMiles)&&importedMiles>0?importedMiles:routeDistanceMiles(routeId);
+  const grossRevenue=cases*bhlRevenuePerCase;
+  const cost=miles*bhlCostPerMile;
+  return {hasBhl:false,isRouteData:true,cases,grossRevenue,cost,net:grossRevenue-cost,miles,incrementalMiles:miles};
+}
+function routeManifestProjectedRevenue(routeId,stopList=stops){
+  const route=routes.find(r=>String(r.id)===String(routeId));
+  return route?.sourceType==='bhl-route-data'
+    ? routeDataProjectedRevenue(routeId,stopList)
+    : routeProjectedRevenue(routeId,stopList);
+}
 function sessionBhlProjectedRevenue(routeList=routes,stopList=stops){
   return (routeList||[]).reduce((total,r)=>total+routeProjectedRevenue(r.id,stopList).net,0);
 }
@@ -1804,6 +1830,17 @@ function driverStopStatusBadgeHtml(routeId,stopId){
   if(status==='ARRIVED')return '<span class="stop-live-status stop-live-onsite">Onsite</span>';
   if(String(live.status||'').toUpperCase()==='IN_PROGRESS')return '<span class="stop-live-status stop-live-inroute">In-Route</span>';
   return '';
+}
+function driverManifestDeliveryStatusHtml(routeId,stopId){
+  const live=driverLiveStatus(routeId);
+  if(!live)return '—';
+  const stopLive=driverStopLiveStatus(routeId,stopId);
+  if(!stopLive)return '—';
+  const status=String(stopLive.status||'PENDING').toUpperCase();
+  if(status==='COMPLETE')return '<span class="stop-live-status stop-live-completed">Completed</span>';
+  if(status==='ARRIVED')return '<span class="stop-live-status stop-live-onsite">Onsite</span>';
+  if(String(live.status||'').toUpperCase()==='IN_PROGRESS')return '<span class="stop-live-status stop-live-inroute">In-Route</span>';
+  return '<span class="stop-live-status stop-live-notstarted">Not Started</span>';
 }
 function driverLiveBadgeHtml(routeId){
   const live=driverLiveStatus(routeId);
@@ -3825,7 +3862,7 @@ function routeManifestStats(routeId){
     miles:routeDistanceMiles(routeId),
     start:route?routeStartTime(route):'',
     end:route?routeEndEstimate(routeId):'',
-    projectedRevenue:routeProjectedRevenue(routeId)
+    projectedRevenue:routeManifestProjectedRevenue(routeId)
   };
 }
 function renderRouteManifest(){
@@ -3842,7 +3879,9 @@ function renderRouteManifest(){
     <div class="manifest-stat"><div class="val">${data.miles.toFixed(1)}</div><div class="lbl">Miles</div></div>
     <div class="manifest-stat"><div class="val">${cleanTimeValue(data.start)||'—'}</div><div class="lbl">Start Time</div></div>
     <div class="manifest-stat"><div class="val">${cleanTimeValue(data.end)||'—'}</div><div class="lbl">Stop Time</div></div>
-    <div class="manifest-stat ${projectedRevenueClass(data.projectedRevenue.net)}" title="Added BHL revenue ${formatCurrency(data.projectedRevenue.grossRevenue)} minus incremental BHL mileage cost ${formatCurrency(data.projectedRevenue.cost)} (${data.projectedRevenue.incrementalMiles.toFixed(1)} added miles)"><div class="val">${formatCurrency(data.projectedRevenue.net)}</div><div class="lbl">Projected Revenue</div></div>`;
+    <div class="manifest-stat ${projectedRevenueClass(data.projectedRevenue.net)}" title="${data.projectedRevenue.isRouteData
+      ? `Route revenue ${formatCurrency(data.projectedRevenue.grossRevenue)} minus route mileage cost ${formatCurrency(data.projectedRevenue.cost)} (${data.projectedRevenue.miles.toFixed(1)} route miles)`
+      : `Added BHL revenue ${formatCurrency(data.projectedRevenue.grossRevenue)} minus incremental BHL mileage cost ${formatCurrency(data.projectedRevenue.cost)} (${data.projectedRevenue.incrementalMiles.toFixed(1)} added miles)`}"><div class="val">${formatCurrency(data.projectedRevenue.net)}</div><div class="lbl">Projected Revenue</div></div>`;
 
   const capacityWarningHtml=routeCapacityWarningHtml(activeManifestRouteId);
   const timeline=routeTimelineRows(activeManifestRouteId);
@@ -3885,13 +3924,14 @@ function renderRouteManifest(){
       <div>${isDepot?'—':(pt.waitMins?fmtMinutes(pt.waitMins):'—')}</div>
       <div>${isDepot?'Depot':`${escapeHtml(s.earliestTimeWindow||'—')} - ${escapeHtml(s.latestTimeWindow||'—')}`}</div>
       <div>${isDepot?'—':`<span class="tw-badge ${twClass}">${escapeHtml(pt.twLabel||'')}</span>`}</div>
+      <div>${isDepot?'—':driverManifestDeliveryStatusHtml(activeManifestRouteId,s.id)}</div>
     </div>`;
   }).join('');
 
   document.getElementById('manifest-list').innerHTML=`
     ${capacityWarningHtml}
-    <div class="manifest-row header"><div>Seq</div><div>Stop / Customer</div><div>City</div><div>Cases</div><div>Weight</div><div>Cube</div><div>Leg Mi</div><div>Drive</div><div>Service</div><div>Arrive</div><div>Depart</div><div>Wait</div><div>Window</div><div>Status</div></div>
-    ${rows || '<div class="manifest-row"><div>—</div><div>No assigned stops</div><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div></div>'}`;
+    <div class="manifest-row header"><div>Seq</div><div>Stop / Customer</div><div>City</div><div>Cases</div><div>Weight</div><div>Cube</div><div>Leg Mi</div><div>Drive</div><div>Service</div><div>Arrive</div><div>Depart</div><div>Wait</div><div>Window</div><div>Planned Status</div><div>Delivery Status</div></div>
+    ${rows || '<div class="manifest-row"><div>—</div><div>No assigned stops</div><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div><div></div></div>'}`;
 }
 function manifestDragStart(e,stopId){
   manifestDragStopId=stopId;
@@ -4536,6 +4576,14 @@ function setImportMode(m){
   if(cutPanel)cutPanel.style.display=importMode==='stops'?'block':'none';
   const dayPanel=document.getElementById('route-day-filter');
   if(dayPanel)dayPanel.style.display=importMode==='all'?'block':'none';
+  const costPanel=document.getElementById('route-cost-analysis-panel');
+  if(costPanel)costPanel.style.display=(importMode==='backhauls'||importMode==='bhlroutes')?'block':'none';
+  const costHelp=document.getElementById('route-cost-analysis-help');
+  if(costHelp){
+    costHelp.textContent=importMode==='bhlroutes'
+      ? 'Import Route Data projected net revenue = total route cases × revenue per case − imported route miles × cost per mile.'
+      : 'Backhaul projected net revenue = added BHL cases × revenue per case − incremental BHL route miles × cost per mile.';
+  }
   const bhFilterPanel=document.getElementById('backhaul-filter-panel');
   if(bhFilterPanel)bhFilterPanel.style.display=importMode==='backhauls'?'block':'none';
   const exportInfo=document.getElementById('import-export-info');
@@ -4786,6 +4834,8 @@ function confirmImport(){
     }).filter(x=>x.data.length);
 
     if(importMode==='bhlroutes'){
+      bhlCostPerMile=parseMoneyInput(document.getElementById('bh-cost-per-mile')?.value);
+      bhlRevenuePerCase=parseMoneyInput(document.getElementById('bh-revenue-per-case')?.value);
       let routeDataSheets=sheets.filter(x=>x.type==='bhl route data');
       if(!routeDataSheets.length && sheets.length===1)routeDataSheets=sheets;
       if(!routeDataSheets.length){
