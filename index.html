@@ -346,6 +346,48 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
 .driver-live-detail-main{font-size:12px;color:var(--text1);font-weight:700;}
 .driver-live-detail-sub{font-size:10px;color:var(--text2);margin-top:4px;line-height:1.4;}
 
+
+/* Phase 4 dispatcher UI */
+.stop-live-status{display:inline-flex;align-items:center;justify-content:center;min-width:58px;margin-left:6px;padding:2px 6px;border-radius:999px;font-size:8px;font-weight:900;text-transform:uppercase;letter-spacing:.25px;border:1px solid rgba(255,255,255,.14);white-space:nowrap;}
+.stop-live-inroute{background:rgba(79,140,255,.16);border-color:rgba(79,140,255,.45);color:#8db5ff;}
+.stop-live-onsite{background:rgba(245,158,11,.18);border-color:rgba(245,158,11,.48);color:#fbbf24;}
+.stop-live-completed{background:rgba(62,207,142,.18);border-color:rgba(62,207,142,.48);color:#6ee7b7;}
+.dispatched-route-card{padding:10px 12px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .12s;}
+.dispatched-route-card:hover{background:var(--bg2);}
+.dispatched-route-top{display:flex;align-items:center;gap:7px;}
+.dispatched-route-name{font-size:12px;font-weight:700;color:var(--text1);flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.dispatched-route-meta{font-size:10px;color:var(--text2);margin-top:4px;line-height:1.35;}
+.dispatched-route-current{font-size:10px;color:var(--text1);margin-top:5px;padding:6px 7px;border:1px solid var(--border);border-radius:6px;background:var(--bg3);}
+.dispatched-route-progress{height:5px;border-radius:999px;background:var(--bg4);overflow:hidden;margin-top:7px;}
+.dispatched-route-progress > span{display:block;height:100%;background:var(--warn);}
+#route-detail-modal .route-detail-modal{width:860px;max-width:96vw;max-height:92vh;overflow-y:auto;overflow-x:hidden;padding-bottom:12px;}
+#route-detail-modal .modal-actions{position:sticky;bottom:-12px;z-index:5;background:linear-gradient(to top,var(--bg1) 78%,rgba(23,27,37,.92));padding:12px 0 3px;margin-top:14px;display:flex;flex-wrap:wrap;gap:7px;align-items:center;}
+#route-detail-modal .modal-actions .btn{flex:0 0 auto;}
+#route-detail-modal .modal-actions .btn:first-child{margin-right:0!important;}
+#route-detail-modal .stop-detail-grid{padding-bottom:2px;}
+
+
+/* Estimated Driver Progress Map Markers - replaced by actual GPS later */
+.driver-progress-marker-wrap{background:transparent!important;border:none!important;}
+.driver-progress-marker{
+  min-width:42px;height:34px;padding:0 7px;border-radius:10px;
+  display:flex;align-items:center;justify-content:center;gap:4px;
+  background:rgba(15,17,23,.97);border:2px solid #38bdf8;
+  box-shadow:0 0 0 2px rgba(56,189,248,.18),0 5px 16px rgba(0,0,0,.65);
+  color:#fff;font-size:18px;line-height:1;white-space:nowrap;
+}
+.driver-progress-marker.onsite{
+  border-color:#f59e0b;
+  box-shadow:0 0 0 2px rgba(245,158,11,.20),0 5px 16px rgba(0,0,0,.65);
+}
+.driver-progress-marker .mini-label{
+  font-family:'DM Mono',monospace;font-size:7px;font-weight:800;line-height:1.05;
+  color:#cbd5e1;text-transform:uppercase;letter-spacing:.2px;
+}
+.driver-progress-marker.onsite .mini-label{color:#fbbf24;}
+.driver-progress-popup{font-family:Sora,sans-serif;min-width:220px;font-size:12px;}
+.driver-progress-popup .estimate-note{font-size:10px;color:#777;margin-top:6px;}
+
 </style>
 </head>
 <body>
@@ -448,7 +490,7 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
   <div class="left-panel" id="left-panel">
     <div class="app-tabs">
       <div class="app-tab active" id="apptab-routing" onclick="switchAppTab('routing')">&#128506; Routing</div>
-      <div class="app-tab" id="apptab-trucks" onclick="switchAppTab('trucks')">&#128666; Trucks</div>
+      <div class="app-tab" id="apptab-trucks" onclick="switchAppTab('trucks')">🚚 Dispatched Routes</div>
     </div>
 
     <!-- ROUTING VIEW -->
@@ -505,7 +547,7 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
       </div>
     </div>
 
-    <!-- TRUCKS VIEW -->
+    <!-- DISPATCHED ROUTES VIEW -->
     <div id="view-trucks" style="display:none;flex:1;overflow-y:auto;">
       <div id="trucks-list"></div>
     </div>
@@ -798,11 +840,11 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
 
 <!-- Route Detail Modal -->
 <div id="route-detail-modal" style="display:none" class="modal-overlay">
-  <div class="modal stop-detail-modal">
+  <div class="modal stop-detail-modal route-detail-modal">
     <h2 id="route-detail-title">Route Template Details</h2>
     <div id="route-detail-body"></div>
     <div class="modal-actions">
-      <button class="btn" style="margin-right:auto;background:#ef4444;border-color:#ef4444;color:#fff;" onclick="removeRouteFromSession()">Remove From Session</button>
+      <button class="btn" style="background:#ef4444;border-color:#ef4444;color:#fff;" onclick="removeRouteFromSession()">Remove From Session</button>
       <button class="btn primary" onclick="openDriverAssignmentFromDetail()">Assign to Driver</button>
       <button class="btn" onclick="openRouteManifestFromDetail()">Open Manifest</button>
       <button class="btn" onclick="closeModal('route-detail-modal')">Close</button>
@@ -1711,6 +1753,22 @@ function openDepotDetail(depotId){
 function driverLiveStatus(routeId){
   return driverLiveStatusByRouteId.get(String(routeId))||null;
 }
+function driverStopLiveStatus(routeId,stopId){
+  const live=driverLiveStatus(routeId);
+  if(!live||!Array.isArray(live.stops))return null;
+  return live.stops.find(s=>String(s.id)===String(stopId))||null;
+}
+function driverStopStatusBadgeHtml(routeId,stopId){
+  const live=driverLiveStatus(routeId);
+  if(!live)return '';
+  const stopLive=driverStopLiveStatus(routeId,stopId);
+  if(!stopLive)return '';
+  const status=String(stopLive.status||'PENDING').toUpperCase();
+  if(status==='COMPLETE')return '<span class="stop-live-status stop-live-completed">Completed</span>';
+  if(status==='ARRIVED')return '<span class="stop-live-status stop-live-onsite">Onsite</span>';
+  if(String(live.status||'').toUpperCase()==='IN_PROGRESS')return '<span class="stop-live-status stop-live-inroute">In-Route</span>';
+  return '';
+}
 function driverLiveBadgeHtml(routeId){
   const live=driverLiveStatus(routeId);
   if(!live)return '';
@@ -1761,6 +1819,95 @@ function driverLiveDetailHtml(routeId){
     </div>
   </div>`;
 }
+
+function localStopForLive(routeId,liveStop){
+  if(!liveStop)return null;
+  const routeStops=stops.filter(s=>String(s.routeId)===String(routeId));
+  let match=routeStops.find(s=>String(s.id)===String(liveStop.id));
+  if(match)return match;
+  const seq=Number(liveStop.sequence);
+  if(isFinite(seq))match=routeStops.find(s=>Number(s.seq)===seq);
+  return match||null;
+}
+function driverProgressMapPosition(routeId){
+  const live=driverLiveStatus(routeId);
+  const route=routes.find(r=>String(r.id)===String(routeId));
+  if(!live||!route||String(live.status||'').toUpperCase()!=='IN_PROGRESS')return null;
+
+  const currentLive=live.currentStop;
+  const current=localStopForLive(routeId,currentLive);
+  if(!current||!current.lat||!current.lng)return null;
+
+  if(String(currentLive?.status||'').toUpperCase()==='ARRIVED'){
+    return {
+      mode:'ONSITE',
+      lat:Number(current.lat),lng:Number(current.lng),
+      currentStop:current,
+      liveStop:currentLive,
+      fromLabel:''
+    };
+  }
+
+  const routeStops=stops.filter(s=>String(s.routeId)===String(routeId)).sort((a,b)=>(a.seq||0)-(b.seq||0));
+  const completedLive=(live.stops||[])
+    .filter(s=>String(s.status||'').toUpperCase()==='COMPLETE')
+    .sort((a,b)=>(Number(a.sequence)||0)-(Number(b.sequence)||0));
+  const lastCompletedLive=completedLive.length?completedLive[completedLive.length-1]:null;
+  const lastCompleted=localStopForLive(routeId,lastCompletedLive);
+  const startDepot=routeInitialDepot(route);
+
+  let fromLat=null,fromLng=null,fromLabel='Start Depot';
+  if(lastCompleted&&lastCompleted.lat&&lastCompleted.lng){
+    fromLat=Number(lastCompleted.lat);fromLng=Number(lastCompleted.lng);
+    fromLabel=lastCompleted.customerName||`Stop ${lastCompleted.seq||''}`;
+  }else if(startDepot&&startDepot.lat&&startDepot.lng){
+    fromLat=Number(startDepot.lat);fromLng=Number(startDepot.lng);
+    fromLabel=depotLabel(startDepot,'Start Depot');
+  }
+
+  if(!isFinite(fromLat)||!isFinite(fromLng))return null;
+  return {
+    mode:'TRANSIT',
+    // Intentionally midpoint only. This is an estimated status position, not GPS.
+    lat:(fromLat+Number(current.lat))/2,
+    lng:(fromLng+Number(current.lng))/2,
+    currentStop:current,
+    liveStop:currentLive,
+    fromLabel
+  };
+}
+function renderDriverProgressMarkers(){
+  routes.forEach(route=>{
+    if(mapCleared&&!visibleRouteIds.has(route.id))return;
+    const pos=driverProgressMapPosition(route.id);
+    if(!pos)return;
+
+    const live=driverLiveStatus(route.id);
+    const driver=live?.driverName||route.driverAssignmentName||'Driver';
+    const nextName=pos.currentStop?.customerName||pos.liveStop?.customer||'Next Stop';
+    const nextSeq=pos.currentStop?.seq||pos.liveStop?.sequence||'—';
+    const onsite=pos.mode==='ONSITE';
+
+    const icon=L.divIcon({
+      className:'driver-progress-marker-wrap',
+      html: onsite
+        ? `<div class="driver-progress-marker onsite" title="Driver onsite"><span>🛒📦</span><span class="mini-label">Onsite</span></div>`
+        : `<div class="driver-progress-marker" title="Estimated driver position"><span>🚚</span><span class="mini-label">In<br/>Transit</span></div>`,
+      iconSize:[58,38],
+      iconAnchor:[29,19]
+    });
+    const marker=L.marker([pos.lat,pos.lng],{icon,interactive:true,zIndexOffset:2500}).addTo(map);
+    marker.bindPopup(`<div class="driver-progress-popup">
+      <b>${escapeHtml(driver)}</b><br/>
+      ${onsite
+        ? `<b style="color:#d97706;">Onsite</b> at Stop ${escapeHtml(nextSeq)}<br/>${escapeHtml(nextName)}`
+        : `<b style="color:#0284c7;">In Transit</b><br/>${escapeHtml(pos.fromLabel)} → Stop ${escapeHtml(nextSeq)}: ${escapeHtml(nextName)}`}
+      <div class="estimate-note">${onsite?'Driver-reported onsite status.':'Estimated route-progress position — not live GPS.'}</div>
+    </div>`);
+    markers[`driver-progress-${route.id}`]=marker;
+  });
+}
+
 async function refreshDriverStatuses(silent=true){
   try{
     const response=await fetch('/api/route-status',{cache:'no-store'});
@@ -1771,6 +1918,8 @@ async function refreshDriverStatuses(silent=true){
     driverLiveStatusByRouteId=next;
     driverStatusLastRefreshAt=new Date();
     renderRoutes();
+    renderMap();
+    if(appTab==='trucks')renderTrucks();
     if(activeDetailRouteId && document.getElementById('route-detail-modal')?.style.display==='flex'){
       const routeId=activeDetailRouteId;
       const r=routes.find(x=>x.id===routeId);
@@ -1913,7 +2062,7 @@ function renderRoutes(){
           <span class="s-seq">${s.seq}</span>
           <span class="s-dot" style="background:${color}"></span>
           <div class="s-info">
-            <div class="s-name">${customerNameWithCutIdBadges(s,s.customerName)}${s.lockStart?'<span class="tag tag-pref">START LOCK</span>':''}${s.lockFinal?'<span class="tag tag-pref">FINAL LOCK</span>':''}</div>
+            <div class="s-name">${customerNameWithCutIdBadges(s,s.customerName)}${s.lockStart?'<span class="tag tag-pref">START LOCK</span>':''}${s.lockFinal?'<span class="tag tag-pref">FINAL LOCK</span>':''}${driverStopStatusBadgeHtml(r.id,s.id)}</div>
             <div class="s-detail">${orderLabel(s)} &middot; ${tCases(s)}cs &middot; ${s.city||''} ${s.state||''}</div>
           </div>
           <div class="s-acts">
@@ -1961,16 +2110,33 @@ function renderUA(){
 
 function renderTrucks(){
   const el=document.getElementById('trucks-list');
-  if(!trucks.length){
-    el.innerHTML='<div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75"/></svg><p>No trucks imported</p></div>';
+  if(!el)return;
+  const dispatched=routes.map(r=>({route:r,live:driverLiveStatus(r.id)}))
+    .filter(x=>String(x.live?.status||'').toUpperCase()==='IN_PROGRESS')
+    .sort((a,b)=>{
+      const at=new Date(a.live?.lastEventAt||a.live?.updatedAt||0).getTime()||0;
+      const bt=new Date(b.live?.lastEventAt||b.live?.updatedAt||0).getTime()||0;
+      return bt-at;
+    });
+  if(!dispatched.length){
+    el.innerHTML='<div class="empty-state"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M3 7h11v10H3z"/><path d="M14 10h4l3 3v4h-7z"/><circle cx="7" cy="19" r="2"/><circle cx="18" cy="19" r="2"/></svg><p>No dispatched routes are currently on the road</p></div>';
     return;
   }
-  el.innerHTML=trucks.map(d=>{
-    const assignedRoute=routes.find(r=>r.truckKey===d.truckKey||r.driverKey===d.driverKey);
-    return`<div class="driver-card">
-      <div class="d-name">${d.name||d.truckId||'Truck'}</div>
-      <div class="d-meta">TruckKey: ${d.truckKey||'—'} &middot; Type: ${d.vehicleType||'—'} &middot; ${(d.active+'').toUpperCase()==='Y'||d.active===true?'&#10003; Active':'Inactive'}</div>
-      <div class="d-truck">TruckID: ${d.truckId||'—'} &middot; Company: ${d.company||'—'} &middot; ${assignedRoute?'Assigned: '+assignedRoute.name:'Not assigned'}</div>
+  el.innerHTML=dispatched.map(({route:r,live})=>{
+    const done=Number(live.completedStops)||0,total=Number(live.totalStops)||0;
+    const pct=total?Math.max(0,Math.min(100,(done/total)*100)):0;
+    const current=live.currentStop;
+    let last='—';
+    const stamp=live.lastEventAt||live.updatedAt;
+    if(stamp){try{last=new Date(stamp).toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'});}catch(e){last=String(stamp);}}
+    return `<div class="dispatched-route-card" onclick="openRouteDetail('${r.id}')">
+      <div class="dispatched-route-top">
+        <span class="driver-live-badge driver-live-progress">● On Road</span>
+        <div class="dispatched-route-name">${escapeHtml(r.name||'Route')}${r.udfNumber1?` - ${escapeHtml(r.udfNumber1)}`:''}</div>
+      </div>
+      <div class="dispatched-route-meta">Driver: <strong>${escapeHtml(live.driverName||r.driverAssignmentName||'—')}</strong> · ${done}/${total} stops complete · Last update ${escapeHtml(last)}</div>
+      ${current?`<div class="dispatched-route-current">Current / next: <strong>${escapeHtml(current.sequence||'—')} - ${escapeHtml(current.customer||'Stop')}</strong> · ${String(current.status||'PENDING').toUpperCase()==='ARRIVED'?'Onsite':'In-Route'}</div>`:''}
+      <div class="dispatched-route-progress"><span style="width:${pct.toFixed(1)}%"></span></div>
     </div>`;
   }).join('');
 }
@@ -1989,9 +2155,13 @@ function renderMap(){
         html:`<div title="Backhaul" style="width:30px;height:30px;border-radius:50%;background:#14b8a6;border:2px solid #fff;display:flex;align-items:center;justify-content:center;font-size:17px;line-height:1;box-shadow:0 2px 10px rgba(0,0,0,.55);">🚛</div>`,
         iconSize:[30,30],iconAnchor:[15,15]});
     }else{
-      const label=s.routeId?s.seq:'?';
+      const liveStop=s.routeId?driverStopLiveStatus(s.routeId,s.id):null;
+      const liveStopState=String(liveStop?.status||'').toUpperCase();
+      const label=liveStopState==='COMPLETE'?'✓':(s.routeId?s.seq:'?');
+      const liveBorder=liveStopState==='COMPLETE'?'#3ecf8e':(liveStopState==='ARRIVED'?'#f59e0b':(s.routeId?'#fff':'rgba(255,255,255,.35)'));
+      const liveShadow=liveStopState==='COMPLETE'?'0 0 0 3px rgba(62,207,142,.25),0 2px 8px rgba(0,0,0,.5)':(liveStopState==='ARRIVED'?'0 0 0 3px rgba(245,158,11,.25),0 2px 8px rgba(0,0,0,.5)':'0 2px 8px rgba(0,0,0,.5)');
       icon=L.divIcon({className:'',
-        html:`<div style="width:24px;height:24px;border-radius:50%;background:${color};border:2px solid ${s.routeId?'#fff':'rgba(255,255,255,.35)'};display:flex;align-items:center;justify-content:center;font-size:9px;font-weight:700;color:#fff;font-family:DM Mono,monospace;box-shadow:0 2px 8px rgba(0,0,0,.5);">${label}</div>`,
+        html:`<div style="width:24px;height:24px;border-radius:50%;background:${color};border:2px solid ${liveBorder};display:flex;align-items:center;justify-content:center;font-size:${liveStopState==='COMPLETE'?'12':'9'}px;font-weight:700;color:#fff;font-family:DM Mono,monospace;box-shadow:${liveShadow};">${label}</div>`,
         iconSize:[24,24],iconAnchor:[12,12]});
     }
     const m=L.marker([s.lat,s.lng],{icon,draggable:true}).addTo(map);
@@ -2072,6 +2242,7 @@ function renderMap(){
       openRouteContextMenu(r.id, original.clientX||0, original.clientY||0);
     });
   });
+  renderDriverProgressMarkers();
   applyLassoMarkerHighlights();
 }
 
