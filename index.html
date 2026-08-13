@@ -328,6 +328,24 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
 .safety-detail-card .lbl{font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px;}
 .safety-detail-card .val{font-size:12px;color:var(--text1);line-height:1.35;}
 
+
+/* Live Driver Execution Status */
+.driver-live-badge{
+  display:inline-flex;align-items:center;gap:4px;margin-left:6px;padding:1px 6px;border-radius:999px;
+  font-size:9px;font-weight:800;vertical-align:middle;border:1px solid rgba(255,255,255,.14);
+}
+.driver-live-assigned{background:rgba(79,140,255,.16);border-color:rgba(79,140,255,.45);color:#8db5ff;}
+.driver-live-progress{background:rgba(245,158,11,.16);border-color:rgba(245,158,11,.45);color:#fbbf24;}
+.driver-live-complete{background:rgba(62,207,142,.16);border-color:rgba(62,207,142,.45);color:#6ee7b7;}
+.driver-live-unknown{background:rgba(156,163,184,.12);border-color:rgba(156,163,184,.30);color:var(--text2);}
+.driver-live-detail{
+  grid-column:1/-1;background:rgba(79,140,255,.08);border:1px solid rgba(79,140,255,.28);
+  border-radius:8px;padding:10px;
+}
+.driver-live-detail-title{font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.45px;margin-bottom:5px;}
+.driver-live-detail-main{font-size:12px;color:var(--text1);font-weight:700;}
+.driver-live-detail-sub{font-size:10px;color:var(--text2);margin-top:4px;line-height:1.4;}
+
 </style>
 </head>
 <body>
@@ -798,7 +816,7 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
   <div class="modal">
     <h2 id="driver-assignment-title">Assign Route to Driver</h2>
     <div class="job-result" style="margin-bottom:10px;">
-      Publishes the current VectorOps route to Driver Mode through the shared VectorOps database. The JSON download remains available as a manual fallback.
+      Publish this route directly to Driver Mode through the shared VectorOps database. The JSON download remains available as a backup/manual handoff option.
     </div>
     <div class="input-row">
       <div class="field"><label>Driver Name *</label><input id="driver-assignment-name" placeholder="Driver name"/></div>
@@ -807,7 +825,7 @@ body{font-family:'Sora',sans-serif;background:#0f1117;color:#e8e6e0;height:100vh
     <div class="modal-actions">
       <button class="btn" onclick="closeModal('driver-assignment-modal')">Cancel</button>
       <button class="btn" onclick="downloadDriverRoutePackage()">Download JSON Backup</button>
-      <button class="btn success" id="publish-driver-route-btn" onclick="publishDriverRoutePackage()">Publish to Driver</button>
+      <button class="btn success" onclick="publishDriverRoutePackage()">Publish to Driver</button>
     </div>
   </div>
 </div>
@@ -982,6 +1000,9 @@ let manualSequenceRouteId=null, manualSequenceOrder=[], manualSequenceDragStopId
 let lassoMode=false, lassoDragging=false, lassoStartPoint=null;
 let lassoSelectedStopIds=new Set();
 let currentOrderStatusFilter='ALL';
+let driverLiveStatusByRouteId=new Map();
+let driverStatusPollTimer=null;
+let driverStatusLastRefreshAt=null;
 const ORDER_STATUS_GLOSSARY={
   '00':'Incomplete Order - Order has no products entered yet.',
   '02':'Incomplete and Cancelled - Cancelled order without products.',
@@ -1051,6 +1072,7 @@ window.addEventListener('DOMContentLoaded',()=>{
   const travelModelSelect=document.getElementById('travel-model-select');
   if(travelModelSelect)travelModelSelect.value=travelModel;
   render();
+  startDriverStatusPolling();
 });
 
 // ============================================================
@@ -1682,6 +1704,93 @@ function openDepotDetail(depotId){
   document.getElementById('job-modal').style.display='flex';
 }
 
+
+// ============================================================
+// LIVE DRIVER EXECUTION STATUS
+// ============================================================
+function driverLiveStatus(routeId){
+  return driverLiveStatusByRouteId.get(String(routeId))||null;
+}
+function driverLiveBadgeHtml(routeId){
+  const live=driverLiveStatus(routeId);
+  if(!live)return '';
+  const status=String(live.status||'').toUpperCase();
+  const done=Number(live.completedStops)||0;
+  const total=Number(live.totalStops)||0;
+  if(status==='COMPLETE'){
+    return `<span class="driver-live-badge driver-live-complete">✓ Complete${total?` ${done}/${total}`:''}</span>`;
+  }
+  if(status==='IN_PROGRESS'){
+    const progress=total?` ${done}/${total}`:'';
+    return `<span class="driver-live-badge driver-live-progress">● In Progress${progress}</span>`;
+  }
+  if(status==='ASSIGNED'){
+    return `<span class="driver-live-badge driver-live-assigned">● Assigned${total?` 0/${total}`:''}</span>`;
+  }
+  return `<span class="driver-live-badge driver-live-unknown">${escapeHtml(status||'Driver Status')}</span>`;
+}
+function driverLiveMetaHtml(routeId){
+  const live=driverLiveStatus(routeId);
+  if(!live)return '';
+  const current=live.currentStop;
+  if(String(live.status||'').toUpperCase()==='COMPLETE')return ' · Driver Route Complete';
+  if(current){
+    const state=String(current.status||'PENDING').replaceAll('_',' ');
+    return ` · Driver Stop ${current.sequence||'—'}/${live.totalStops||'—'}: ${escapeHtml(current.customer||'Stop')} (${escapeHtml(state)})`;
+  }
+  return '';
+}
+function driverLiveDetailHtml(routeId){
+  const live=driverLiveStatus(routeId);
+  if(!live)return `<div class="driver-live-detail"><div class="driver-live-detail-title">Driver Execution</div><div class="driver-live-detail-main">No live Driver Mode status found</div><div class="driver-live-detail-sub">Publish the route to a driver to begin live execution tracking.</div></div>`;
+  const status=String(live.status||'ASSIGNED').replaceAll('_',' ');
+  const done=Number(live.completedStops)||0;
+  const total=Number(live.totalStops)||0;
+  const current=live.currentStop;
+  const updated=live.lastEventAt||live.updatedAt;
+  let updatedText='—';
+  if(updated){
+    try{updatedText=new Date(updated).toLocaleString();}catch(e){updatedText=String(updated);}
+  }
+  return `<div class="driver-live-detail">
+    <div class="driver-live-detail-title">Driver Execution</div>
+    <div class="driver-live-detail-main">${escapeHtml(live.driverName||'Driver')} · ${escapeHtml(status)} · ${done}/${total} stops complete</div>
+    <div class="driver-live-detail-sub">
+      ${current?`Current/next stop: <strong>${escapeHtml(current.sequence||'—')} - ${escapeHtml(current.customer||'Stop')}</strong> (${escapeHtml(String(current.status||'PENDING').replaceAll('_',' '))})<br/>`:''}
+      Last update: ${escapeHtml(updatedText)}
+    </div>
+  </div>`;
+}
+async function refreshDriverStatuses(silent=true){
+  try{
+    const response=await fetch('/api/route-status',{cache:'no-store'});
+    const data=await response.json().catch(()=>({}));
+    if(!response.ok)throw new Error(data.error||`HTTP ${response.status}`);
+    const next=new Map();
+    (data.routes||[]).forEach(item=>next.set(String(item.routeId),item));
+    driverLiveStatusByRouteId=next;
+    driverStatusLastRefreshAt=new Date();
+    renderRoutes();
+    if(activeDetailRouteId && document.getElementById('route-detail-modal')?.style.display==='flex'){
+      const routeId=activeDetailRouteId;
+      const r=routes.find(x=>x.id===routeId);
+      if(r){
+        const detail=document.getElementById('driver-live-detail-slot');
+        if(detail)detail.outerHTML=`<div id="driver-live-detail-slot">${driverLiveDetailHtml(routeId)}</div>`;
+      }
+    }
+  }catch(error){
+    console.warn('Driver status refresh failed',error);
+    if(!silent)showToast('Could not refresh Driver Mode status');
+  }
+}
+function startDriverStatusPolling(){
+  if(driverStatusPollTimer)clearInterval(driverStatusPollTimer);
+  refreshDriverStatuses(true);
+  driverStatusPollTimer=setInterval(()=>refreshDriverStatuses(true),15000);
+}
+
+
 // ============================================================
 // RENDER
 // ============================================================
@@ -1781,8 +1890,8 @@ function renderRoutes(){
       <div class="r-header" onclick="openRouteDetail('${r.id}')">
         <div class="r-colorbar" style="background:${color}"></div>
         <div class="r-info">
-          <div class="r-name">${r.name}${r.published?'<span style="display:inline-block;margin-left:6px;padding:1px 6px;border-radius:6px;background:rgba(62,207,142,.16);border:1px solid rgba(62,207,142,.45);color:var(--success);font-size:9px;font-weight:800;box-shadow:0 3px 10px rgba(0,0,0,.35);vertical-align:middle;">Published</span>':''}${r.driverAssignmentName?`<span style="display:inline-block;margin-left:6px;padding:1px 6px;border-radius:6px;background:rgba(79,140,255,.16);border:1px solid rgba(79,140,255,.45);color:var(--accent);font-size:9px;font-weight:800;vertical-align:middle;">Driver: ${escapeHtml(r.driverAssignmentName)}</span>`:''}</div>
-          <div class="r-meta">${rStops.length} stops &middot; ${cs}cs &middot; ${Math.round(wt)}lbs &middot; ${cu.toFixed(1)}cu &middot; ${routeDistanceMiles(r.id).toFixed(1)}mi &middot; ${fmtMinutes(routeTotalMinutes(r.id))} &middot; ${dname}</div>
+          <div class="r-name">${r.name}${r.published?'<span style="display:inline-block;margin-left:6px;padding:1px 6px;border-radius:6px;background:rgba(62,207,142,.16);border:1px solid rgba(62,207,142,.45);color:var(--success);font-size:9px;font-weight:800;box-shadow:0 3px 10px rgba(0,0,0,.35);vertical-align:middle;">Published</span>':''}${r.driverAssignmentName?`<span style="display:inline-block;margin-left:6px;padding:1px 6px;border-radius:6px;background:rgba(79,140,255,.16);border:1px solid rgba(79,140,255,.45);color:var(--accent);font-size:9px;font-weight:800;vertical-align:middle;">Driver: ${escapeHtml(r.driverAssignmentName)}</span>`:''}${driverLiveBadgeHtml(r.id)}</div>
+          <div class="r-meta">${rStops.length} stops &middot; ${cs}cs &middot; ${Math.round(wt)}lbs &middot; ${cu.toFixed(1)}cu &middot; ${routeDistanceMiles(r.id).toFixed(1)}mi &middot; ${fmtMinutes(routeTotalMinutes(r.id))} &middot; ${dname}${driverLiveMetaHtml(r.id)}</div>
           <div class="r-timing">${fmtTiming(r)}${r.udfNumber1?' · UDF#1:'+r.udfNumber1:''}${r.initialLocationKey||r.finalLocationKey?' · Depot '+(r.initialLocationKey||'—')+' → '+(r.finalLocationKey||'—'):''}</div>
         </div>
         <div class="r-ctrl">
@@ -2296,6 +2405,7 @@ function openRouteDetail(routeId){
     ${detailInput('ed-r-work1Duration','Work1Duration',r.work1Duration)}
     <div class="stop-detail-field"><div class="lbl">Initial Depot Match</div><div class="val">${escapeHtml(init?depotLabel(init,'Depot'):'No matching depot found')}</div></div>
     <div class="stop-detail-field"><div class="lbl">Final Depot Match</div><div class="val">${escapeHtml(fin?depotLabel(fin,'Depot'):'No matching depot found')}</div></div>
+    <div id="driver-live-detail-slot">${driverLiveDetailHtml(routeId)}</div>
   </div>`;
   document.getElementById('route-detail-modal').style.display='flex';
 }
@@ -2421,6 +2531,7 @@ function buildDriverRoutePackage(routeId,driverName){
 function safeDriverRouteFilePart(value){
   return String(value??'').trim().replace(/[^a-zA-Z0-9_-]+/g,'_').replace(/^_+|_+$/g,'')||'Route';
 }
+
 async function publishDriverRoutePackage(){
   const route=routes.find(r=>r.id===activeDriverAssignmentRouteId);
   if(!route){showToast('Route not found');return;}
@@ -2428,31 +2539,27 @@ async function publishDriverRoutePackage(){
   if(!driverName){showToast('Enter a driver name first');return;}
   const payload=buildDriverRoutePackage(route.id,driverName);
   if(!payload){showToast('Could not build Driver Mode route');return;}
-  const btn=document.getElementById('publish-driver-route-btn');
-  const oldText=btn?.textContent||'Publish to Driver';
-  if(btn){btn.disabled=true;btn.textContent='Publishing...';}
+
   try{
     const response=await fetch('/api/publish-route',{
       method:'POST',
       headers:{'Content-Type':'application/json'},
       body:JSON.stringify(payload)
     });
-    let result={};
-    try{result=await response.json();}catch(e){}
-    if(!response.ok)throw new Error(result.error||`Publish failed (${response.status})`);
+    const data=await response.json().catch(()=>({}));
+    if(!response.ok)throw new Error(data.error||data.detail||`HTTP ${response.status}`);
     route.driverAssignmentName=driverName;
     route.driverPublishedAt=payload.assignedAt;
-    route.driverRouteStatus='ASSIGNED';
     closeModal('driver-assignment-modal');
     renderRoutes();
+    await refreshDriverStatuses(true);
     showToast(`Route published to ${driverName}.`);
-  }catch(err){
-    console.error('Driver route publish failed',err);
-    showToast(`Publish failed: ${err.message||err}`);
-  }finally{
-    if(btn){btn.disabled=false;btn.textContent=oldText;}
+  }catch(error){
+    console.error('Publish to Driver failed',error);
+    showToast(`Publish failed: ${error.message||error}`);
   }
 }
+
 function downloadDriverRoutePackage(){
   const route=routes.find(r=>r.id===activeDriverAssignmentRouteId);
   if(!route){showToast('Route not found');return;}
