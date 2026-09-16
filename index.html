@@ -18650,6 +18650,7 @@ let scheduleMeLastResults=[];
 let scheduleMeProspect=null;
 let scheduleMePreviewLayer=null;
 let scheduleMePreviewMarker=null;
+let scheduleMePreviewStopMarkers=[];
 let scheduleMeMapSnapshot=null;
 
 function openScheduleMe(){
@@ -18775,18 +18776,40 @@ async function smGeocode(address){
 function smCandidateScore(c){
   return c.addedMiles*3 + c.addedMinutes*.55 + c.newLate*55 + c.affected*8 + (c.capacityIssue?120:0);
 }
+function smInsertionTravelImpact(route,prospect,insertIndex){
+  const rs=stops.filter(s=>s.routeId===route.id&&Number.isFinite(+s.lat)&&Number.isFinite(+s.lng))
+    .sort((a,b)=>(+a.seq||0)-(+b.seq||0));
+  const init=routeInitialDepot(route), fin=routeFinalDepot(route);
+  const prev=insertIndex===0?init:rs[insertIndex-1];
+  const next=insertIndex>=rs.length?fin:rs[insertIndex];
+  if(!prev||!next||!Number.isFinite(+prev.lat)||!Number.isFinite(+prev.lng)||!Number.isFinite(+next.lat)||!Number.isFinite(+next.lng)){
+    return {addedMiles:0,addedDriveMinutes:0};
+  }
+  const direct=roadAdjustedMiles(haversine(+prev.lat,+prev.lng,+next.lat,+next.lng));
+  const via1=roadAdjustedMiles(haversine(+prev.lat,+prev.lng,+prospect.lat,+prospect.lng));
+  const via2=roadAdjustedMiles(haversine(+prospect.lat,+prospect.lng,+next.lat,+next.lng));
+  const addedMiles=Math.max(0,via1+via2-direct);
+  // Use the same semi-trailer speed model already used by Schedule Me.
+  const directMin=driveMinutesForMiles(haversine(+prev.lat,+prev.lng,+next.lat,+next.lng));
+  const viaMin=driveMinutesForMiles(haversine(+prev.lat,+prev.lng,+prospect.lat,+prospect.lng))
+              +driveMinutesForMiles(haversine(+prospect.lat,+prospect.lng,+next.lat,+next.lng));
+  return {addedMiles,addedDriveMinutes:Math.max(0,viaMin-directMin)};
+}
 function smEvaluateCandidate(route,prospect,insertIndex,windowOverride){
   const base=smBaseline(route);
   const sim=smSimulate(route,prospect,insertIndex,windowOverride);
   if(!sim||sim.prospectArrive===null)return null;
   const cap=smCapacityImpact(route,prospect);
-  const addedMiles=Math.max(0,sim.miles-base.miles);
-  const addedMinutes=Math.max(0,sim.end-base.end);
+  const travelImpact=smInsertionTravelImpact(route,prospect,insertIndex);
+  const addedMiles=travelImpact.addedMiles;
+  const serviceMinutes=Math.max(0,+prospect.serviceMinutes||0);
+  const addedMinutes=travelImpact.addedDriveMinutes+serviceMinutes;
+  const projectedEndChange=Math.max(0,sim.end-base.end);
   const newLate=Math.max(0,sim.existingLate-base.late);
   const affected=newLate;
   const c={
     route,insertIndex,sim,base,
-    addedMiles,addedMinutes,newLate,affected,
+    addedMiles,addedMinutes,projectedEndChange,newLate,affected,
     capacityIssue:cap.cubeOver||cap.weightOver,
     capacityDetail:cap,
     arrive:sim.prospectArrive,
@@ -18861,9 +18884,10 @@ function smImpactText(c){
   const after=stops.filter(s=>s.routeId===c.route.id).sort((a,b)=>(+a.seq||0)-(+b.seq||0))[Math.max(0,c.insertIndex-1)];
   const before=stops.filter(s=>s.routeId===c.route.id).sort((a,b)=>(+a.seq||0)-(+b.seq||0))[c.insertIndex];
   const place=after?`after ${after.customerName||'Stop '+c.insertIndex}`:(before?`before ${before.customerName||'the first stop'}`:'on the route');
-  let t=`Insert ${place}. This adds about ${c.addedMiles.toFixed(1)} road miles and ${Math.round(c.addedMinutes)} minutes to the route. `;
+  let t=`Insert ${place}. This adds about ${c.addedMiles.toFixed(1)} road miles and ${Math.round(c.addedMinutes)} minutes of incremental travel/service work to the route. `;
   if(c.newLate>0)t+=`${c.newLate} existing customer${c.newLate===1?' is':'s are'} projected to become late. `;
   else t+='No additional existing customers are projected late. ';
+  if(c.projectedEndChange<c.addedMinutes-1)t+=`Existing slack/wait time absorbs part of the insertion; projected route end shifts by about ${Math.round(c.projectedEndChange)} minutes. `;
   if(c.capacityIssue)t+='The entered cube/weight may exceed the current truck capacity. ';
   return t;
 }
@@ -18942,8 +18966,9 @@ function clearSchedulePreview(){
   try{
     if(scheduleMePreviewLayer&&map)map.removeLayer(scheduleMePreviewLayer);
     if(scheduleMePreviewMarker&&map)map.removeLayer(scheduleMePreviewMarker);
+    scheduleMePreviewStopMarkers.forEach(m=>{try{map.removeLayer(m);}catch(e){}});
   }catch(e){}
-  scheduleMePreviewLayer=null;scheduleMePreviewMarker=null;
+  scheduleMePreviewLayer=null;scheduleMePreviewMarker=null;scheduleMePreviewStopMarkers=[];
   if(scheduleMeMapSnapshot&&map){
     map.setView(scheduleMeMapSnapshot.center,scheduleMeMapSnapshot.zoom,{animate:false});
   }
@@ -18954,16 +18979,46 @@ function previewScheduleOption(routeId,insertIndex,arrive){
   clearSchedulePreview();
   scheduleMeMapSnapshot={center:map.getCenter(),zoom:map.getZoom()};
   const route=routes.find(r=>r.id===routeId);if(!route)return;
-  const rs=stops.filter(s=>s.routeId===routeId&&Number.isFinite(+s.lat)&&Number.isFinite(+s.lng)).sort((a,b)=>(+a.seq||0)-(+b.seq||0));
+  const rs=stops.filter(s=>s.routeId===routeId&&Number.isFinite(+s.lat)&&Number.isFinite(+s.lng))
+    .sort((a,b)=>(+a.seq||0)-(+b.seq||0));
   const init=routeInitialDepot(route),fin=routeFinalDepot(route);
   const pts=[];
   if(init&&Number.isFinite(+init.lat)&&Number.isFinite(+init.lng))pts.push([+init.lat,+init.lng]);
-  rs.forEach((s,i)=>{if(i===insertIndex)pts.push([+scheduleMeProspect.lat,+scheduleMeProspect.lng]);pts.push([+s.lat,+s.lng]);});
+  rs.forEach((s,i)=>{
+    if(i===insertIndex)pts.push([+scheduleMeProspect.lat,+scheduleMeProspect.lng]);
+    pts.push([+s.lat,+s.lng]);
+  });
   if(insertIndex>=rs.length)pts.push([+scheduleMeProspect.lat,+scheduleMeProspect.lng]);
   if(fin&&Number.isFinite(+fin.lat)&&Number.isFinite(+fin.lng))pts.push([+fin.lat,+fin.lng]);
+
+  // Proposed full route path.
   scheduleMePreviewLayer=L.polyline(pts,{weight:6,opacity:.9,dashArray:'10 7'}).addTo(map);
-  const icon=L.divIcon({className:'',html:`<div class="schedule-prospect-label">★ ${smEsc(scheduleMeProspect.customerName)} · ${minutesToHHMM(arrive)}</div>`,iconSize:[180,28],iconAnchor:[90,14]});
-  scheduleMePreviewMarker=L.marker([scheduleMeProspect.lat,scheduleMeProspect.lng],{icon,zIndexOffset:10000}).addTo(map);
+
+  // Show every original customer stop with its projected sequence number.
+  rs.forEach((s,i)=>{
+    const proposedSeq=i<insertIndex?i+1:i+2;
+    const icon=L.divIcon({
+      className:'',
+      html:`<div style="width:24px;height:24px;border-radius:50%;background:#2563eb;color:white;border:2px solid white;display:flex;align-items:center;justify-content:center;font:700 10px 'DM Mono',monospace;box-shadow:0 2px 6px rgba(0,0,0,.65);">${proposedSeq}</div>`,
+      iconSize:[24,24],iconAnchor:[12,12]
+    });
+    const marker=L.marker([+s.lat,+s.lng],{icon,zIndexOffset:7000})
+      .bindTooltip(`${proposedSeq}. ${smEsc(s.customerName||s.name||'Customer')}`,{direction:'top'});
+    marker.addTo(map);
+    scheduleMePreviewStopMarkers.push(marker);
+  });
+
+  // Prospect is visually inserted at its proposed sequence.
+  const prospectSeq=insertIndex+1;
+  const icon=L.divIcon({
+    className:'',
+    html:`<div class="schedule-prospect-label">★ ${prospectSeq}. ${smEsc(scheduleMeProspect.customerName)} · ${minutesToHHMM(arrive)}</div>`,
+    iconSize:[210,28],iconAnchor:[105,14]
+  });
+  scheduleMePreviewMarker=L.marker([scheduleMeProspect.lat,scheduleMeProspect.lng],{icon,zIndexOffset:10000})
+    .bindTooltip(`Proposed Stop ${prospectSeq}: ${smEsc(scheduleMeProspect.customerName)}`,{direction:'top'})
+    .addTo(map);
+
   const bounds=L.latLngBounds(pts);
   if(bounds.isValid())map.fitBounds(bounds,{padding:[50,50],maxZoom:13});
 }
