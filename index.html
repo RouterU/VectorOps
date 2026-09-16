@@ -543,6 +543,42 @@ body{background:var(--bg0);color:var(--text1);}
 .stop-live-notstarted{background:rgba(156,163,184,.12);border-color:rgba(156,163,184,.30);color:var(--text2);}
 
 
+
+/* ============================================================
+   SCHEDULE ME V1 — non-destructive sales delivery-window quoting
+   ============================================================ */
+.schedule-modal{width:1180px;max-width:98vw;max-height:94vh;}
+.schedule-intake{display:grid;grid-template-columns:1.25fr 2.4fr 1fr 1fr 1fr;gap:8px;align-items:end;}
+.schedule-intake .field.address{grid-column:span 2;}
+.schedule-note{margin-top:8px;padding:8px 10px;border:1px solid var(--border);border-radius:8px;background:var(--bg2);font-size:10px;color:var(--text2);line-height:1.45;}
+.schedule-results{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:12px;}
+.schedule-card{border:1px solid var(--border2);background:var(--bg2);border-radius:12px;padding:12px;min-width:0;}
+.schedule-card.best{border-color:var(--success);box-shadow:inset 0 3px 0 var(--success);}
+.schedule-card.ok{border-color:var(--warn);box-shadow:inset 0 3px 0 var(--warn);}
+.schedule-card.caution{border-color:var(--danger);box-shadow:inset 0 3px 0 var(--danger);}
+.schedule-card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:8px;margin-bottom:8px;}
+.schedule-tier{font-size:11px;font-weight:800;letter-spacing:.4px;}
+.schedule-window{font-family:'DM Mono',monospace;font-size:18px;font-weight:700;color:var(--text1);margin-top:2px;}
+.schedule-route{font-size:10px;color:var(--text2);margin-top:3px;}
+.schedule-impact{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px;margin:9px 0;}
+.schedule-impact-box{background:var(--bg3);border:1px solid var(--border);border-radius:7px;padding:7px;text-align:center;}
+.schedule-impact-box .v{font-family:'DM Mono',monospace;font-size:12px;font-weight:700;color:var(--text1);}
+.schedule-impact-box .l{font-size:8px;text-transform:uppercase;color:var(--text3);margin-top:2px;}
+.schedule-summary{font-size:10px;color:var(--text2);line-height:1.5;min-height:76px;}
+.schedule-warning{margin-top:8px;padding:7px 8px;border-radius:7px;background:rgba(239,68,68,.13);border:1px solid rgba(239,68,68,.45);font-size:9px;color:#fecaca;line-height:1.45;}
+.schedule-request{margin-top:10px;border:1px solid var(--border);border-radius:9px;background:var(--bg3);padding:9px 10px;font-size:10px;color:var(--text2);}
+.schedule-request strong{color:var(--text1);}
+.schedule-geocode{font-size:10px;color:var(--text3);margin-top:7px;}
+.schedule-geocode.ok{color:var(--success);}
+.schedule-geocode.bad{color:var(--danger);}
+.schedule-empty{grid-column:1/-1;padding:22px;text-align:center;border:1px dashed var(--border2);border-radius:10px;color:var(--text3);}
+.schedule-prospect-label{display:inline-block;background:#fff;color:#111;border:2px solid var(--accent);border-radius:999px;padding:4px 8px;font:700 10px 'Sora',sans-serif;box-shadow:0 3px 10px rgba(0,0,0,.45);white-space:nowrap;}
+@media(max-width:1000px){
+  .schedule-intake{grid-template-columns:1fr 1fr;}
+  .schedule-intake .field.address{grid-column:span 2;}
+  .schedule-results{grid-template-columns:1fr;}
+}
+
 </style>
 
 <style>
@@ -657,6 +693,10 @@ body{background:var(--bg0);color:var(--text1);}
     <button class="btn primary" onclick="openScenarioLevers()" title="Run what-if route scenarios and compare the modeled solution to the imported baseline">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16"/><path d="M4 12h16"/><path d="M4 18h16"/><circle cx="9" cy="6" r="2" fill="currentColor"/><circle cx="15" cy="12" r="2" fill="currentColor"/><circle cx="11" cy="18" r="2" fill="currentColor"/></svg>
       Scenario Levers
+    </button>
+    <button class="btn success" onclick="openScheduleMe()" title="Project realistic delivery windows for a prospective customer using the currently imported route network">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/><path d="M7 3v3"/><path d="M17 3v3"/></svg>
+      Schedule Me
     </button>
     <button class="btn" onclick="openAddStop()">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
@@ -18566,6 +18606,357 @@ window.addEventListener('DOMContentLoaded',()=>{
   z-index:9999!important;
 }
 </style>
+
+
+<!-- Schedule Me — Sales delivery-window projection -->
+<div class="modal-overlay" id="schedule-me-modal" style="display:none;">
+  <div class="modal schedule-modal">
+    <h2>Schedule Me — Projected Delivery Window</h2>
+    <div class="schedule-intake">
+      <div class="field"><label>Location Name *</label><input id="sm-name" placeholder="Prospective Customer"/></div>
+      <div class="field address"><label>Full Address *</label><input id="sm-address" placeholder="Street, City, State ZIP"/></div>
+      <div class="field"><label>Delivery Date / Day</label><input id="sm-date" type="date"/></div>
+      <div class="field"><label>Desired Earliest</label><input id="sm-early" type="time"/></div>
+      <div class="field"><label>Desired Latest</label><input id="sm-late" type="time"/></div>
+      <div class="field"><label>Cases</label><input id="sm-cases" type="number" min="0" step="1" placeholder="Optional"/></div>
+      <div class="field"><label>Cube</label><input id="sm-cube" type="number" min="0" step=".1" placeholder="Optional"/></div>
+      <div class="field"><label>Weight (lbs)</label><input id="sm-weight" type="number" min="0" step="1" placeholder="Optional"/></div>
+      <div class="field"><label>Service Minutes</label><input id="sm-service" type="number" min="0" step="1" value="20"/></div>
+      <button class="btn success" id="sm-run-btn" onclick="runScheduleMe()">Schedule</button>
+    </div>
+    <div class="schedule-note">
+      <strong>Non-destructive simulation:</strong> Schedule Me evaluates the prospective customer against the currently imported routes. It does not add the customer, resequence a route, or modify Scenario Levers. Recommended windows are based on where the existing route network naturally reaches the area and the downstream impact of inserting the stop.
+    </div>
+    <div id="sm-geocode" class="schedule-geocode">Enter the prospect and click Schedule.</div>
+    <div id="sm-request-result"></div>
+    <div id="sm-results" class="schedule-results">
+      <div class="schedule-empty">No projection has been run yet.</div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" onclick="clearSchedulePreview()">Clear Map Preview</button>
+      <button class="btn" onclick="closeScheduleMe()">Close</button>
+    </div>
+  </div>
+</div>
+
+
+<script>
+// ============================================================
+// SCHEDULE ME V1
+// Sales delivery-window projection. Intentionally isolated from
+// Scenario Levers and the active routing state.
+// ============================================================
+let scheduleMeLastResults=[];
+let scheduleMeProspect=null;
+let scheduleMePreviewLayer=null;
+let scheduleMePreviewMarker=null;
+let scheduleMeMapSnapshot=null;
+
+function openScheduleMe(){
+  const modal=document.getElementById('schedule-me-modal');
+  if(!modal)return;
+  modal.style.display='flex';
+  const date=document.getElementById('sm-date');
+  if(date&&!date.value)date.value=document.getElementById('route-date')?.value||'';
+  document.getElementById('sm-name')?.focus();
+}
+function closeScheduleMe(){
+  clearSchedulePreview();
+  const modal=document.getElementById('schedule-me-modal');
+  if(modal)modal.style.display='none';
+}
+function smNum(id){const n=parseFloat(document.getElementById(id)?.value);return Number.isFinite(n)?n:0;}
+function smTime(id){return (document.getElementById(id)?.value||'').trim();}
+function smDateKey(value){
+  const s=String(value||'').trim();
+  const m=s.match(/(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})/);
+  if(m)return `${m[1]}-${String(m[2]).padStart(2,'0')}-${String(m[3]).padStart(2,'0')}`;
+  const d=new Date(s);
+  if(!isNaN(d))return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  return '';
+}
+function smRouteDate(route){
+  return smDateKey(route?.routeData?.routeStart||route?.routeStart||route?.earliestStartDate||'');
+}
+function smRouteLabel(route){
+  return route?.udfNumber1||route?.name||route?.routeKey||route?.id||'Route';
+}
+function smEsc(v){return typeof escapeHtml==='function'?escapeHtml(String(v??'')):String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+function smRoundWindow(arrive,width=120){
+  const center=Math.round(arrive/30)*30;
+  const half=width/2;
+  return {early:center-half,late:center+half};
+}
+function smWindowLabel(w){return `${minutesToHHMM(w.early)}–${minutesToHHMM(w.late)}`;}
+function smRoutePointsWithProspect(route,prospect,insertIndex,windowOverride){
+  const init=routeInitialDepot(route), fin=routeFinalDepot(route);
+  const rs=stops.filter(s=>s.routeId===route.id&&Number.isFinite(+s.lat)&&Number.isFinite(+s.lng)).sort((a,b)=>(+a.seq||0)-(+b.seq||0));
+  const customerPts=rs.map(s=>({type:'stop',stop:s,name:s.customerName||'Stop',lat:+s.lat,lng:+s.lng}));
+  const p={...prospect};
+  if(windowOverride){
+    p.earliestTimeWindow=minutesToHHMM(windowOverride.early);
+    p.latestTimeWindow=minutesToHHMM(windowOverride.late);
+  }else{
+    p.earliestTimeWindow='';
+    p.latestTimeWindow='';
+  }
+  customerPts.splice(insertIndex,0,{type:'prospect',stop:p,name:p.customerName,lat:+p.lat,lng:+p.lng});
+  const pts=[];
+  if(init&&Number.isFinite(+init.lat)&&Number.isFinite(+init.lng))pts.push({type:'depot-start',name:'START',lat:+init.lat,lng:+init.lng});
+  pts.push(...customerPts);
+  if(fin&&Number.isFinite(+fin.lat)&&Number.isFinite(+fin.lng))pts.push({type:'depot-end',name:'END',lat:+fin.lat,lng:+fin.lng});
+  return pts;
+}
+function smSimulate(route,prospect,insertIndex,windowOverride){
+  const pts=smRoutePointsWithProspect(route,prospect,insertIndex,windowOverride);
+  if(pts.length<2)return null;
+  let cursor=timeToMinutes(routeStartTime(route));
+  if(cursor===null)cursor=0;
+  const startup=durationToMinutes(route.startupTime), windup=durationToMinutes(route.windupTime);
+  let miles=0, prospectArrive=null, late=0, existingLate=0, affected=0;
+  const rows=[];
+  pts.forEach((pt,i)=>{
+    let arrive=cursor, rawArrive=cursor, depart=cursor, wait=0, status='', leg=0;
+    if(i===0){
+      depart=cursor+startup;
+    }else{
+      const prev=pts[i-1];
+      leg=haversine(prev.lat,prev.lng,pt.lat,pt.lng);
+      miles+=roadAdjustedMiles(leg);
+      rawArrive=cursor+driveMinutesForMiles(leg);
+      arrive=rawArrive;
+      if(pt.type==='stop'||pt.type==='prospect'){
+        const tw=windowStatusForStop(pt.stop,rawArrive);
+        arrive=tw.adjustedArrive;wait=tw.waitMins;status=tw.status;
+        depart=arrive+(pt.type==='prospect'?(+prospect.serviceMinutes||20):stopServiceMinutes(pt.stop));
+        if(status==='LATE'){late++;if(pt.type==='stop')existingLate++;}
+        if(pt.type==='prospect')prospectArrive=arrive;
+      }else{
+        depart=arrive+(pt.type==='depot-end'?windup:0);
+      }
+    }
+    rows.push({pt,arrive,depart,rawArrive,status,wait,leg});
+    cursor=depart;
+  });
+  return {miles,end:cursor,prospectArrive,late,existingLate,rows};
+}
+function smBaseline(route){
+  const rows=routeTimelineRows(route.id);
+  const late=rows.filter(r=>r.type==='stop'&&r.twStatus==='LATE').length;
+  return {
+    miles:roadAdjustedMiles(routeDistanceMiles(route.id)),
+    end:rows.length?rows[rows.length-1].depart:(timeToMinutes(routeStartTime(route))||0),
+    late
+  };
+}
+function smCapacityImpact(route,prospect){
+  const cap=routeCapacityLimits(route)||{};
+  let load={totalCube:0,weight:0};
+  try{
+    if(route.sourceType==='route-data'&&typeof scenarioRouteLoadProfile==='function'){
+      const p=scenarioRouteLoadProfile(route.id);load={totalCube:+p.cube||0,weight:+p.weight||0};
+    }else{
+      const p=routeLoadTotals(route.id);load={totalCube:+p.totalCube||0,weight:+p.weight||0};
+    }
+  }catch(e){}
+  const cubeOver=cap.totalCube&&load.totalCube+(+prospect.cube||0)>cap.totalCube;
+  const weightOver=cap.weight&&load.weight+(+prospect.weight||0)>cap.weight;
+  return {cubeOver:!!cubeOver,weightOver:!!weightOver};
+}
+async function smGeocode(address){
+  const url='https://geocode.arcgis.com/arcgis/rest/services/World/GeocodeServer/findAddressCandidates?f=json&maxLocations=1&outFields=Match_addr,Addr_type&SingleLine='+encodeURIComponent(address);
+  const res=await fetch(url);
+  if(!res.ok)throw new Error('Geocoding service returned '+res.status);
+  const data=await res.json();
+  const c=data?.candidates?.[0];
+  if(!c||!c.location)throw new Error('Address could not be located');
+  return {lat:+c.location.y,lng:+c.location.x,matched:c.address||address,score:+c.score||0};
+}
+function smCandidateScore(c){
+  return c.addedMiles*3 + c.addedMinutes*.55 + c.newLate*55 + c.affected*8 + (c.capacityIssue?120:0);
+}
+function smEvaluateCandidate(route,prospect,insertIndex,windowOverride){
+  const base=smBaseline(route);
+  const sim=smSimulate(route,prospect,insertIndex,windowOverride);
+  if(!sim||sim.prospectArrive===null)return null;
+  const cap=smCapacityImpact(route,prospect);
+  const addedMiles=Math.max(0,sim.miles-base.miles);
+  const addedMinutes=Math.max(0,sim.end-base.end);
+  const newLate=Math.max(0,sim.existingLate-base.late);
+  const affected=newLate;
+  const c={
+    route,insertIndex,sim,base,
+    addedMiles,addedMinutes,newLate,affected,
+    capacityIssue:cap.cubeOver||cap.weightOver,
+    capacityDetail:cap,
+    arrive:sim.prospectArrive,
+    window:windowOverride
+  };
+  c.score=smCandidateScore(c);
+  return c;
+}
+function smNaturalCandidates(prospect,dateFilter){
+  const candidates=[];
+  const eligible=routes.filter(r=>{
+    const rs=stops.filter(s=>s.routeId===r.id&&Number.isFinite(+s.lat)&&Number.isFinite(+s.lng));
+    if(!rs.length)return false;
+    if(dateFilter){
+      const rd=smRouteDate(r);
+      if(rd&&rd!==dateFilter)return false;
+    }
+    return true;
+  });
+  eligible.forEach(route=>{
+    const rs=stops.filter(s=>s.routeId===route.id&&Number.isFinite(+s.lat)&&Number.isFinite(+s.lng)).sort((a,b)=>(+a.seq||0)-(+b.seq||0));
+    for(let i=0;i<=rs.length;i++){
+      const raw=smEvaluateCandidate(route,prospect,i,null);
+      if(!raw)continue;
+      const window=smRoundWindow(raw.arrive,120);
+      const c=smEvaluateCandidate(route,prospect,i,window);
+      if(c)candidates.push(c);
+    }
+  });
+  return candidates.sort((a,b)=>a.score-b.score||a.addedMiles-b.addedMiles);
+}
+function smRequestedCandidate(prospect,dateFilter,early,late){
+  if(early===null||late===null)return null;
+  let w={early,late};
+  if(late<early)w={early,late:late+1440};
+  const all=[];
+  routes.forEach(route=>{
+    if(dateFilter){const rd=smRouteDate(route);if(rd&&rd!==dateFilter)return;}
+    const rs=stops.filter(s=>s.routeId===route.id&&Number.isFinite(+s.lat)&&Number.isFinite(+s.lng)).sort((a,b)=>(+a.seq||0)-(+b.seq||0));
+    for(let i=0;i<=rs.length;i++){
+      const c=smEvaluateCandidate(route,prospect,i,w);if(c)all.push(c);
+    }
+  });
+  return all.sort((a,b)=>{
+    const al=a.sim.rows.find(r=>r.pt.type==='prospect')?.status==='LATE'?1:0;
+    const bl=b.sim.rows.find(r=>r.pt.type==='prospect')?.status==='LATE'?1:0;
+    return al-bl||a.score-b.score;
+  })[0]||null;
+}
+function smPickDistinct(candidates,count=3){
+  const out=[];
+  for(const c of candidates){
+    const distinct=out.every(x=>x.route.id!==c.route.id||Math.abs(x.arrive-c.arrive)>=45||Math.abs(x.insertIndex-c.insertIndex)>=3);
+    if(distinct)out.push(c);
+    if(out.length>=count)break;
+  }
+  for(const c of candidates){
+    if(out.length>=count)break;
+    if(!out.includes(c))out.push(c);
+  }
+  return out;
+}
+function smImpactLevel(c){
+  if(!c)return 'caution';
+  if(c.capacityIssue||c.newLate>0||c.addedMiles>=12||c.addedMinutes>=45)return 'caution';
+  if(c.addedMiles>=6||c.addedMinutes>=25)return 'ok';
+  return 'best';
+}
+function smImpactText(c){
+  const after=stops.filter(s=>s.routeId===c.route.id).sort((a,b)=>(+a.seq||0)-(+b.seq||0))[Math.max(0,c.insertIndex-1)];
+  const before=stops.filter(s=>s.routeId===c.route.id).sort((a,b)=>(+a.seq||0)-(+b.seq||0))[c.insertIndex];
+  const place=after?`after ${after.customerName||'Stop '+c.insertIndex}`:(before?`before ${before.customerName||'the first stop'}`:'on the route');
+  let t=`Insert ${place}. This adds about ${c.addedMiles.toFixed(1)} road miles and ${Math.round(c.addedMinutes)} minutes to the route. `;
+  if(c.newLate>0)t+=`${c.newLate} existing customer${c.newLate===1?' is':'s are'} projected to become late. `;
+  else t+='No additional existing customers are projected late. ';
+  if(c.capacityIssue)t+='The entered cube/weight may exceed the current truck capacity. ';
+  return t;
+}
+function smCard(c,tier,label){
+  if(!c)return `<div class="schedule-card ${tier}"><div class="schedule-tier">${label}</div><div class="schedule-summary">No distinct option was found.</div></div>`;
+  const level=smImpactLevel(c);
+  const high=level==='caution';
+  const routeLabel=smEsc(smRouteLabel(c.route));
+  const window=smWindowLabel(c.window||smRoundWindow(c.arrive,120));
+  return `<div class="schedule-card ${tier}">
+    <div class="schedule-card-head"><div><div class="schedule-tier">${label}${tier==='best'&&high?' — HIGH IMPACT':''}</div><div class="schedule-window">${window}</div><div class="schedule-route">Route ${routeLabel} · Proposed insertion position ${c.insertIndex+1}</div></div></div>
+    <div class="schedule-impact">
+      <div class="schedule-impact-box"><div class="v">+${c.addedMiles.toFixed(1)}</div><div class="l">Road Miles</div></div>
+      <div class="schedule-impact-box"><div class="v">+${Math.round(c.addedMinutes)}m</div><div class="l">Route Time</div></div>
+      <div class="schedule-impact-box"><div class="v">${c.newLate}</div><div class="l">New Late Stops</div></div>
+      <div class="schedule-impact-box"><div class="v">${minutesToHHMM(c.sim.end)}</div><div class="l">Projected End</div></div>
+    </div>
+    <div class="schedule-summary">${smEsc(smImpactText(c))}</div>
+    ${high?`<div class="schedule-warning"><strong>Service-impacting option:</strong> This window creates meaningful additional mileage/time, customer impact, or capacity pressure. If the customer requires this time slot, an additional delivery/service charge should be considered to offset the added operating expense.</div>`:''}
+    <div style="margin-top:9px;"><button class="btn" onclick="previewScheduleOption('${smEsc(c.route.id)}',${c.insertIndex},${c.arrive})">View on Map</button></div>
+  </div>`;
+}
+function smRequestedHtml(c,early,late){
+  if(early===null||late===null)return '';
+  if(!c)return `<div class="schedule-request"><strong>Requested Window:</strong> ${minutesToHHMM(early)}–${minutesToHHMM(late)} — no viable routed insertion found.</div>`;
+  const prospectRow=c.sim.rows.find(r=>r.pt.type==='prospect');
+  const status=prospectRow?.status==='LATE'?'CAUTION':smImpactLevel(c).toUpperCase();
+  return `<div class="schedule-request"><strong>Requested Window ${minutesToHHMM(early)}–${minutesToHHMM(late)}:</strong> ${status} · Best matching route ${smEsc(smRouteLabel(c.route))} · +${c.addedMiles.toFixed(1)} miles · +${Math.round(c.addedMinutes)} min · ${c.newLate} new late existing stop${c.newLate===1?'':'s'}. ${status==='CAUTION'?'Consider a service charge if this specific window is required.':''}</div>`;
+}
+async function runScheduleMe(){
+  const name=(document.getElementById('sm-name')?.value||'').trim();
+  const address=(document.getElementById('sm-address')?.value||'').trim();
+  if(!name||!address){showToast('Location Name and Full Address are required.');return;}
+  if(!routes.length||!stops.some(s=>s.routeId)){showToast('Import Route Details / routed routes before using Schedule Me.');return;}
+  const btn=document.getElementById('sm-run-btn'), geo=document.getElementById('sm-geocode'), results=document.getElementById('sm-results');
+  if(btn){btn.disabled=true;btn.textContent='Scheduling…';}
+  if(geo){geo.className='schedule-geocode';geo.textContent='Locating customer and testing route insertions…';}
+  if(results)results.innerHTML='<div class="schedule-empty">Analyzing the current routed network…</div>';
+  try{
+    const g=await smGeocode(address);
+    const prospect={
+      id:'schedule-prospect',customerName:name,address,lat:g.lat,lng:g.lng,
+      cases:smNum('sm-cases'),cube:smNum('sm-cube'),weight:smNum('sm-weight'),
+      serviceMinutes:Math.max(0,smNum('sm-service')||20)
+    };
+    scheduleMeProspect=prospect;
+    if(geo){geo.className='schedule-geocode ok';geo.textContent=`Matched: ${g.matched} · Geocode confidence ${Math.round(g.score)}%`;}
+    const dateFilter=(document.getElementById('sm-date')?.value||'').trim();
+    const candidates=smNaturalCandidates(prospect,dateFilter);
+    if(!candidates.length)throw new Error('No geocoded routed stops matched the selected date/session.');
+    const picks=smPickDistinct(candidates,3);
+    scheduleMeLastResults=picks;
+    const e=timeToMinutes(smTime('sm-early')), l=timeToMinutes(smTime('sm-late'));
+    const requested=smRequestedCandidate(prospect,dateFilter,e,l);
+    document.getElementById('sm-request-result').innerHTML=smRequestedHtml(requested,e,l);
+    const best=picks[0]||null, ok=picks[1]||picks[0]||null, caution=requested||picks[2]||picks[picks.length-1]||null;
+    results.innerHTML=smCard(best,'best','BEST WINDOW')+smCard(ok,'ok','OK WINDOW')+smCard(caution,'caution',requested?'CAUTION / REQUESTED WINDOW':'CAUTION WINDOW');
+  }catch(err){
+    console.error('Schedule Me',err);
+    if(geo){geo.className='schedule-geocode bad';geo.textContent='Schedule Me could not complete: '+(err.message||err);}
+    if(results)results.innerHTML='<div class="schedule-empty">No delivery-window projection is available for this request.</div>';
+  }finally{
+    if(btn){btn.disabled=false;btn.textContent='Schedule';}
+  }
+}
+function clearSchedulePreview(){
+  try{
+    if(scheduleMePreviewLayer&&map)map.removeLayer(scheduleMePreviewLayer);
+    if(scheduleMePreviewMarker&&map)map.removeLayer(scheduleMePreviewMarker);
+  }catch(e){}
+  scheduleMePreviewLayer=null;scheduleMePreviewMarker=null;
+  if(scheduleMeMapSnapshot&&map){
+    map.setView(scheduleMeMapSnapshot.center,scheduleMeMapSnapshot.zoom,{animate:false});
+  }
+  scheduleMeMapSnapshot=null;
+}
+function previewScheduleOption(routeId,insertIndex,arrive){
+  if(!map||!scheduleMeProspect)return;
+  clearSchedulePreview();
+  scheduleMeMapSnapshot={center:map.getCenter(),zoom:map.getZoom()};
+  const route=routes.find(r=>r.id===routeId);if(!route)return;
+  const rs=stops.filter(s=>s.routeId===routeId&&Number.isFinite(+s.lat)&&Number.isFinite(+s.lng)).sort((a,b)=>(+a.seq||0)-(+b.seq||0));
+  const init=routeInitialDepot(route),fin=routeFinalDepot(route);
+  const pts=[];
+  if(init&&Number.isFinite(+init.lat)&&Number.isFinite(+init.lng))pts.push([+init.lat,+init.lng]);
+  rs.forEach((s,i)=>{if(i===insertIndex)pts.push([+scheduleMeProspect.lat,+scheduleMeProspect.lng]);pts.push([+s.lat,+s.lng]);});
+  if(insertIndex>=rs.length)pts.push([+scheduleMeProspect.lat,+scheduleMeProspect.lng]);
+  if(fin&&Number.isFinite(+fin.lat)&&Number.isFinite(+fin.lng))pts.push([+fin.lat,+fin.lng]);
+  scheduleMePreviewLayer=L.polyline(pts,{weight:6,opacity:.9,dashArray:'10 7'}).addTo(map);
+  const icon=L.divIcon({className:'',html:`<div class="schedule-prospect-label">★ ${smEsc(scheduleMeProspect.customerName)} · ${minutesToHHMM(arrive)}</div>`,iconSize:[180,28],iconAnchor:[90,14]});
+  scheduleMePreviewMarker=L.marker([scheduleMeProspect.lat,scheduleMeProspect.lng],{icon,zIndexOffset:10000}).addTo(map);
+  const bounds=L.latLngBounds(pts);
+  if(bounds.isValid())map.fitBounds(bounds,{padding:[50,50],maxZoom:13});
+}
+</script>
 
 </body>
 </html>
