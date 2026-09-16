@@ -579,6 +579,21 @@ body{background:var(--bg0);color:var(--text1);}
   .schedule-results{grid-template-columns:1fr;}
 }
 
+
+.schedule-route-detail-modal{width:1120px;max-width:98vw;max-height:92vh;}
+.schedule-route-detail-head{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:7px;margin-bottom:10px;}
+.schedule-rd-kpi{background:var(--bg3);border:1px solid var(--border);border-radius:8px;padding:8px;text-align:center;}
+.schedule-rd-kpi .v{font:700 12px 'DM Mono',monospace;color:var(--text1);}
+.schedule-rd-kpi .l{font-size:8px;text-transform:uppercase;color:var(--text3);margin-top:2px;}
+.schedule-rd-table-wrap{max-height:55vh;overflow:auto;border:1px solid var(--border);border-radius:9px;}
+.schedule-rd-table{width:100%;border-collapse:collapse;font-size:9px;}
+.schedule-rd-table th{position:sticky;top:0;z-index:2;background:var(--bg3);color:var(--text2);padding:7px 6px;border-bottom:1px solid var(--border2);text-align:left;white-space:nowrap;}
+.schedule-rd-table td{padding:6px;border-bottom:1px solid var(--border);color:var(--text2);vertical-align:top;}
+.schedule-rd-table tr.prospect td{background:rgba(132,204,22,.12);color:var(--text1);font-weight:700;}
+.schedule-rd-table tr.late td{background:rgba(239,68,68,.08);}
+.schedule-rd-sub{font-size:10px;color:var(--text3);margin:3px 0 10px;}
+@media(max-width:900px){.schedule-route-detail-head{grid-template-columns:repeat(3,1fr);}}
+
 </style>
 
 <style>
@@ -18907,7 +18922,10 @@ function smCard(c,tier,label){
     </div>
     <div class="schedule-summary">${smEsc(smImpactText(c))}</div>
     ${high?`<div class="schedule-warning"><strong>Service-impacting option:</strong> This window creates meaningful additional mileage/time, customer impact, or capacity pressure. If the customer requires this time slot, an additional delivery/service charge should be considered to offset the added operating expense.</div>`:''}
-    <div style="margin-top:9px;"><button class="btn" onclick="previewScheduleOption('${smEsc(c.route.id)}',${c.insertIndex},${c.arrive})">View on Map</button></div>
+    <div style="margin-top:9px;display:flex;gap:7px;flex-wrap:wrap;">
+      <button class="btn" onclick="previewScheduleOption('${smEsc(c.route.id)}',${c.insertIndex},${c.arrive})">View on Map</button>
+      <button class="btn" onclick="openScheduleRouteDetails('${smEsc(c.route.id)}',${c.insertIndex},${c.arrive})">Route Details</button>
+    </div>
   </div>`;
 }
 function smRequestedHtml(c,early,late){
@@ -18974,6 +18992,96 @@ function clearSchedulePreview(){
   }
   scheduleMeMapSnapshot=null;
 }
+
+function smFindResult(routeId,insertIndex,arrive){
+  const pool=[...(scheduleMeLastResults||[])];
+  for(const c of pool){
+    if(c&&String(c.route?.id)===String(routeId)&&+c.insertIndex===+insertIndex)return c;
+  }
+  // Recreate the selected simulation if this was the requested-window card.
+  if(!scheduleMeProspect)return null;
+  const route=routes.find(r=>String(r.id)===String(routeId));
+  if(!route)return null;
+  const w=smRoundWindow(+arrive,120);
+  return smEvaluateCandidate(route,scheduleMeProspect,+insertIndex,w);
+}
+function smStopAddress(s){
+  return s?.address||s?.address1||s?.street||s?.fullAddress||s?.locationAddress||'';
+}
+function smStopWindow(s){
+  const e=s?.earliestTimeWindow||s?.earlyTime||s?.early||'';
+  const l=s?.latestTimeWindow||s?.lateTime||s?.late||'';
+  return e||l?`${e||'—'}–${l||'—'}`:'—';
+}
+function openScheduleRouteDetails(routeId,insertIndex,arrive){
+  if(!scheduleMeProspect)return;
+  let c=smFindResult(routeId,insertIndex,arrive);
+  const route=routes.find(r=>String(r.id)===String(routeId));
+  if(!route)return;
+
+  // Preserve the exact displayed option window where possible.
+  if(!c)c=smEvaluateCandidate(route,scheduleMeProspect,+insertIndex,smRoundWindow(+arrive,120));
+  if(!c)return;
+
+  const title=document.getElementById('sm-rd-title');
+  const sub=document.getElementById('sm-rd-sub');
+  const kpis=document.getElementById('sm-rd-kpis');
+  const body=document.getElementById('sm-rd-body');
+  if(title)title.textContent=`Planned Route Details — Route ${smRouteLabel(route)}`;
+  if(sub)sub.innerHTML=`Prospective customer <strong>${smEsc(scheduleMeProspect.customerName)}</strong> shown at proposed sequence ${+insertIndex+1}. This is a simulation only; the active route is unchanged.`;
+
+  const rs=stops.filter(s=>s.routeId===route.id).sort((a,b)=>(+a.seq||0)-(+b.seq||0));
+  const existingCases=rs.reduce((a,s)=>a+(+s.cases||0),0);
+  const existingCube=rs.reduce((a,s)=>a+(+s.cube||0),0);
+  const existingWeight=rs.reduce((a,s)=>a+(+s.weight||0),0);
+  const projectedCases=existingCases+(+scheduleMeProspect.cases||0);
+  const projectedCube=existingCube+(+scheduleMeProspect.cube||0);
+  const projectedWeight=existingWeight+(+scheduleMeProspect.weight||0);
+
+  if(kpis)kpis.innerHTML=`
+    <div class="schedule-rd-kpi"><div class="v">${c.sim.rows.filter(r=>r.pt.type==='stop'||r.pt.type==='prospect').length}</div><div class="l">Planned Stops</div></div>
+    <div class="schedule-rd-kpi"><div class="v">${c.sim.miles.toFixed(1)}</div><div class="l">Projected Miles</div></div>
+    <div class="schedule-rd-kpi"><div class="v">${minutesToHHMM(c.sim.end)}</div><div class="l">Projected End</div></div>
+    <div class="schedule-rd-kpi"><div class="v">${Math.round(projectedCases)}</div><div class="l">Cases</div></div>
+    <div class="schedule-rd-kpi"><div class="v">${projectedCube?projectedCube.toFixed(1):'—'}</div><div class="l">Cube</div></div>
+    <div class="schedule-rd-kpi"><div class="v">${projectedWeight?Math.round(projectedWeight):'—'}</div><div class="l">Weight</div></div>`;
+
+  let seq=0;
+  if(body)body.innerHTML=c.sim.rows.map(r=>{
+    const pt=r.pt;
+    const isProspect=pt.type==='prospect';
+    const isStop=pt.type==='stop';
+    const isDepot=pt.type==='depot-start'||pt.type==='depot-end';
+    if(isStop||isProspect)seq++;
+    const s=pt.stop||{};
+    const service=isProspect?(+scheduleMeProspect.serviceMinutes||0):(isStop?stopServiceMinutes(s):0);
+    const cases=isProspect?(+scheduleMeProspect.cases||0):(+s.cases||0);
+    const cube=isProspect?(+scheduleMeProspect.cube||0):(+s.cube||0);
+    const weight=isProspect?(+scheduleMeProspect.weight||0):(+s.weight||0);
+    const addr=isProspect?scheduleMeProspect.address:smStopAddress(s);
+    const window=isProspect
+      ? (c.window?smWindowLabel(c.window):'Recommended')
+      : (isStop?smStopWindow(s):'—');
+    const name=isProspect?scheduleMeProspect.customerName:(pt.name||s.customerName||s.name||(isDepot?'Depot':'Stop'));
+    const type=isProspect?'PROSPECT':(isDepot?'DEPOT':'CUSTOMER');
+    const status=r.status||'';
+    return `<tr class="${isProspect?'prospect ':''}${status==='LATE'?'late':''}">
+      <td>${isDepot?'—':seq}</td><td>${type}</td><td>${smEsc(name)}</td><td>${smEsc(addr||'—')}</td>
+      <td>${smEsc(window)}</td><td>${minutesToHHMM(r.arrive)}</td><td>${minutesToHHMM(r.depart)}</td>
+      <td>${service?Math.round(service)+'m':'—'}</td><td>${cases||'—'}</td><td>${cube||'—'}</td><td>${weight||'—'}</td>
+      <td>${status||'—'}</td></tr>`;
+  }).join('');
+
+  const mapBtn=document.getElementById('sm-rd-map-btn');
+  if(mapBtn)mapBtn.onclick=()=>{closeScheduleRouteDetails();previewScheduleOption(routeId,+insertIndex,+arrive);};
+  const modal=document.getElementById('schedule-route-details-modal');
+  if(modal)modal.style.display='flex';
+}
+function closeScheduleRouteDetails(){
+  const modal=document.getElementById('schedule-route-details-modal');
+  if(modal)modal.style.display='none';
+}
+
 function previewScheduleOption(routeId,insertIndex,arrive){
   if(!map||!scheduleMeProspect)return;
   clearSchedulePreview();
@@ -19023,6 +19131,29 @@ function previewScheduleOption(routeId,insertIndex,arrive){
   if(bounds.isValid())map.fitBounds(bounds,{padding:[50,50],maxZoom:13});
 }
 </script>
+
+
+<div class="modal-overlay" id="schedule-route-details-modal" style="display:none;">
+  <div class="modal schedule-route-detail-modal">
+    <h2 id="sm-rd-title">Schedule Me — Planned Route Details</h2>
+    <div id="sm-rd-sub" class="schedule-rd-sub"></div>
+    <div id="sm-rd-kpis" class="schedule-route-detail-head"></div>
+    <div class="schedule-rd-table-wrap">
+      <table class="schedule-rd-table">
+        <thead><tr>
+          <th>Seq</th><th>Type</th><th>Customer / Location</th><th>Address</th>
+          <th>Window</th><th>Arrival</th><th>Depart</th><th>Service</th>
+          <th>Cases</th><th>Cube</th><th>Weight</th><th>TW Status</th>
+        </tr></thead>
+        <tbody id="sm-rd-body"></tbody>
+      </table>
+    </div>
+    <div class="modal-actions">
+      <button class="btn" id="sm-rd-map-btn">View on Map</button>
+      <button class="btn" onclick="closeScheduleRouteDetails()">Close</button>
+    </div>
+  </div>
+</div>
 
 </body>
 </html>
