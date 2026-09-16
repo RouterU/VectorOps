@@ -18615,7 +18615,7 @@ window.addEventListener('DOMContentLoaded',()=>{
     <div class="schedule-intake">
       <div class="field"><label>Location Name *</label><input id="sm-name" placeholder="Prospective Customer"/></div>
       <div class="field address"><label>Full Address *</label><input id="sm-address" placeholder="Street, City, State ZIP"/></div>
-      <div class="field"><label>Delivery Date / Day</label><input id="sm-date" type="date"/></div>
+      <div class="field"><label>Requested Delivery Date / Day</label><input id="sm-date" type="date"/></div>
       <div class="field"><label>Desired Earliest</label><input id="sm-early" type="time"/></div>
       <div class="field"><label>Desired Latest</label><input id="sm-late" type="time"/></div>
       <div class="field"><label>Cases</label><input id="sm-cases" type="number" min="0" step="1" placeholder="Optional"/></div>
@@ -18625,7 +18625,7 @@ window.addEventListener('DOMContentLoaded',()=>{
       <button class="btn success" id="sm-run-btn" onclick="runScheduleMe()">Schedule</button>
     </div>
     <div class="schedule-note">
-      <strong>Non-destructive simulation:</strong> Schedule Me evaluates the prospective customer against the currently imported routes. It does not add the customer, resequence a route, or modify Scenario Levers. Recommended windows are based on where the existing route network naturally reaches the area and the downstream impact of inserting the stop.
+      <strong>Non-destructive simulation:</strong> Schedule Me evaluates the prospective customer against the currently imported routes. It does not add the customer, resequence a route, or modify Scenario Levers. Recommended windows are based on where the imported route network naturally reaches the area and the downstream impact of inserting the stop. If the requested date does not exactly match the source route date, VectorOps uses the imported routed network as the reference delivery pattern.
     </div>
     <div id="sm-geocode" class="schedule-geocode">Enter the prospect and click Schedule.</div>
     <div id="sm-request-result"></div>
@@ -18795,17 +18795,17 @@ function smEvaluateCandidate(route,prospect,insertIndex,windowOverride){
   c.score=smCandidateScore(c);
   return c;
 }
+function smEligibleRoutes(dateFilter){
+  const routed=routes.filter(r=>stops.some(s=>s.routeId===r.id&&Number.isFinite(+s.lat)&&Number.isFinite(+s.lng)));
+  if(!dateFilter)return {routes:routed,dateMatched:false,fallback:false};
+  const exact=routed.filter(r=>smRouteDate(r)===dateFilter);
+  if(exact.length)return {routes:exact,dateMatched:true,fallback:false};
+  return {routes:routed,dateMatched:false,fallback:true};
+}
 function smNaturalCandidates(prospect,dateFilter){
   const candidates=[];
-  const eligible=routes.filter(r=>{
-    const rs=stops.filter(s=>s.routeId===r.id&&Number.isFinite(+s.lat)&&Number.isFinite(+s.lng));
-    if(!rs.length)return false;
-    if(dateFilter){
-      const rd=smRouteDate(r);
-      if(rd&&rd!==dateFilter)return false;
-    }
-    return true;
-  });
+  const eligibility=smEligibleRoutes(dateFilter);
+  const eligible=eligibility.routes;
   eligible.forEach(route=>{
     const rs=stops.filter(s=>s.routeId===route.id&&Number.isFinite(+s.lat)&&Number.isFinite(+s.lng)).sort((a,b)=>(+a.seq||0)-(+b.seq||0));
     for(let i=0;i<=rs.length;i++){
@@ -18816,15 +18816,17 @@ function smNaturalCandidates(prospect,dateFilter){
       if(c)candidates.push(c);
     }
   });
-  return candidates.sort((a,b)=>a.score-b.score||a.addedMiles-b.addedMiles);
+  candidates.sort((a,b)=>a.score-b.score||a.addedMiles-b.addedMiles);
+  candidates._eligibility=eligibility;
+  return candidates;
 }
 function smRequestedCandidate(prospect,dateFilter,early,late){
   if(early===null||late===null)return null;
   let w={early,late};
   if(late<early)w={early,late:late+1440};
   const all=[];
-  routes.forEach(route=>{
-    if(dateFilter){const rd=smRouteDate(route);if(rd&&rd!==dateFilter)return;}
+  const eligibility=smEligibleRoutes(dateFilter);
+  eligibility.routes.forEach(route=>{
     const rs=stops.filter(s=>s.routeId===route.id&&Number.isFinite(+s.lat)&&Number.isFinite(+s.lng)).sort((a,b)=>(+a.seq||0)-(+b.seq||0));
     for(let i=0;i<=rs.length;i++){
       const c=smEvaluateCandidate(route,prospect,i,w);if(c)all.push(c);
@@ -18908,10 +18910,19 @@ async function runScheduleMe(){
       serviceMinutes:Math.max(0,smNum('sm-service')||20)
     };
     scheduleMeProspect=prospect;
-    if(geo){geo.className='schedule-geocode ok';geo.textContent=`Matched: ${g.matched} · Geocode confidence ${Math.round(g.score)}%`;}
     const dateFilter=(document.getElementById('sm-date')?.value||'').trim();
     const candidates=smNaturalCandidates(prospect,dateFilter);
-    if(!candidates.length)throw new Error('No geocoded routed stops matched the selected date/session.');
+    if(!candidates.length){
+      const routedCount=routes.filter(r=>stops.some(s=>s.routeId===r.id)).length;
+      const geoStopCount=stops.filter(s=>s.routeId&&Number.isFinite(+s.lat)&&Number.isFinite(+s.lng)).length;
+      throw new Error(`No usable routed candidates were found. Session has ${routedCount} routed route(s) and ${geoStopCount} routed stop(s) with coordinates.`);
+    }
+    const eligibility=candidates._eligibility||{routes:[],fallback:false};
+    if(geo){
+      geo.className='schedule-geocode ok';
+      geo.textContent=`Matched: ${g.matched} · Geocode confidence ${Math.round(g.score)}% · Evaluating ${eligibility.routes.length} routed route(s)`+
+        (eligibility.fallback?' · No exact source-route date matched the requested date, so the imported current-day network is being used as the reference pattern.':'');
+    }
     const picks=smPickDistinct(candidates,3);
     scheduleMeLastResults=picks;
     const e=timeToMinutes(smTime('sm-early')), l=timeToMinutes(smTime('sm-late'));
