@@ -17431,7 +17431,7 @@ function localStopForLive(routeId,liveStop){
 }
 
 function makeBackhaulFromRow(row){
-  const lat=parseFloat(gc(row,['Latitude','latitude','Lat','lat']));
+  const lat=parseFloat(gc(row,['SF-Lat','SF Lat','Latitude','latitude','Lat','lat']));
   const lng=parseFloat(gc(row,['SF-Long','SF Long','Longtitude','Longitude','longitude','Long','long','Lng','lng']));
   if(isNaN(lat)||isNaN(lng))return null;
   const laneNumber=sval(gc(row,['Lane #','Lane','Lane Number']));
