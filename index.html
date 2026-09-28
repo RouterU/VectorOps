@@ -965,9 +965,14 @@ body{background:var(--bg0);color:var(--text1);}
           <datalist id="bh-vendor-division-options"></datalist>
         </div>
       </div>
-      <div style="font-size:9px;color:var(--text3);margin-top:-4px;margin-bottom:10px;">Uses column G “Division” on the 3PL Lanes tab. Choose “Display all vendors” or enter one or more Division values, such as <strong>9B</strong>, to import only those vendor/lane rows.</div>
+      <div style="font-size:9px;color:var(--text3);margin-top:-4px;margin-bottom:10px;">Uses “Dist #” from the new BHL export (or “Division” on legacy files). Choose “Display all vendors” or enter one or more values to limit the vendor rows.</div>
 
       <div class="shdr">Depots / Depot Locations</div>
+      <div style="display:flex;align-items:center;gap:8px;margin:0 0 9px;flex-wrap:wrap;">
+        <button type="button" class="btn" onclick="document.getElementById('bhl-depot-file-in').click()">Import Depots</button>
+        <input type="file" id="bhl-depot-file-in" accept=".xlsx,.xls,.csv" style="display:none" onchange="handleBhlDepotFileSelect(this)"/>
+        <span id="bhl-depot-file-status" style="font-size:9px;color:var(--text3);">Optional — upload the Depot Locations file separately.</span>
+      </div>
       <div class="input-row" style="margin-bottom:7px;">
         <div class="field"><label>Depot Import Option</label>
           <select id="bh-depot-filter-field"><option value="all">Display all depots</option><option value="branch">Enter Branch (Division)</option><option value="market">Enter Market Code</option><option value="none">Do not import depots</option></select>
@@ -982,7 +987,7 @@ body{background:var(--bg0);color:var(--text1);}
           <select id="bh-depot-location-type"><option value="all">All (DEPOT + DC)</option><option value="DEPOT">DEPOT only</option><option value="DC">DC only</option></select>
         </div>
       </div>
-      <div style="font-size:9px;color:var(--text3);margin-top:6px;">Depots use column B “Branch (Division)”, column C “Location Type”, or column K “Market” from Depot Locations. The vendor and depot filters are separate, so you can import Division 9B vendors and either all locations, DEPOT only, DC only, or matching Branch/Market locations.</div>
+      <div style="font-size:9px;color:var(--text3);margin-top:6px;">Depots are uploaded separately with the Import Depots button above. Existing Depot Locations layouts remain supported, including Branch (Division), Location Type, and Market.</div>
     </div>
 
     <div id="route-day-filter" style="margin:10px 0 8px;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg2);">
@@ -997,8 +1002,7 @@ body{background:var(--bg0);color:var(--text1);}
         <label style="display:flex;align-items:center;gap:5px;cursor:pointer;"><input type="checkbox" class="route-day-chk" value="D_7_SUNDAY" style="accent-color:var(--accent);"> Sunday</label>
         <button type="button" class="btn" style="padding:2px 6px;font-size:9px;justify-content:center;" onclick="clearRouteDayFilter()">Clear</button>
       </div>
-      <div style="font-size:9px;color:var(--text3);margin-top:6px;">No day selected = import all route days.</div>
-    </div>
+      <div style="font-size:9px;color:var(--text3);margin-top:6px;">No day selected = import all route days.</div></div>
     <div id="route-data-date-filter" style="display:none;margin:10px 0 8px;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg2);">
       <div style="font-size:10px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:7px;">Route Start Date Filter <span style="font-weight:400;color:var(--text3);text-transform:none;letter-spacing:0;">(Import Route Data — uses RouteStart)</span></div>
       <div id="route-data-date-values" style="display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;font-size:10px;color:var(--text2);max-height:150px;overflow:auto;">
@@ -1472,7 +1476,7 @@ let activeManifestRouteId=null, activeDetailStopId=null, activeDetailRouteId=nul
 let manifestSelectedStopIds=new Set();
 let workspacePanelExpanded=false;
 let pendingOptimizationMode='selected';
-let appTab='routing', importMode='all', pendingWB=null;
+let appTab='routing', importMode='all', pendingWB=null, pendingBhlDepotWB=null;
 let dragState=null, map, markers={}, polylines={}, roadPolylines={}, expanded=new Set();
 let routeLinesVisible=true;
 let travelModel='semi';
@@ -1997,8 +2001,7 @@ function setTravelModel(value){
   renderRoutes();
   if(activeManifestRouteId)renderRouteManifest();
   renderLassoPanel();
-  showToast('Travel model set to '+travelModelLabel());
-}
+  showToast('Travel model set to '+travelModelLabel());}
 function serviceDurationSecondsForStop(stop){
   // Route Detail imports consolidate many order rows into one physical customer stop.
   // In Route Detail data, StopServiceTime is a cumulative stop-level duration on the
@@ -2997,8 +3000,7 @@ function dropOnMap(e){
     }
     return;
   }
-  if(dragState.sid){
-    visibleStopIds.add(dragState.sid);
+  if(dragState.sid){visibleStopIds.add(dragState.sid);
     renderMap();showToast('Stop displayed on map');
   }
 }
@@ -3997,8 +3999,7 @@ function contextStreetViewStop(stopId){
   closeStopContextMenu();
   if(!stop||!stop.lat||!stop.lng){showToast('This stop does not have a valid latitude/longitude');return;}
   openStreetViewAt(stop.lat,stop.lng);
-}
-function openStreetViewAt(lat,lng){
+}function openStreetViewAt(lat,lng){
   const url=`https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=${encodeURIComponent(lat)},${encodeURIComponent(lng)}`;
   window.open(url,'_blank','noopener,noreferrer');
 }
@@ -4997,8 +4998,7 @@ function optimizeRouteSequence(routeId,opts={}){
   let current={lat:start.lat,lng:start.lng};
   for(let seq=1;seq<=routeStops.length;seq++){
     if(lockedBySeq.has(seq)){
-      const locked=lockedBySeq.get(seq);
-      ordered.push(locked);
+      const locked=lockedBySeq.get(seq);ordered.push(locked);
       current={lat:locked.lat,lng:locked.lng};
       continue;
     }
@@ -5180,7 +5180,10 @@ function openImport(){
   document.getElementById('imp-preview').innerHTML='';
   document.getElementById('imp-confirm').style.display='none';
   pendingWB=null;
+  pendingBhlDepotWB=null;
   document.getElementById('file-in').value='';
+  const bhlDepotInput=document.getElementById('bhl-depot-file-in');if(bhlDepotInput)bhlDepotInput.value='';
+  const bhlDepotStatus=document.getElementById('bhl-depot-file-status');if(bhlDepotStatus)bhlDepotStatus.textContent='Optional — upload the Depot Locations file separately.';
   const importRouteDateEl=document.getElementById('import-route-date');
   if(importRouteDateEl){
     // All Templates routes are normally planned one business day ahead.
@@ -5386,6 +5389,30 @@ function handleDrop(e){
 }
 function handleFileSelect(inp){if(inp.files[0])readFile(inp.files[0]);}
 
+function handleBhlDepotFileSelect(inp){
+  const file=inp?.files?.[0];
+  if(!file)return;
+  const reader=new FileReader();
+  reader.onload=e=>{
+    try{
+      pendingBhlDepotWB=XLSX.read(e.target.result,{type:'array'});
+      const depotSheets=(pendingBhlDepotWB.SheetNames||[]).map(name=>{
+        const data=XLSX.utils.sheet_to_json(pendingBhlDepotWB.Sheets[name],{defval:'',raw:false});
+        return {name,data,type:detectImportSheetType(name,data)};
+      }).filter(x=>x.type==='depots'||/depot/i.test(x.name));
+      const status=document.getElementById('bhl-depot-file-status');
+      const rows=depotSheets.reduce((a,x)=>a+x.data.length,0);
+      if(status)status.innerHTML=`&#10003; <strong>${escapeHtml(file.name)}</strong> — ${rows} depot row(s) detected`;
+      populateBackhaulDepotFilterOptions(pendingBhlDepotWB);
+      if(!depotSheets.length)showToast('Depot file loaded, but no Depot Locations sheet was detected.');
+    }catch(err){
+      pendingBhlDepotWB=null;
+      showToast('Error reading depot file: '+err.message);
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
 
 function normHeaderKey(value){return (value??'').toString().toLowerCase().replace(/[^a-z0-9]/g,'');}
 function gcLoose(row,keys){
@@ -5439,6 +5466,10 @@ function detectImportSheetType(name,data){
 
 
   const normalizedKeys=keys.map(normHeaderKey);
+  const looksBackhaulExport=['lane','vendor','vend','sfname'].every(k=>normalizedKeys.includes(k)) &&
+    (normalizedKeys.includes('sflat')||normalizedKeys.includes('latitude')) &&
+    (normalizedKeys.includes('sflong')||normalizedKeys.includes('longitude')||normalizedKeys.includes('longtitude'));
+  if(looksBackhaulExport)return 'backhauls';
   if(sheetLower==='route_summary' || sheetLower==='route summary')return 'route summary';
   if(sheetLower==='trucks defaults' || sheetLower==='truck defaults')return 'truck defaults';
   const looksRouteData=['resourcekey','geostopnumber','locationkey','plannedarriveddate','cases','earlydatetime','latedatetime'].every(k=>normalizedKeys.includes(k));
@@ -5702,7 +5733,7 @@ function normalizeOrderStatusValue(value){
   return s.padStart(s.length===1?2:s.length,'0');
 }
 function makeOrderFromRow(row,requireGeo=true){
-  const lat=parseFloat(gc(row,['Latitude','latitude','Lat','lat']));
+  const lat=parseFloat(gc(row,['SF-Lat','SF Lat','Latitude','latitude','Lat','lat']));
   const lng=parseFloat(gcLoose(row,['Longitude','longitude','Longtitude','Long','long','Lng','lng']));
   const hasGeo=!isNaN(lat)&&!isNaN(lng);
   if(requireGeo&&!hasGeo)return null;
@@ -5997,8 +6028,7 @@ function importRoutes(data){
       depotLng:parseFloat(gc(row,['DepotLongitude','Depot Longitude','InitialLongitude','Initial Longitude','Start Longitude']))||null,
       earliestStartTime:excelTimeToHHMM(gc(row,['EarliestStartTime','Earliest Start Time'])),
       latestStartTime:excelTimeToHHMM(gc(row,['LatestStartTime','Latest Start Time'])),
-      latestEndTime:excelTimeToHHMM(gc(row,['LatestEndTime','Latest End Time'])),
-      startupTime:parseFloat(gc(row,['StartupTime','Startup Time']))||0,
+      latestEndTime:excelTimeToHHMM(gc(row,['LatestEndTime','Latest End Time'])),startupTime:parseFloat(gc(row,['StartupTime','Startup Time']))||0,
       windupTime:parseFloat(gc(row,['WindupTime','Windup Time']))||0,
       driverKey:(gc(row,['DriverKey','Driver Key'])||'').toString(),
       driverFirstName:(gc(row,['DriverFirstName','Driver First Name'])||'').toString(),
@@ -6997,8 +7027,7 @@ function buildOutputFileRows(routeIdSet=null){
       const fixed=fixedServiceSecondsForOutput(order,stop);
       const locationKey=order.locationKey||stop.locationKey||order.shipToId||stop.shipToId||'';
       rows.push({
-        'District':order.district||stop.district||'',
-        'Region_Code':outputRegionCode||sval(rawField(order,['Region_Code','Region Code','REGION_CODE','Region'])),
+        'District':order.district||stop.district||'','Region_Code':outputRegionCode||sval(rawField(order,['Region_Code','Region Code','REGION_CODE','Region'])),
         'Route':'',
         'Customer':order.customerNumber||stop.customerNumber||order.shipToId||stop.shipToId||locationKey,
         'Sequence':'',
@@ -7997,8 +8026,7 @@ function scenarioComputeLiteMetrics(opts,before){
   const customerStops=stops.filter(s=>s.routeId&&!scenarioIsFixedRouteAnchor(s));
   const activeRouteIds=new Set(customerStops.map(s=>s.routeId));
   const activeRoutes=routes.filter(r=>activeRouteIds.has(r.id));
-  const routeDataRoutes=routes.filter(r=>r.sourceType==='route-data');
-  const emptyRoutes=routeDataRoutes.filter(r=>!activeRouteIds.has(r.id)).length;
+  const routeDataRoutes=routes.filter(r=>r.sourceType==='route-data');const emptyRoutes=routeDataRoutes.filter(r=>!activeRouteIds.has(r.id)).length;
   let miles=0,hours=0,waitMinutes=0,onTime=0,windowStops=0;
   activeRoutes.forEach(route=>{
     const ordered=stops.filter(s=>s.routeId===route.id&&s.lat&&s.lng).sort((a,b)=>a.seq-b.seq);
@@ -8997,8 +9025,7 @@ function scenarioRebalanceCandidateDestinations(stop,sourceRoute,opts){
   return candidates.sort((a,b)=>a.score-b.score).slice(0,8);
 }
 function scenarioRunNetworkRebalance(opts,focusRouteIds=null){
-  const stats={attempts:0,movedStops:0,acceptedMoves:[],routesTouched:new Set()};
-  const target=scenarioBalanceTargetHours(opts),floor=scenarioBalanceFloorHours(opts);
+  const stats={attempts:0,movedStops:0,acceptedMoves:[],routesTouched:new Set()};const target=scenarioBalanceTargetHours(opts),floor=scenarioBalanceFloorHours(opts);
   let guard=0;
   while(guard++<180){
     const active=routes.filter(r=>scenarioRouteHasCustomerWork(r.id)&&!scenarioRouteIsProtectedLongHaul(r)&&!scenarioRouteIsLayover(r));
@@ -9997,8 +10024,7 @@ function scenarioV28OriginalResourceLimits(route){
   }catch(e){min=0;}
   let max=0,source='';
   const start=scenarioEpochMinutes(route.routeData?.routeStart||route.routeSummaryStart||'');
-  const end=scenarioEpochMinutes(route.routeData?.routeEnd||route.routeSummaryEnd||'');
-  if(Number.isFinite(start)&&Number.isFinite(end)&&end>start){max=(end-start)/60;source='Route Summary Start/End';}
+  const end=scenarioEpochMinutes(route.routeData?.routeEnd||route.routeSummaryEnd||'');if(Number.isFinite(start)&&Number.isFinite(end)&&end>start){max=(end-start)/60;source='Route Summary Start/End';}
   if(!(max>0)){
     const s=timeToMinutes(route.earliestStartTime),e=timeToMinutes(route.latestEndTime);
     if(s!==null&&e!==null){let d=e-s;if(d<=0)d+=1440;if(d>0&&d<=2880){max=d/60;source='Resource Start/End';}}
@@ -10997,8 +11023,7 @@ function scenarioV32RouteShape(route,customers){
   const polar=list.map(s=>scenarioV30StopPolar(s,dep)).filter(Boolean), spread=scenarioV30CircularSpread(polar.map(p=>p.bearing));
   const radii=polar.map(p=>p.roadMiles||0);let back=0;
   for(let i=1;i<radii.length;i++)if(radii[i]+3<radii[i-1])back+=radii[i-1]-radii[i];
-  let pair=0,n=0;for(let i=0;i<list.length;i++)for(let j=i+1;j<list.length;j++){pair+=scenarioV32Miles(list[i],list[j]);n++;}
-  const compact=n?pair/n:0,score=compact*1500+back*9000+Math.max(0,spread-80)*12000;
+  let pair=0,n=0;for(let i=0;i<list.length;i++)for(let j=i+1;j<list.length;j++){pair+=scenarioV32Miles(list[i],list[j]);n++;}const compact=n?pair/n:0,score=compact*1500+back*9000+Math.max(0,spread-80)*12000;
   return {compactness:compact,backtracking:back,bearingSpread:spread,score};
 }
 function scenarioV32Centroid(customers){const a=(customers||[]).filter(s=>s.lat&&s.lng);return a.length?{lat:a.reduce((x,s)=>x+s.lat,0)/a.length,lng:a.reduce((x,s)=>x+s.lng,0)/a.length}:null;}
@@ -11997,8 +12022,7 @@ function scenarioV34CrossRouteMileagePolish(opts,deadline){
           .slice(0,4);
 
         for(const destRef of otherRoutes){
-          if(performance.now()>=deadline)break;
-          evaluated++;
+          if(performance.now()>=deadline)break;evaluated++;
           const snap=scenarioSnapshotWorkingState();
           let liveStop=scenarioV34LiveStop(stopId);
           let liveSource=scenarioV34LiveRoute(sourceId);
@@ -12997,8 +13021,7 @@ function scenarioV361PostBuildOptimize(opts){
         })
         .filter(x=>Number.isFinite(x.d))
         .sort((a,b)=>a.d-b.d)
-        .slice(0,6)
-        .map(x=>x.id);
+        .slice(0,6).map(x=>x.id);
 
       for(const block of blocks){
         if(performance.now()>=blockDeadline)break outer;
@@ -13997,8 +14020,7 @@ runScenarioModel=async function(){
 
     scenarioV38Progress('Validating solution…','Checking route runtime, truck capacity and customer windows');await scenarioV38Yield();
     removed.consolidation={routesReviewed:0,retiredRoutes:0,retired:[],movedStops:0,v38Skipped:true};
-    removed.runtimeViolations=scenarioValidateRouteRuntimeLimits(opts);
-    removed.capacityViolations=scenarioValidateCapacityLimits();
+    removed.runtimeViolations=scenarioValidateRouteRuntimeLimits(opts);removed.capacityViolations=scenarioValidateCapacityLimits();
     removed.waitReview=scenarioCountWaitViolations(opts);
     removed.targetedRepair=null; // legacy repair search can itself become combinatorial
 
@@ -14997,8 +15019,7 @@ runScenarioModel=async function(){
     removed.consolidation={routesReviewed:network.retirementReviewed||0,retiredRoutes:network.routesRetired||0,retired:network.retiredRoutes||[],movedStops:network.stopsReassigned||0,v42:true};
     removed.runtimeViolations=scenarioValidateRouteRuntimeLimits(opts);removed.capacityViolations=scenarioValidateCapacityLimits();removed.waitReview=scenarioCountWaitViolations(opts);removed.targetedRepair=null;
     if(scratch){scratch.routesActivated=routes.filter(r=>scenarioRouteHasCustomerWork(r.id)).length;scratch.routesRetired=network.routesRetired||0;scratch.v42Recovery=recovery;}
-    const modeled=scenarioComputeModelMetrics(opts),freightGate=scenarioV39FreightGate(original,modeled);removed.freightIntegrityGate=freightGate;
-    const serviceGate={target:opts.targetOnTimePct,actual:modeled.onTimePct,failed:modeled.onTimePct+1e-9<opts.targetOnTimePct};removed.absoluteServiceGate=serviceGate;
+    const modeled=scenarioComputeModelMetrics(opts),freightGate=scenarioV39FreightGate(original,modeled);removed.freightIntegrityGate=freightGate;const serviceGate={target:opts.targetOnTimePct,actual:modeled.onTimePct,failed:modeled.onTimePct+1e-9<opts.targetOnTimePct};removed.absoluteServiceGate=serviceGate;
     const finalQuality=scenarioV40NetworkQuality(opts);let verdict={verdict:'ABSOLUTE QUALITY TARGET MET',freightRetentionPct:finalQuality.retention,onTimeDrop:0,waitIncrease:0,expenseIncrease:0};
     if(!finalQuality.validFreight)verdict.verdict='FAILED — INCOMPLETE FREIGHT';else if(!finalQuality.validFeasibility)verdict.verdict='FAILED — CAPACITY / RUNTIME VIOLATION';else if(!finalQuality.validService)verdict.verdict=`FAILED — SERVICE BELOW ${scenarioFmt(opts.targetOnTimePct,1)}% TARGET`;else verdict.verdict='VALID SOLUTION — ABSOLUTE QUALITY TARGET MET';
     const finalSnapshot=scenarioCaptureFinalSolutionSnapshot(opts,modeled);
@@ -15997,8 +16018,7 @@ scenarioV44Insertion=scenarioV53Insertion;
 //   4) does not add more than a bounded amount of network mileage.
 // If no safe recovery exists, the entire V53 solution is restored unchanged.
 
-function scenarioV54StableStopSort(a,b){
-  const ca=scenarioV32Cases(a),cb=scenarioV32Cases(b);
+function scenarioV54StableStopSort(a,b){const ca=scenarioV32Cases(a),cb=scenarioV32Cases(b);
   if(Math.abs(cb-ca)>1e-9)return cb-ca;
   return scenarioV53CmpKey(a,b,scenarioV53StopKey);
 }
@@ -16507,7 +16527,7 @@ function backhaulRowMatchesVendorFilter(row){
   if(mode==='all')return true;
   const values=backhaulVendorFilterValues();
   if(!values.length)return true;
-  const val=sval(gcLoose(row,['Division'])).toUpperCase();
+  const val=sval(gcLoose(row,['Dist #','Dist#','District','Division'])).toUpperCase();
   return values.some(v=>val===v || val.includes(v));
 }
 
@@ -16597,7 +16617,7 @@ function bhlBuildThirtyMileClusters(divisionStops,maxMiles=30){
 }
 
 function bhlChooseDepotForDivision(division,divisionStops){
-  const depots=depotLocations.filter(d=>bhlBranchCodeFromDepot(d)===division&&isFinite(parseFloat(d.lat))&&isFinite(parseFloat(d.lng)));
+  const depots=depotLocations.filter(d=>{const branch=bhlBranchCodeFromDepot(d);const market=sval(d?.market||d?.raw?.Market).trim();return (branch===division||market===division)&&isFinite(parseFloat(d.lat))&&isFinite(parseFloat(d.lng));});
   if(!depots.length)return null;
   if(depots.length===1)return depots[0];
   const geo=divisionStops.filter(s=>isFinite(parseFloat(s.lat))&&isFinite(parseFloat(s.lng)));
@@ -16997,8 +17017,7 @@ function driverLiveDetailHtml(routeId){
 function driverLiveMetaHtml(routeId){
   const live=driverLiveStatus(routeId);
   if(!live)return '';
-  const current=live.currentStop;
-  if(String(live.status||'').toUpperCase()==='COMPLETE')return ' · Driver Route Complete';
+  const current=live.currentStop;if(String(live.status||'').toUpperCase()==='COMPLETE')return ' · Driver Route Complete';
   if(current){
     const state=String(current.status||'PENDING').replaceAll('_',' ');
     return ` · Driver Stop ${current.sequence||'—'}/${live.totalStops||'—'}: ${escapeHtml(current.customer||'Stop')} (${escapeHtml(state)})`;
@@ -17413,7 +17432,7 @@ function localStopForLive(routeId,liveStop){
 
 function makeBackhaulFromRow(row){
   const lat=parseFloat(gc(row,['Latitude','latitude','Lat','lat']));
-  const lng=parseFloat(gc(row,['Longtitude','Longitude','longitude','Long','long','Lng','lng']));
+  const lng=parseFloat(gc(row,['SF-Long','SF Long','Longtitude','Longitude','longitude','Long','long','Lng','lng']));
   if(isNaN(lat)||isNaN(lng))return null;
   const laneNumber=sval(gc(row,['Lane #','Lane','Lane Number']));
   const vendor=sval(gc(row,['Vendor']));
@@ -17428,7 +17447,7 @@ function makeBackhaulFromRow(row){
     lap:sval(gc(row,['LAP'])),
     actShipVia:sval(gc(row,['Act Ship Via'])),
     partner:sval(gc(row,['Partner'])),
-    division:sval(gc(row,['Division'])),
+    division:sval(gc(row,['Dist #','Dist#','District','Division'])),
     reasoning:sval(gc(row,['Reasoning'])),
     id:sval(gc(row,['ID'])),
     notes:sval(gc(row,['Notes','Reasoning'])),
@@ -17436,7 +17455,7 @@ function makeBackhaulFromRow(row){
     vendorNumber,
     corpVendorNumber:sval(gc(row,['Corp Vend #','Corp Vendor #','Corp Vend Number'])),
     sfName,
-    sfAddress:sval(gc(row,['SF Address','SF-Address','Address'])),
+    sfAddress:sval(gc(row,['Address','SF Address','SF-Address'])),
     sfCity,
     sfState,
     sfZip,
@@ -17677,7 +17696,7 @@ function populateBackhaulVendorFilterOptions(wb){
     const data=XLSX.utils.sheet_to_json(wb.Sheets[name],{defval:'', raw:false});
     if(detectImportSheetType(name,data)==='backhauls')rows.push(...data);
   });
-  const vals=[...new Set(rows.map(r=>sval(gcLoose(r,['Division']))).filter(Boolean))].sort();
+  const vals=[...new Set(rows.map(r=>sval(gcLoose(r,['Dist #','Dist#','District','Division']))).filter(Boolean))].sort();
   list.innerHTML=vals.map(v=>`<option value="${escapeHtml(v)}"></option>`).join('');
 }
 
@@ -17997,8 +18016,7 @@ function runBhlBuildRoutes(){
   if(!vendorStops.length){showToast('No imported BHL vendors with usable latitude/longitude are available.');return;}
 
   // Re-running Build Routes replaces only routes/trucks/rest stops created by this feature.
-  const oldRouteIds=new Set(routes.filter(r=>r.bhlBuild).map(r=>r.id));
-  routes=routes.filter(r=>!r.bhlBuild);
+  const oldRouteIds=new Set(routes.filter(r=>r.bhlBuild).map(r=>r.id));routes=routes.filter(r=>!r.bhlBuild);
   trucks=trucks.filter(t=>!sval(t.truckKey).startsWith('DUMMY-BHL-'));
   stops=stops.filter(s=>s.sourceType!=='bhl-rest-break');
   vendorStops.forEach(s=>{if(oldRouteIds.has(s.routeId)){s.routeId=null;s.seq=0;}});
@@ -18541,7 +18559,7 @@ setImportMode=function(m){
     importMode=m;
     ['all','stops','routedata','backhauls','bhlroutes'].forEach(x=>{const t=document.getElementById('itab-'+x);if(t)t.className='imp-tab'+(x===m?' active':'');});
     const hint=document.getElementById('imp-hint');
-    if(hint)hint.textContent=m==='backhauls'?'Upload the BHL workbook containing 3PL Lanes and Depot Locations.':'Upload historical BHL Route Data for route-level cost/revenue analysis.';
+    if(hint)hint.textContent=m==='backhauls'?'Upload the BHL export (the new Albany-style layout is supported). Use Import Depots below only if depot locations are needed in the session.':'Upload historical BHL Route Data for route-level cost/revenue analysis.';
     const cut=document.getElementById('orders-cutid-filter');if(cut)cut.style.display='none';
     const day=document.getElementById('route-day-filter');if(day)day.style.display='none';
     const rd=document.getElementById('route-data-date-filter');if(rd)rd.style.display='none';
@@ -18552,7 +18570,7 @@ setImportMode=function(m){
   const bhf=document.getElementById('backhaul-filter-panel'); if(bhf)bhf.style.display=importMode==='backhauls'?'block':'none';
   const c=document.getElementById('bh-cost-per-mile');if(c)c.value=bhlCostPerMile?String(bhlCostPerMile):'';
   const rev=document.getElementById('bh-revenue-per-case');if(rev)rev.value=bhlRevenuePerCase?String(bhlRevenuePerCase):'';
-  if(importMode==='backhauls'&&pendingWB)populateBackhaulFilterOptions(pendingWB);
+  if(importMode==='backhauls'&&pendingWB){populateBackhaulVendorFilterOptions(pendingWB);if(pendingBhlDepotWB)populateBackhaulDepotFilterOptions(pendingBhlDepotWB);}
 };
 
 const vectorOpsV56_openImport = openImport;
@@ -18572,14 +18590,21 @@ confirmImport=function(){
     const sheets=pendingWB.SheetNames.map(name=>({name,data:XLSX.utils.sheet_to_json(pendingWB.Sheets[name],{defval:'',raw:false})})).filter(x=>x.data.length);
     let summaryText='';
     if(importMode==='backhauls'){
-      const bh=sheets.filter(x=>String(x.name).trim().toLowerCase()==='3pl lanes');
-      const src=bh.length?bh:sheets.filter(x=>/3pl|backhaul/i.test(x.name));
-      if(!src.length){showToast('No 3PL Lanes / Backhaul sheet was found.');return;}
+      const src=sheets.filter(x=>detectImportSheetType(x.name,x.data)==='backhauls' || /3pl|backhaul/i.test(x.name));
+      if(!src.length){showToast('No BHL vendor export was detected. Expected fields include Lane #, Vendor, SF-Name, SF-Lat and SF-Long.');return;}
       const rows=src.flatMap(x=>x.data).filter(backhaulRowMatchesVendorFilter);
       const added=importBackhauls(rows);
       let depotsAdded=0;
-      sheets.filter(x=>/depot/i.test(x.name)).forEach(x=>{const rows=x.data.filter(depotRowMatchesBackhaulFilter);importDepots(rows);depotsAdded+=rows.length;});
-      summaryText=`Imported ${added} BHL vendor stop(s) and ${depotsAdded} depot row(s).`;
+      if(pendingBhlDepotWB){
+        (pendingBhlDepotWB.SheetNames||[]).forEach(name=>{
+          const data=XLSX.utils.sheet_to_json(pendingBhlDepotWB.Sheets[name],{defval:'',raw:false});
+          if(detectImportSheetType(name,data)==='depots'||/depot/i.test(name)){
+            const depotRows=data.filter(depotRowMatchesBackhaulFilter);
+            importDepots(depotRows);depotsAdded+=depotRows.length;
+          }
+        });
+      }
+      summaryText=`Imported ${added} BHL vendor stop(s)${pendingBhlDepotWB?` and ${depotsAdded} depot row(s)`:''}.`;
     }else{
       const rows=sheets.flatMap(x=>x.data);
       const s=importBhlRouteData(rows);
@@ -18997,8 +19022,7 @@ function smFindResult(routeId,insertIndex,arrive){
   const pool=[...(scheduleMeLastResults||[])];
   for(const c of pool){
     if(c&&String(c.route?.id)===String(routeId)&&+c.insertIndex===+insertIndex)return c;
-  }
-  // Recreate the selected simulation if this was the requested-window card.
+  }// Recreate the selected simulation if this was the requested-window card.
   if(!scheduleMeProspect)return null;
   const route=routes.find(r=>String(r.id)===String(routeId));
   if(!route)return null;
