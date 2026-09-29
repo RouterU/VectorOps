@@ -971,7 +971,7 @@ body{background:var(--bg0);color:var(--text1);}
       <div style="display:flex;align-items:center;gap:8px;margin:0 0 9px;flex-wrap:wrap;">
         <button type="button" class="btn" onclick="document.getElementById('bhl-depot-file-in').click()">Import Depots</button>
         <input type="file" id="bhl-depot-file-in" accept=".xlsx,.xls,.csv" style="display:none" onchange="handleBhlDepotFileSelect(this)"/>
-        <span id="bhl-depot-file-status" style="font-size:9px;color:var(--text3);">Optional — upload the Depot Locations file separately.</span>
+        <span id="bhl-depot-file-status" style="font-size:9px;color:var(--text3);">Upload Depot Locations at any time — no BHL file is required.</span>
       </div>
       <div class="input-row" style="margin-bottom:7px;">
         <div class="field"><label>Depot Import Option</label>
@@ -987,7 +987,7 @@ body{background:var(--bg0);color:var(--text1);}
           <select id="bh-depot-location-type"><option value="all">All (DEPOT + DC)</option><option value="DEPOT">DEPOT only</option><option value="DC">DC only</option></select>
         </div>
       </div>
-      <div style="font-size:9px;color:var(--text3);margin-top:6px;">Depots are uploaded separately with the Import Depots button above. Existing Depot Locations layouts remain supported, including Branch (Division), Location Type, and Market.</div>
+      <div style="font-size:9px;color:var(--text3);margin-top:6px;">Import Depots works independently after BHL locations are loaded. Select the depot filters you want, then click Import Depots and choose the Depot Locations file. Existing Depot Locations layouts remain supported, including Branch (Division), Location Type, and Market.</div>
     </div>
 
     <div id="route-day-filter" style="margin:10px 0 8px;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg2);">
@@ -5183,7 +5183,7 @@ function openImport(){
   pendingBhlDepotWB=null;
   document.getElementById('file-in').value='';
   const bhlDepotInput=document.getElementById('bhl-depot-file-in');if(bhlDepotInput)bhlDepotInput.value='';
-  const bhlDepotStatus=document.getElementById('bhl-depot-file-status');if(bhlDepotStatus)bhlDepotStatus.textContent='Optional — upload the Depot Locations file separately.';
+  const bhlDepotStatus=document.getElementById('bhl-depot-file-status');if(bhlDepotStatus)bhlDepotStatus.textContent='Upload Depot Locations at any time — no BHL file is required.';
   const importRouteDateEl=document.getElementById('import-route-date');
   if(importRouteDateEl){
     // All Templates routes are normally planned one business day ahead.
@@ -5401,13 +5401,44 @@ function handleBhlDepotFileSelect(inp){
         return {name,data,type:detectImportSheetType(name,data)};
       }).filter(x=>x.type==='depots'||/depot/i.test(x.name));
       const status=document.getElementById('bhl-depot-file-status');
-      const rows=depotSheets.reduce((a,x)=>a+x.data.length,0);
-      if(status)status.innerHTML=`&#10003; <strong>${escapeHtml(file.name)}</strong> — ${rows} depot row(s) detected`;
+      const detectedRows=depotSheets.reduce((a,x)=>a+x.data.length,0);
+      if(!depotSheets.length){
+        if(status)status.innerHTML=`<span style="color:var(--warn);">${escapeHtml(file.name)} — no Depot Locations sheet detected</span>`;
+        showToast('Depot file loaded, but no Depot Locations sheet was detected.');
+        return;
+      }
+
+      // Populate the depot filter choices from the depot workbook itself, then import
+      // immediately. This makes Import Depots a standalone action inside Backhauls mode;
+      // a BHL vendor workbook does not need to be loaded again.
       populateBackhaulDepotFilterOptions(pendingBhlDepotWB);
-      if(!depotSheets.length)showToast('Depot file loaded, but no Depot Locations sheet was detected.');
+      let importedRows=0;
+      const beforeIds=new Set(depotLocations.map(d=>d.id));
+      depotSheets.forEach(sheet=>{
+        const depotRows=sheet.data.filter(depotRowMatchesBackhaulFilter);
+        importDepots(depotRows);
+        importedRows+=depotRows.length;
+      });
+      enrichRouteDepots();
+      reseq();
+
+      // Show the imported/updated depots immediately without changing which routes or
+      // stops the user already has displayed on the map.
+      importedDepotsVisible=true;
+      depotLocations.forEach(d=>{
+        if(!beforeIds.has(d.id) || depotSheets.some(sheet=>sheet.data.some(row=>normalizeKey(gcLoose(row,['LocationKey','Location Key','LocationK','LocationKey (RP)']))===normalizeKey(d.locationKey)))){
+          if(isFinite(parseFloat(d.lat))&&isFinite(parseFloat(d.lng)))visibleDepotIds.add(d.id);
+        }
+      });
+      updateImportedDepotToggleButton();
+      render();
+
+      if(status)status.innerHTML=`&#10003; <strong>${escapeHtml(file.name)}</strong> — ${importedRows} depot row(s) imported`;
+      showToast(`Imported ${importedRows} depot row(s).`);
+      inp.value='';
     }catch(err){
       pendingBhlDepotWB=null;
-      showToast('Error reading depot file: '+err.message);
+      showToast('Error importing depot file: '+err.message);
     }
   };
   reader.readAsArrayBuffer(file);
@@ -18594,17 +18625,9 @@ confirmImport=function(){
       if(!src.length){showToast('No BHL vendor export was detected. Expected fields include Lane #, Vendor, SF-Name, SF-Lat and SF-Long.');return;}
       const rows=src.flatMap(x=>x.data).filter(backhaulRowMatchesVendorFilter);
       const added=importBackhauls(rows);
-      let depotsAdded=0;
-      if(pendingBhlDepotWB){
-        (pendingBhlDepotWB.SheetNames||[]).forEach(name=>{
-          const data=XLSX.utils.sheet_to_json(pendingBhlDepotWB.Sheets[name],{defval:'',raw:false});
-          if(detectImportSheetType(name,data)==='depots'||/depot/i.test(name)){
-            const depotRows=data.filter(depotRowMatchesBackhaulFilter);
-            importDepots(depotRows);depotsAdded+=depotRows.length;
-          }
-        });
-      }
-      summaryText=`Imported ${added} BHL vendor stop(s)${pendingBhlDepotWB?` and ${depotsAdded} depot row(s)`:''}.`;
+      // Depot Locations are imported independently by the Import Depots button.
+      // Do not require or re-import a depot workbook when confirming BHL vendors.
+      summaryText=`Imported ${added} BHL vendor stop(s).`;
     }else{
       const rows=sheets.flatMap(x=>x.data);
       const s=importBhlRouteData(rows);
